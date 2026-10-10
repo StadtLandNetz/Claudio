@@ -128,6 +128,8 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     maxTurns: profile.maxTurns,
     maxBudgetUsd: profile.maxBudgetUsd,
     mcpServers: { ...session.mcpServers, claudio: claudioServer },
+    // Only the servers above: the repo's .mcp.json (live-mode server, same name) must not be loaded here.
+    strictMcpConfig: true,
     allowedTools: [...session.allowedTools, "Read", "Grep", "Glob", "Agent", "TodoWrite"],
     disallowedTools: [...session.disallowedTools, "Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "KillShell", "BashOutput"],
     permissionMode: "bypassPermissions",

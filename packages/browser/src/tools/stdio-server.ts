@@ -3,8 +3,8 @@
  * Used by the Claude Code CLI live mode (see .mcp.json). Configuration comes
  * from environment variables so the same server works for any run:
  *
- *   CLAUDIO_RUN_DIR       directory for findings/evidence/notes (required)
- *   CLAUDIO_INSTANCE_URL  base URL of the app under test (required)
+ *   CLAUDIO_RUN_DIR       directory for findings/evidence/notes (default: runs/live-<timestamp>)
+ *   CLAUDIO_INSTANCE_URL  base URL of the app under test (default: unset; login_as then reports it)
  *   CLAUDIO_CONFIG        path to claudio.config.json (optional)
  *   CLAUDIO_DRIVER        playwright | chrome (default chrome)
  *   CLAUDIO_CDP_ENDPOINT  attach to a running Chromium for screenshots/capture (optional)
@@ -13,20 +13,24 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { chromium } from "playwright";
 import { z } from "zod";
-import { loadRepoConfig } from "@claudio/core";
+import { resolve } from "node:path";
+import { loadRepoConfig, newRunId } from "@claudio/core";
 import { CaptureBuffer } from "../capture.js";
 import type { BrowserAttachment } from "../driver.js";
 import { RunStore } from "../run-store.js";
 import { createClaudioTools, type ToolContext } from "./definitions.js";
 
 async function main(): Promise<void> {
-  const runDir = process.env.CLAUDIO_RUN_DIR;
-  const instanceUrl = process.env.CLAUDIO_INSTANCE_URL;
-  if (!runDir || !instanceUrl) {
-    console.error("CLAUDIO_RUN_DIR and CLAUDIO_INSTANCE_URL must be set");
-    process.exit(2);
+  // Stay up even when unconfigured (Claude Code loads .mcp.json for every session in this repo);
+  // the tools then explain what is missing instead of the server dying at startup.
+  const runDir = process.env.CLAUDIO_RUN_DIR ?? resolve("runs", `live-${newRunId("session")}`);
+  const instanceUrl = process.env.CLAUDIO_INSTANCE_URL ?? "";
+  let config = null as ReturnType<typeof loadRepoConfig>;
+  try {
+    config = loadRepoConfig(process.env.CLAUDIO_CONFIG);
+  } catch (e) {
+    console.error(`claudio: could not load config: ${(e as Error).message}`);
   }
-  const config = loadRepoConfig(process.env.CLAUDIO_CONFIG);
   const driver = process.env.CLAUDIO_DRIVER === "playwright" ? "playwright" : "chrome";
 
   let attachment: BrowserAttachment | null = null;

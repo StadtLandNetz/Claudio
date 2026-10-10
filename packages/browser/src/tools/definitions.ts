@@ -47,6 +47,7 @@ export function createClaudioTools(ctx: ToolContext): ClaudioTool<any>[] {
     handler: async ({ role }) => {
       const cfg = ctx.roles[role];
       if (!cfg) return `Unknown role "${role}". Available roles: ${roleNames.join(", ") || "none"}.`;
+      if (!ctx.instanceUrl) return "No instance URL configured (CLAUDIO_INSTANCE_URL). Ask the person for the URL of the app under test.";
       if (ctx.driver === "chrome" || !ctx.attachment) {
         return `Live mode: ask the person watching to log in as "${role}"${cfg.description ? ` (${cfg.description})` : ""} in the browser window, then continue.`;
       }
