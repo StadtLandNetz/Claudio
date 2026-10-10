@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "claudio": {
+      "command": "node",
+      "args": ["--import", "tsx", "packages/browser/src/tools/stdio-server.ts"],
+      "env": {
+        "CLAUDIO_RUN_DIR": "${CLAUDIO_RUN_DIR}",
+        "CLAUDIO_INSTANCE_URL": "${CLAUDIO_INSTANCE_URL}",
+        "CLAUDIO_CONFIG": "${CLAUDIO_CONFIG}",
+        "CLAUDIO_DRIVER": "${CLAUDIO_DRIVER}",
+        "CLAUDIO_CDP_ENDPOINT": "${CLAUDIO_CDP_ENDPOINT}"
+      }
+    }
+  }
+}

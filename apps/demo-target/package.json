@@ -1,0 +1,11 @@
+{
+  "name": "@claudio/demo-target",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny dispatch app with deliberate bugs, used to verify Claudio itself",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "typecheck": "echo skip"
+  }
+}
