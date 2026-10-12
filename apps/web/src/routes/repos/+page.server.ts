@@ -1,0 +1,62 @@
+import { fail, redirect } from '@sveltejs/kit';
+import { addRepo, listRepos, listReviews } from '@claudio/db';
+import { userToken } from '#lib/server/auth.js';
+import { db } from '#lib/server/db.js';
+import { createDemoRepo, DEMO_REPO } from '#lib/server/demo.js';
+import { devFixtures } from '#lib/server/env.js';
+import { getRepoInfo, githubErrorMessage, listUserRepos, type GithubRepo } from '#lib/server/github.js';
+import type { Actions, PageServerLoad } from './$types';
+
+export const load: PageServerLoad = async ({ locals }) => {
+	const [repos, reviews] = await Promise.all([listRepos(db()), listReviews(db(), { limit: 500 })]);
+	const lastReview = new Map<number, Date>();
+	for (const r of reviews) if (!lastReview.has(r.repoId)) lastReview.set(r.repoId, r.createdAt);
+
+	const token = await userToken(locals.user!);
+	let github: GithubRepo[] = [];
+	let githubError: string | null = null;
+	if (token) {
+		try {
+			github = await listUserRepos(token);
+		} catch (e) {
+			githubError = githubErrorMessage(e);
+		}
+	} else {
+		githubError = 'Du bist ohne GitHub angemeldet. Melde dich mit GitHub an, um deine Repositories zu laden.';
+	}
+
+	const added = new Set(repos.map((r) => r.fullName));
+	return {
+		repos: repos.map((r) => ({
+			fullName: r.fullName,
+			isPrivate: r.isPrivate,
+			dataConfirmed: r.dataConfirmed,
+			lastReview: lastReview.get(r.id) ?? null
+		})),
+		github: github.map((g) => ({ ...g, added: added.has(g.fullName) })),
+		githubError,
+		demoAvailable: devFixtures() && !added.has(DEMO_REPO)
+	};
+};
+
+export const actions: Actions = {
+	add: async ({ request, locals }) => {
+		const fullName = String((await request.formData()).get('fullName') ?? '').trim();
+		if (!/^[\w.-]+\/[\w.-]+$/.test(fullName)) return fail(400, { error: 'Gib das Repository als besitzer/name an.' });
+		const token = await userToken(locals.user!);
+		if (!token) return fail(400, { error: 'Zum Hinzufügen brauchst du eine Anmeldung mit GitHub.' });
+		let info;
+		try {
+			info = await getRepoInfo(token, fullName);
+		} catch (e) {
+			return fail(400, { error: githubErrorMessage(e) });
+		}
+		await addRepo(db(), { ...info, createdBy: locals.user!.id });
+		redirect(303, `/repos/${info.fullName}?tab=settings&new=1`);
+	},
+	demo: async ({ locals }) => {
+		if (!devFixtures()) return fail(404, { error: 'Die Demo ist nicht aktiviert.' });
+		await createDemoRepo(db(), locals.user!.id);
+		redirect(303, `/repos/${DEMO_REPO}`);
+	}
+};

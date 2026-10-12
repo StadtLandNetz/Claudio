@@ -1,0 +1,21 @@
+# MySQL for the Claudio web UI and worker (development).
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: claudio
+      MYSQL_USER: claudio
+      MYSQL_PASSWORD: claudio
+      MYSQL_ROOT_PASSWORD: claudio-root
+    ports:
+      - "${CLAUDIO_DB_PORT:-3310}:3306"
+    volumes:
+      - claudio-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uclaudio", "-pclaudio"]
+      interval: 5s
+      retries: 20
+
+volumes:
+  claudio-db:

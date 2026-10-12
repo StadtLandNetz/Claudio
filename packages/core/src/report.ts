@@ -18,18 +18,25 @@ export function isBlocking(finding: Finding, strictness: Strictness): boolean {
   return SEVERITY_RANK[finding.severity] >= SEVERITY_RANK[STRICTNESS_THRESHOLD[strictness]];
 }
 
-export function blockingFindings(report: ReviewReport, strictness: Strictness = report.request.strictness): Finding[] {
-  return sortBySeverity(report.findings.filter((f) => isBlocking(f, strictness)));
+/** Findings that block a merge. Findings a person dismissed (by id) never block. */
+export function blockingFindings(
+  report: ReviewReport,
+  strictness: Strictness = report.request.strictness,
+  dismissedIds: readonly string[] = [],
+): Finding[] {
+  return sortBySeverity(report.findings.filter((f) => !dismissedIds.includes(f.id) && isBlocking(f, strictness)));
 }
 
 export function sortBySeverity(findings: Finding[]): Finding[] {
   return [...findings].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
 }
 
-export function verdict(report: ReviewReport, strictness: Strictness = report.request.strictness): "approve" | "request_changes" | "inconclusive" {
+export type Verdict = "approve" | "request_changes" | "inconclusive";
+
+export function verdict(report: ReviewReport, strictness: Strictness = report.request.strictness, dismissedIds: readonly string[] = []): Verdict {
   if (report.status !== "completed") return "inconclusive";
   const failedAc = report.acceptanceCriteria.some((ac) => ac.status === "failed");
-  if (failedAc || blockingFindings(report, strictness).length > 0) return "request_changes";
+  if (failedAc || blockingFindings(report, strictness, dismissedIds).length > 0) return "request_changes";
   return "approve";
 }
 
@@ -53,6 +60,10 @@ const L = {
     severity: { blocker: "Blocker", major: "Major", minor: "Minor", suggestion: "Vorschlag" },
     fullReport: "Vollständiger Report",
     errors: "Fehler während des Runs",
+    dismissed: "Von Menschen verworfene Findings (nicht aufgeführt)",
+    tests: "Regressionstests",
+    testsPassed: "bestanden",
+    testsFailed: "Fehlgeschlagen",
   },
   en: {
     verdict: { approve: "No blocking findings", request_changes: "Changes requested", inconclusive: "Review incomplete" },
@@ -73,6 +84,10 @@ const L = {
     severity: { blocker: "Blocker", major: "Major", minor: "Minor", suggestion: "Suggestion" },
     fullReport: "Full report",
     errors: "Errors during the run",
+    dismissed: "Findings dismissed by a person (not listed)",
+    tests: "Regression tests",
+    testsPassed: "passed",
+    testsFailed: "Failed",
   },
 } as const;
 
@@ -82,12 +97,24 @@ function labels(report: ReviewReport): Labels {
   return L[report.request.language];
 }
 
-export function renderMarkdown(report: ReviewReport, verbosity: Verbosity = report.request.verbosity): string {
+/** Regression tests that ran with the review. */
+export type ReviewTestResult = { name: string; outcome: "passed" | "failed" | "inconclusive" | null };
+
+/** How a person adjusted a finished report: strictness and findings they dismissed, plus the review's regression tests. */
+export type RenderOptions = { strictness?: Strictness; dismissedIds?: readonly string[]; tests?: readonly ReviewTestResult[] };
+
+/** A failed regression test turns an approval into "changes requested". */
+export function withTests(v: Verdict, tests: readonly ReviewTestResult[] = []): Verdict {
+  return v === "approve" && tests.some((t) => t.outcome === "failed") ? "request_changes" : v;
+}
+
+export function renderMarkdown(report: ReviewReport, verbosity: Verbosity = report.request.verbosity, opts: RenderOptions = {}): string {
   const t = labels(report);
-  const strictness = report.request.strictness;
-  const v = verdict(report, strictness);
-  const blocking = blockingFindings(report, strictness);
-  const nonBlocking = sortBySeverity(report.findings.filter((f) => !isBlocking(f, strictness)));
+  const strictness = opts.strictness ?? report.request.strictness;
+  const dismissed = opts.dismissedIds ?? [];
+  const v = verdict(report, strictness, dismissed);
+  const blocking = blockingFindings(report, strictness, dismissed);
+  const nonBlocking = sortBySeverity(report.findings.filter((f) => !dismissed.includes(f.id) && !isBlocking(f, strictness)));
   const evidenceById = new Map(report.evidence.map((e) => [e.id, e]));
 
   const out: string[] = [];
@@ -154,6 +181,11 @@ export function renderMarkdown(report: ReviewReport, verbosity: Verbosity = repo
     nonBlocking.forEach(renderFinding);
   }
 
+  if (dismissed.length > 0) {
+    out.push(`_${t.dismissed}: ${dismissed.length}_`);
+    out.push("");
+  }
+
   if (verbosity !== "tldr" && report.affectedAreas.length > 0) {
     out.push(`## ${t.affected}`);
     out.push("");
@@ -189,16 +221,23 @@ export function renderMarkdown(report: ReviewReport, verbosity: Verbosity = repo
 }
 
 /** Short comment for the pull request: verdict, counts, blocking titles, link to the full report. */
-export function renderPrComment(report: ReviewReport, reportUrl?: string): string {
+export function renderPrComment(report: ReviewReport, reportUrl?: string, opts: RenderOptions = {}): string {
   const t = labels(report);
-  const strictness = report.request.strictness;
-  const v = verdict(report, strictness);
-  const blocking = blockingFindings(report, strictness);
+  const strictness = opts.strictness ?? report.request.strictness;
+  const dismissed = opts.dismissedIds ?? [];
+  const tests = opts.tests ?? [];
+  const v = withTests(verdict(report, strictness, dismissed), tests);
+  const blocking = blockingFindings(report, strictness, dismissed);
   const acPassed = report.acceptanceCriteria.filter((a) => a.status === "passed").length;
   const lines: string[] = [];
   lines.push(`**Claudio Review: ${t.verdict[v]}**`);
   lines.push("");
-  lines.push(`${t.ac}: ${acPassed}/${report.acceptanceCriteria.length} ${t.acStatus.passed}. ${t.findings}: ${report.findings.length} (${t.blocking.toLowerCase()}: ${blocking.length}).`);
+  lines.push(`${t.ac}: ${acPassed}/${report.acceptanceCriteria.length} ${t.acStatus.passed}. ${t.findings}: ${report.findings.length - dismissed.length} (${t.blocking.toLowerCase()}: ${blocking.length}).`);
+  if (tests.length > 0) {
+    const passed = tests.filter((x) => x.outcome === "passed").length;
+    const failed = tests.filter((x) => x.outcome === "failed");
+    lines.push(`${t.tests}: ${passed}/${tests.length} ${t.testsPassed}.${failed.length ? ` ${t.testsFailed}: ${failed.map((x) => x.name).join(", ")}.` : ""}`);
+  }
   if (blocking.length > 0) {
     lines.push("");
     blocking.slice(0, 5).forEach((f) => lines.push(`- [${t.severity[f.severity]}] ${f.title}`));

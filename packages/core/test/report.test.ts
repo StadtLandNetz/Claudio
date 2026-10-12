@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ReviewReportSchema, blockingFindings, renderMarkdown, renderPrComment, verdict, type ReviewReport } from "../src/index.js";
+import { ReviewReportSchema, blockingFindings, renderMarkdown, renderPrComment, verdict, withTests, type ReviewReport } from "../src/index.js";
 
 function report(overrides: Partial<ReviewReport> = {}): ReviewReport {
   return ReviewReportSchema.parse({
@@ -34,6 +34,11 @@ describe("strictness", () => {
     expect(verdict(report(), "lenient")).toBe("approve");
     expect(verdict(report(), "normal")).toBe("request_changes");
   });
+  it("ignores dismissed findings", () => {
+    expect(blockingFindings(report(), "normal", ["F2"])).toEqual([]);
+    expect(verdict(report(), "normal", ["F2"])).toBe("approve");
+    expect(verdict(report(), "strict", ["F2"])).toBe("request_changes");
+  });
   it("is inconclusive when the run did not complete", () => {
     expect(verdict(report({ status: "budget_exceeded" }))).toBe("inconclusive");
   });
@@ -58,5 +63,31 @@ describe("rendering", () => {
     expect(c).toContain("Änderungen nötig");
     expect(c).toContain("review-pr1-x");
     expect(c).toContain("https://claudio.example/runs/1");
+  });
+});
+
+describe("rendering with human adjustments", () => {
+  it("leaves dismissed findings out of the Markdown report and the PR comment", () => {
+    const md = renderMarkdown(report(), "normal", { dismissedIds: ["F2"] });
+    expect(md).not.toContain("Speichern schlägt fehl");
+    expect(md).toContain("Button zu klein");
+    expect(md).toContain("verworfene Findings");
+    const comment = renderPrComment(report(), "https://claudio.example.test/reviews/1", { dismissedIds: ["F2"] });
+    expect(comment).toContain("Keine blockierenden Findings");
+    expect(comment).toContain("https://claudio.example.test/reviews/1");
+  });
+  it("applies a stricter level chosen afterwards", () => {
+    expect(renderPrComment(report(), undefined, { strictness: "strict" })).toContain("Button zu klein");
+  });
+});
+
+describe("regression tests in the verdict", () => {
+  it("a failed test turns an approval into changes requested and shows in the comment", () => {
+    expect(withTests("approve", [{ name: "Fahrt anlegen", outcome: "failed" }])).toBe("request_changes");
+    expect(withTests("approve", [{ name: "Fahrt anlegen", outcome: "passed" }])).toBe("approve");
+    expect(withTests("inconclusive", [{ name: "x", outcome: "failed" }])).toBe("inconclusive");
+    const c = renderPrComment(report(), undefined, { dismissedIds: ["F2"], tests: [{ name: "Fahrt anlegen", outcome: "failed" }, { name: "Suche", outcome: "passed" }] });
+    expect(c).toContain("Änderungen nötig");
+    expect(c).toContain("Regressionstests: 1/2 bestanden. Fehlgeschlagen: Fahrt anlegen.");
   });
 });

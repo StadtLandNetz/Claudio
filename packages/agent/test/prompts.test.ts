@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { extractAffectedAreas } from "../src/prompts.js";
+import { ReviewRequestSchema, budgetProfile } from "@claudio/core";
+import { buildReviewPrompt, extractAffectedAreas } from "../src/prompts.js";
 import { createBrowserGuard } from "../src/hooks.js";
 
 describe("extractAffectedAreas", () => {
@@ -44,5 +45,28 @@ describe("browser guard", () => {
     expect(g.steps()).toBe(2);
     const over = await hook(input("mcp__playwright__browser_click"), "t", sig);
     expect((over as { hookSpecificOutput?: { permissionDecision?: string } }).hookSpecificOutput?.permissionDecision).toBe("deny");
+  });
+});
+
+describe("review procedure", () => {
+  const input = (tier: "quick" | "standard") => ({
+    runId: "r1",
+    request: ReviewRequestSchema.parse({ repo: "o/r", pr: 1, instanceUrl: "https://pr-1.example.test", budget: tier }),
+    pr: { owner: "o", repo: "r", number: 1, title: "T", body: "", url: "u", headRef: "f", headSha: "s", baseRef: "main", draft: false, files: [], issues: [] },
+    config: null,
+    repoDir: null,
+    profile: budgetProfile(tier),
+    driverPrefix: "",
+  });
+  it("keeps one agent on the quick budget", () => {
+    const p = buildReviewPrompt(input("quick"));
+    expect(p).not.toContain("Delegate to ac-verifier");
+    expect(p).toContain("Work the todo list");
+  });
+  it("delegates checks one after the other on the standard budget", () => {
+    const p = buildReviewPrompt(input("standard"));
+    expect(p).toContain("Delegate to ac-verifier");
+    expect(p).toContain("Delegate to regression-tester");
+    expect(p).toContain("never in parallel");
   });
 });

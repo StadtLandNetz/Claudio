@@ -132,6 +132,8 @@ export const ReviewReportSchema = z.object({
   cost: RunCostSchema,
   sessionId: z.string().optional(),
   errors: z.array(z.string()).default([]),
+  /** URL of the TL;DR comment posted to the pull request, if any. */
+  commentUrl: z.string().optional(),
   createdAt: z.string(),
 });
 export type ReviewReport = z.infer<typeof ReviewReportSchema>;

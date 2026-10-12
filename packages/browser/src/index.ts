@@ -4,6 +4,9 @@ export * from "./chrome-driver.js";
 export * from "./capture.js";
 export * from "./run-store.js";
 export * from "./login.js";
+export * from "./live-view.js";
+export * from "./steps.js";
+export * from "./tools/test-tools.js";
 export * from "./tools/definitions.js";
 
 import type { DriverName } from "@claudio/core";

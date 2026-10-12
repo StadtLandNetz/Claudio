@@ -6,7 +6,11 @@ Built on the Claude Agent SDK, Playwright MCP and the Claude in Chrome extension
 
 ## Status
 
-Phase 0 (spike): the `claudio review` CLI runs one PR review end to end with the Playwright driver and writes a Markdown/JSON report. No web UI yet.
+- Phase 0: the `claudio review` CLI runs one PR review end to end with the Playwright driver and writes a Markdown/JSON report.
+- Web UI (first version): GitHub login, add repositories from your GitHub account, configure roles, start reviews, watch them live, read the report with evidence, and confirm or dismiss findings. Reviews run in a separate worker process; state lives in MySQL.
+- Phase 3, PR review: on the standard and thorough budgets the orchestrator delegates to separate subagents, one after the other (they share one browser): `ac-verifier` for the acceptance criteria, `regression-tester` for the affected areas against the app map, `ux-reviewer` for the screenshots. The quick budget keeps one agent. While a review or analysis runs, the web UI shows a live view of the agent's browser (Chromium screencast, no model tokens). After rating the findings, the TL;DR comment can be posted to the PR from the UI, and the report downloaded as Markdown, both honouring the chosen strictness and leaving out dismissed findings. PR comments link to the review in Claudio (`PUBLIC_BASE_URL`).
+- Phase 4, test workflows: per repository, tests described in plain language (flow, expectation, roles). The first run records the flow: an agent performs it exclusively through the `test_step` tool, which Claudio executes itself with Playwright and records, so the stored steps are exactly what ran (role/name locators, `{{run}}` and `{{date:+N:FORMAT}}` templates for unique data). Later runs replay the steps without a model; deterministic tests cost nothing, semi-deterministic ones are judged afterwards, explorative ones run with an agent each time. When a replayed step can no longer be executed, an agent heals the flow from that step, the healed steps become a new version, and a finding records the UI change. An independent judge (structured output) compares the final state with the expectation. Tests run on their own, as a suite against an instance, or with every PR review (a failed regression test turns an approval into "changes requested", also in the PR comment). Runs can be compared step by step.
+- Phase 2, repository analysis: Claudio reads the code and walks the running app, then writes a knowledge base per repository (overview, modules, routes, app map with the expected behaviour of every screen, notes). Every review receives the latest knowledge base. Updates only re-check what changed since the analysed commit.
 
 ## Setup
 
@@ -18,7 +22,33 @@ cp claudio.config.example.json claudio.config.json
 
 `claudio.config.json` describes the target repository: the roles the agent may log in as (credentials are referenced by environment variable name and never reach the model), optional login recipes, and notes about the application.
 
-Chromium: Playwright's bundled Chromium is used by default (`pnpm exec playwright install chromium`). Set `CLAUDIO_CHROMIUM_PATH` to use another binary.
+Chromium: Playwright's bundled Chromium is used by default. Install it from the package that depends on Playwright: `pnpm --filter @claudio/browser exec playwright install chromium`. Set `CLAUDIO_CHROMIUM_PATH` to use another binary.
+
+## Web UI
+
+```sh
+pnpm db:up                      # MySQL 8 in Docker on port 3310 (docker-compose.yml)
+pnpm db:migrate
+pnpm dev                        # web UI on http://localhost:5173 and the review worker
+```
+
+The `.env` needs `DATABASE_URL`, `CLAUDIO_SECRET_KEY` (`openssl rand -base64 32`) and a GitHub OAuth App:
+
+1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App.
+2. Homepage URL `http://localhost:5173`, authorization callback URL `http://localhost:5173/auth/github/callback`.
+3. Put the client ID and a generated client secret into `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+
+Claudio asks for the scopes `repo read:user read:org`. Your token is stored encrypted and is used to list your repositories and open pull requests, to clone the PR branch, and to post the optional PR comment. Restrict who may sign in with `CLAUDIO_ALLOWED_GITHUB_ORGS` or `CLAUDIO_ALLOWED_GITHUB_USERS`.
+
+Per repository you configure notes for the agent, the default instance URL, extra allowed hosts and the roles (username, password, optional login recipe). Role credentials are encrypted with `CLAUDIO_SECRET_KEY` and are handed only to the `login_as` tool, never to the model. A review can start only after someone confirms that the instances hold test data only.
+
+The worker (`pnpm worker`) picks up queued reviews, one at a time by default (`CLAUDIO_WORKER_CONCURRENCY`). Web and worker share the database and the `runs/` directory; the web UI serves screenshots and traces from there to signed-in users.
+
+Repository analysis: open a repository, tab "Wissen", and start an analysis against a running instance of the main branch (e.g. staging). The `code-scanner` subagent maps the code; the orchestrator walks the app screen by screen and writes the documents with the `write_knowledge` tool. The tab shows when the analysed commit is behind the branch head; "Wissensbasis aktualisieren" then hands the agent the previous documents and the list of changed files. Reviews get the route index and app map inlined in the prompt when they are small (up to about 24,000 characters) and as files otherwise.
+
+Offline demo: with `CLAUDIO_DEV_FIXTURES=1` the dev server offers a login without GitHub and a demo repository that reviews the fixture PR against `apps/demo-target` (start it with `pnpm demo-target`).
+
+Production: `pnpm --filter @claudio/web build`, then `node apps/web/build` (set `ORIGIN` and `PORT`) next to `pnpm worker`.
 
 ## Running a review
 
@@ -71,4 +101,6 @@ pnpm test                                   # unit tests
 CLAUDIO_INTEGRATION=1 pnpm test             # also the Playwright driver integration test (needs Chromium)
 ```
 
-Packages: `core` (schemas, budget tiers, report rendering), `github` (PR and issue context), `browser` (drivers, capture, login, Claudio tools), `agent` (Agent SDK runner, prompts, hooks), `apps/cli`.
+Packages: `core` (schemas, budget tiers, report rendering), `github` (PR and issue context), `browser` (drivers, capture, login, Claudio tools), `agent` (Agent SDK runner, prompts, hooks), `db` (Drizzle schema, migrations, queries, credential encryption), `apps/cli`, `apps/web` (SvelteKit UI), `apps/worker` (review runner).
+
+After changing `packages/db/src/schema.ts`, run `pnpm db:generate` and commit the new migration.

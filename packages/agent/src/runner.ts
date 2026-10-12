@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { query, type Options, type SDKMessage, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
-import { RunStore, createClaudioTools, createDriver, type DriverSession } from "@claudio/browser";
+import { RunStore, createClaudioTools, createDriver, startLiveView, type DriverSession } from "@claudio/browser";
 import {
   ReviewRequestSchema,
   budgetProfile,
@@ -12,6 +12,9 @@ import {
   nowIso,
   renderMarkdown,
   renderPrComment,
+  KNOWLEDGE_DOCS,
+  type KnowledgeBase,
+  type RepoConfig,
   type ReviewReport,
   type ReviewRequest,
   type RunStatus,
@@ -28,6 +31,10 @@ export type RunnerDeps = {
   runsRoot?: string;
   /** Path to claudio.config.json. Default: ./claudio.config.json */
   configPath?: string;
+  /** Repo config passed in directly (web worker); takes precedence over configPath. */
+  config?: RepoConfig | null;
+  /** Role credentials keyed by the env var names in the config. Only the Claudio tools see them, never the agent process. */
+  roleEnv?: Record<string, string>;
   /** Claudio project root (where .claude/agents and skills live). Default: process.cwd() */
   projectRoot?: string;
   githubToken?: string;
@@ -37,6 +44,14 @@ export type RunnerDeps = {
   repoDir?: string;
   abortController?: AbortController;
   onProgress?: (line: string) => void;
+  /** Latest knowledge base of the repository (from a repo analysis), handed to the agent as files. */
+  knowledge?: KnowledgeBase | null;
+  /** Write the browser screencast to runDir/live.jpg for the web UI. Default: true. */
+  liveView?: boolean;
+  /** Link to this review in the web UI, used in the PR comment. */
+  reportUrl?: string;
+  /** Called once the run directory exists, before any network or model call. */
+  onRunStarted?: (run: RunHandle) => void;
 };
 
 export type RunHandle = { runId: string; runDir: string };
@@ -51,8 +66,9 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
   const started = Date.now();
   const errors: string[] = [];
   log(`run ${runId} → ${runDir}`);
+  deps.onRunStarted?.({ runId, runDir });
 
-  const config = loadRepoConfig(deps.configPath);
+  const config = deps.config !== undefined ? deps.config : loadRepoConfig(deps.configPath);
   if (config && config.repo !== request.repo) log(`warning: claudio.config.json is for ${config.repo}, reviewing ${request.repo}`);
   const roleEnvVars = Object.values(config?.roles ?? {}).flatMap((r) => [r.usernameEnv, r.passwordEnv]);
 
@@ -94,6 +110,8 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     language: request.language,
   });
   log(`browser driver: ${session.name}${session.attachment ? ` (cdp ${session.attachment.cdpEndpoint})` : ""}`);
+  // Screencast for the live view in the web UI (runDir/live.jpg).
+  const liveView = session.attachment && deps.liveView !== false ? startLiveView(session.attachment, join(runDir, "live.jpg")) : null;
 
   const tools = createClaudioTools({
     runDir,
@@ -102,6 +120,7 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     instanceUrl: request.instanceUrl,
     roles: config?.roles ?? {},
     driver: session.name,
+    env: deps.roleEnv ? { ...process.env, ...deps.roleEnv } : undefined,
   });
   const claudioServer = createClaudioSdkServer(tools);
 
@@ -114,7 +133,19 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     },
   });
 
-  const prompt = buildReviewPrompt({ runId, request, pr, config, repoDir, profile, driverPrefix: session.promptPrefix });
+  const knowledgeDir = deps.knowledge?.docs.length ? writeKnowledgeFiles(join(runDir, "knowledge"), deps.knowledge) : null;
+  if (knowledgeDir && deps.knowledge) log(`knowledge base from ${deps.knowledge.commitSha.slice(0, 7)} (${deps.knowledge.docs.length} documents)`);
+
+  const prompt = buildReviewPrompt({
+    runId,
+    request,
+    pr,
+    config,
+    repoDir,
+    profile,
+    driverPrefix: session.promptPrefix,
+    knowledge: knowledgeDir && deps.knowledge ? { dir: knowledgeDir, base: deps.knowledge } : null,
+  });
   store.writeFile("prompt.md", prompt);
 
   const abortController = deps.abortController ?? new AbortController();
@@ -135,7 +166,7 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     hooks: { PreToolUse: guard.hooks },
-    additionalDirectories: repoDir ? [repoDir] : [],
+    additionalDirectories: [repoDir, knowledgeDir].filter((d): d is string => Boolean(d)),
     extraArgs: session.extraArgs,
     abortController,
     env: envWithout(process.env, roleEnvVars),
@@ -160,6 +191,7 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     errors.push(`agent error: ${(e as Error).message}`);
     log(`agent error: ${(e as Error).message}`);
   } finally {
+    await liveView?.stop().catch(() => undefined);
     await session.close().catch((e) => errors.push(`driver close: ${(e as Error).message}`));
   }
 
@@ -196,7 +228,9 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
 
   if (request.postComment) {
     try {
-      const url = await postPullRequestComment(createGithubClient(token), request.repo, request.pr, renderPrComment(report));
+      const url = await postPullRequestComment(createGithubClient(token), request.repo, request.pr, renderPrComment(report, deps.reportUrl));
+      report.commentUrl = url;
+      writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2));
       log(`PR comment posted: ${url}`);
     } catch (e) {
       const msg = `PR comment failed: ${(e as Error).message}`;
@@ -208,7 +242,14 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
   return report;
 }
 
-function mapStatus(result: SDKResultMessage | undefined): RunStatus {
+/** Writes the knowledge documents as Markdown files and returns the directory. */
+export function writeKnowledgeFiles(dir: string, knowledge: KnowledgeBase): string {
+  mkdirSync(dir, { recursive: true });
+  for (const doc of knowledge.docs) writeFileSync(join(dir, KNOWLEDGE_DOCS[doc.name].file), doc.content);
+  return dir;
+}
+
+export function mapStatus(result: SDKResultMessage | undefined): RunStatus {
   if (!result) return "failed";
   switch (result.subtype) {
     case "success":
@@ -222,7 +263,7 @@ function mapStatus(result: SDKResultMessage | undefined): RunStatus {
   }
 }
 
-function describe(message: SDKMessage, log: (line: string) => void): void {
+export function describe(message: SDKMessage, log: (line: string) => void): void {
   if (message.type === "system" && message.subtype === "init") {
     log(`session ${message.session_id} model=${message.model} mcp=${message.mcp_servers.map((s) => `${s.name}:${s.status}`).join(",")}`);
     return;
@@ -242,23 +283,26 @@ function describe(message: SDKMessage, log: (line: string) => void): void {
   }
 }
 
-function short(text: string, max: number): string {
+export function short(text: string, max: number): string {
   return text.length <= max ? text : text.slice(0, max - 1) + "…";
 }
 
-async function cloneBranch(repo: string, branch: string, dir: string, token: string): Promise<void> {
+/** Shallow clone of one branch. Returns the checked-out commit sha. */
+export async function cloneBranch(repo: string, branch: string, dir: string, token: string): Promise<string> {
   const url = `https://x-access-token:${token}@github.com/${repo}.git`;
-  await execFileAsync("git", ["clone", "--depth", "1", "--branch", branch, "--single-branch", url, dir], {
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    maxBuffer: 10 * 1024 * 1024,
-  });
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+  await execFileAsync("git", ["clone", "--depth", "1", "--branch", branch, "--single-branch", url, dir], { env, maxBuffer: 10 * 1024 * 1024 });
+  // The token is part of the remote URL; drop it so it does not linger in .git/config.
+  await execFileAsync("git", ["-C", dir, "remote", "set-url", "origin", `https://github.com/${repo}.git`], { env });
+  const { stdout } = await execFileAsync("git", ["-C", dir, "rev-parse", "HEAD"], { env });
+  return stdout.trim();
 }
 
-function scrub(text: string, secret?: string): string {
+export function scrub(text: string, secret?: string): string {
   return secret ? text.split(secret).join("***") : text;
 }
 
-function envWithout(env: NodeJS.ProcessEnv, keys: string[]): Record<string, string | undefined> {
+export function envWithout(env: NodeJS.ProcessEnv, keys: string[]): Record<string, string | undefined> {
   const out: Record<string, string | undefined> = { ...env };
   for (const k of keys) delete out[k];
   return out;

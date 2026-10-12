@@ -103,3 +103,25 @@ export async function postPullRequestComment(octokit: Octokit, repoFullName: str
 function truncate(text: string, max: number): string {
   return text.length <= max ? text : text.slice(0, max) + `\n... [truncated ${text.length - max} chars]`;
 }
+
+export async function getDefaultBranch(octokit: Octokit, repoFullName: string): Promise<string> {
+  const { owner, repo } = parseRepo(repoFullName);
+  const { data } = await octokit.rest.repos.get({ owner, repo });
+  return data.default_branch;
+}
+
+export async function getBranchHead(octokit: Octokit, repoFullName: string, branch: string): Promise<string> {
+  const { owner, repo } = parseRepo(repoFullName);
+  const { data } = await octokit.rest.repos.getBranch({ owner, repo, branch });
+  return data.commit.sha;
+}
+
+export type ChangedSince = { files: { filename: string; status: string }[]; totalCommits: number; truncated: boolean };
+
+/** Files changed between two commits (GitHub caps the list at 300 files). */
+export async function changedFilesBetween(octokit: Octokit, repoFullName: string, base: string, head: string): Promise<ChangedSince> {
+  const { owner, repo } = parseRepo(repoFullName);
+  const { data } = await octokit.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${base}...${head}`, per_page: 100 });
+  const files = (data.files ?? []).map((f) => ({ filename: f.filename, status: f.status }));
+  return { files, totalCommits: data.total_commits, truncated: files.length >= 300 };
+}

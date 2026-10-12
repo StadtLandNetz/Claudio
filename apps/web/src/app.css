@@ -1,0 +1,346 @@
+/* Claudio: Prüfprotokoll. Quiet, cool paper; signal colours reserved for severities and verdicts. */
+:root {
+	--paper: #f2f5f4;
+	--sheet: #ffffff;
+	--sunken: #e8edeb;
+	--ink: #1d2a27;
+	--ink-2: #4a5955;
+	--ink-3: #74827e;
+	--rule: #d6dedb;
+	--rule-strong: #b9c6c2;
+	--petrol: #0e5e6f;
+	--petrol-ink: #ffffff;
+	--petrol-soft: #dcecef;
+
+	--pass: #1f7a4d;
+	--pass-soft: #e0f1e7;
+	--block: #b8322a;
+	--block-soft: #f8e3e1;
+	--major: #b4620f;
+	--major-soft: #f9ead9;
+	--minor: #6b6a1d;
+	--minor-soft: #f0efd9;
+	--hint: #4f6378;
+	--hint-soft: #e4eaf0;
+
+	--font: 'Atkinson Hyperlegible Next', 'Atkinson Hyperlegible', system-ui, sans-serif;
+	--radius-s: 4px;
+	--radius-m: 8px;
+	--shadow: 0 1px 0 rgba(29, 42, 39, 0.06), 0 1px 3px rgba(29, 42, 39, 0.06);
+	color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		--paper: #131a19;
+		--sheet: #1a2321;
+		--sunken: #101615;
+		--ink: #e3ebe8;
+		--ink-2: #b2c0bc;
+		--ink-3: #82918d;
+		--rule: #2b3734;
+		--rule-strong: #3d4c48;
+		--petrol: #5fb6c6;
+		--petrol-ink: #0c1f24;
+		--petrol-soft: #1c3439;
+		--pass: #5cc48f;
+		--pass-soft: #17322a;
+		--block: #f07b70;
+		--block-soft: #3b1f1d;
+		--major: #f0a457;
+		--major-soft: #3a2a17;
+		--minor: #cfcc72;
+		--minor-soft: #2f2e1b;
+		--hint: #9db2c7;
+		--hint-soft: #1f2a35;
+		--shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+		color-scheme: dark;
+	}
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
+}
+
+body {
+	margin: 0;
+	background: var(--paper);
+	color: var(--ink);
+	font-family: var(--font);
+	font-size: 1rem;
+	line-height: 1.5;
+	font-variant-numeric: tabular-nums;
+}
+
+h1,
+h2,
+h3 {
+	line-height: 1.2;
+	margin: 0;
+	font-weight: 700;
+	letter-spacing: -0.01em;
+}
+h1 {
+	font-size: 1.75rem;
+}
+h2 {
+	font-size: 1.25rem;
+}
+h3 {
+	font-size: 1.0625rem;
+}
+p {
+	margin: 0;
+}
+
+a {
+	color: var(--petrol);
+	text-underline-offset: 0.18em;
+}
+
+:focus-visible {
+	outline: 2px solid var(--petrol);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
+
+.muted {
+	color: var(--ink-2);
+}
+.faint {
+	color: var(--ink-3);
+	font-size: 0.875rem;
+}
+
+/* Buttons */
+.btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	font: inherit;
+	font-weight: 600;
+	font-size: 0.9375rem;
+	padding: 0.5rem 0.95rem;
+	border-radius: var(--radius-s);
+	border: 1px solid var(--rule-strong);
+	background: var(--sheet);
+	color: var(--ink);
+	cursor: pointer;
+	text-decoration: none;
+	line-height: 1.3;
+	white-space: nowrap;
+}
+.btn:hover {
+	border-color: var(--ink-3);
+}
+.btn.primary {
+	background: var(--petrol);
+	border-color: var(--petrol);
+	color: var(--petrol-ink);
+}
+.btn.primary:hover {
+	filter: brightness(1.08);
+}
+.btn.danger {
+	color: var(--block);
+}
+.btn.small {
+	font-size: 0.875rem;
+	padding: 0.3rem 0.65rem;
+}
+.btn:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+/* Forms */
+.field {
+	display: grid;
+	gap: 0.3rem;
+}
+.field > span {
+	font-weight: 600;
+	font-size: 0.9375rem;
+}
+.field small {
+	color: var(--ink-3);
+	font-size: 0.8125rem;
+}
+input[type='text'],
+input[type='url'],
+input[type='search'],
+input[type='password'],
+input[type='email'],
+select,
+textarea {
+	font: inherit;
+	color: var(--ink);
+	background: var(--sheet);
+	border: 1px solid var(--rule-strong);
+	border-radius: var(--radius-s);
+	padding: 0.5rem 0.65rem;
+	width: 100%;
+	min-width: 0;
+}
+textarea {
+	resize: vertical;
+	min-height: 5rem;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+	outline: 2px solid var(--petrol);
+	outline-offset: 0;
+	border-color: var(--petrol);
+}
+.check {
+	display: flex;
+	gap: 0.55rem;
+	align-items: flex-start;
+}
+.check input {
+	margin-top: 0.3rem;
+	accent-color: var(--petrol);
+}
+
+/* Surfaces */
+.sheet {
+	background: var(--sheet);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow);
+}
+
+.notice {
+	padding: 0.75rem 1rem;
+	border-radius: var(--radius-s);
+	border-left: 3px solid var(--petrol);
+	background: var(--petrol-soft);
+}
+.notice.error {
+	border-color: var(--block);
+	background: var(--block-soft);
+}
+.notice.ok {
+	border-color: var(--pass);
+	background: var(--pass-soft);
+}
+
+/* Tables */
+table.list {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.9375rem;
+}
+table.list th {
+	text-align: left;
+	font-weight: 600;
+	color: var(--ink-2);
+	font-size: 0.8125rem;
+	padding: 0.5rem 0.75rem;
+	border-bottom: 1px solid var(--rule-strong);
+}
+table.list td {
+	padding: 0.65rem 0.75rem;
+	border-bottom: 1px solid var(--rule);
+	vertical-align: top;
+}
+table.list tr:last-child td {
+	border-bottom: 0;
+}
+.num {
+	text-align: right;
+	white-space: nowrap;
+}
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	* {
+		animation: none !important;
+		transition: none !important;
+	}
+}
+
+/* Rendered Markdown (summaries, knowledge documents) */
+.prose {
+	display: grid;
+	gap: 0.75rem;
+	max-width: 52rem;
+	line-height: 1.6;
+}
+.prose > * {
+	margin: 0;
+}
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+	margin-top: 0.75rem;
+}
+.prose h1 {
+	font-size: 1.375rem;
+}
+.prose h2 {
+	font-size: 1.1875rem;
+	padding-top: 0.75rem;
+	border-top: 1px solid var(--rule);
+}
+.prose h2:first-child {
+	border-top: 0;
+	padding-top: 0;
+}
+.prose ul,
+.prose ol {
+	padding-left: 1.25rem;
+}
+.prose li + li {
+	margin-top: 0.2rem;
+}
+.prose code {
+	font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+	font-size: 0.85em;
+	background: var(--sunken);
+	padding: 0.05em 0.3em;
+	border-radius: 3px;
+	word-break: break-word;
+}
+.prose pre {
+	background: var(--sunken);
+	padding: 0.75rem 1rem;
+	border-radius: var(--radius-s);
+	overflow-x: auto;
+}
+.prose pre code {
+	background: none;
+	padding: 0;
+}
+.prose table {
+	border-collapse: collapse;
+	font-size: 0.9375rem;
+	display: block;
+	overflow-x: auto;
+}
+.prose th,
+.prose td {
+	border: 1px solid var(--rule);
+	padding: 0.4rem 0.6rem;
+	text-align: left;
+	vertical-align: top;
+}
+.prose th {
+	background: var(--sunken);
+}

@@ -1,9 +1,11 @@
 import { join, relative, isAbsolute } from "node:path";
-import { existsSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 import {
   AcStatusSchema,
   FindingCategorySchema,
+  KNOWLEDGE_DOCS,
+  KnowledgeDocNameSchema,
   SeveritySchema,
   resolveCredentials,
   type DriverName,
@@ -21,6 +23,8 @@ export type ToolContext = {
   roles: Record<string, RoleConfig>;
   driver: DriverName;
   env?: NodeJS.ProcessEnv;
+  /** Repository analysis only: directory the knowledge documents are written to. Enables write_knowledge. */
+  knowledgeDir?: string;
 };
 
 /** A tool definition that both the Agent SDK adapter and the stdio MCP server can consume. */
@@ -32,7 +36,7 @@ export type ClaudioTool<S extends z.ZodRawShape = z.ZodRawShape> = {
   handler: (args: z.infer<z.ZodObject<S>>) => Promise<string>;
 };
 
-function def<S extends z.ZodRawShape>(t: ClaudioTool<S>): ClaudioTool<S> {
+export function def<S extends z.ZodRawShape>(t: ClaudioTool<S>): ClaudioTool<S> {
   return t;
 }
 
@@ -233,5 +237,32 @@ export function createClaudioTools(ctx: ToolContext): ClaudioTool<any>[] {
     },
   });
 
-  return [loginAs, captureEvidence, getConsole, getNetwork, reportFinding, recordAc, note, todoAdd, todoNext, todoDone];
+  const tools: ClaudioTool<any>[] = [loginAs, captureEvidence, getConsole, getNetwork, reportFinding, recordAc, note, todoAdd, todoNext, todoDone];
+  if (ctx.knowledgeDir) tools.push(writeKnowledgeTool(ctx.knowledgeDir));
+  return tools;
+}
+
+/** Writes one document of the repository knowledge base (Markdown). */
+export function writeKnowledgeTool(dir: string): ClaudioTool<any> {
+  const docList = Object.entries(KNOWLEDGE_DOCS)
+    .map(([name, d]) => `- ${name}: ${d.purpose}`)
+    .join("\n");
+  return def({
+    name: "write_knowledge",
+    description: `Write a document of the repository knowledge base (Markdown). mode "replace" overwrites the document, "append" adds a section at the end (use it to add one screen at a time to app-map). Documents:\n${docList}`,
+    schema: {
+      doc: KnowledgeDocNameSchema,
+      content: z.string().min(1).max(200_000),
+      mode: z.enum(["replace", "append"]).default("replace"),
+    },
+    handler: async ({ doc, content, mode }) => {
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, KNOWLEDGE_DOCS[doc as keyof typeof KNOWLEDGE_DOCS].file);
+      const text = content.trim() + "\n";
+      if (mode === "append" && existsSync(file)) appendFileSync(file, "\n" + text);
+      else writeFileSync(file, text);
+      const size = readFileSync(file, "utf8").length;
+      return `${doc} ${mode === "append" ? "extended" : "written"} (${size} characters).`;
+    },
+  });
 }
