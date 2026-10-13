@@ -5,7 +5,7 @@ Claudio runs on Kubernetes, built and rolled out by GitHub Actions on every push
 
 ```
 push to main ─► release.yml ─► ci (typecheck, tests incl. Playwright, migrations, build)
-                                └► image  (ghcr.io/vanderlars/claudio:sha-<commit>)
+                                └► image  (ghcr.io/stadtlandnetz/claudio:sha-<commit>)
                                     └► deploy (kubectl apply k8s/, rollout, diagnostics, auto-rollback)
 pull request ─► ci.yml (same checks, no deploy)
 ```

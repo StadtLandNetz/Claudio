@@ -61,7 +61,7 @@ Production: `pnpm --filter @claudio/web build`, then `node apps/web/build` (set 
 
 ```sh
 pnpm claudio review \
-  --repo vanderlars/some-app \
+  --repo stadtlandnetz/some-app \
   --pr 123 \
   --url https://pr-123.preview.example.de \
   --role dispatcher \

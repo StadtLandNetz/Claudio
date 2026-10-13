@@ -9,7 +9,7 @@
 set -euo pipefail
 
 NS=${NAMESPACE:-claudio}
-IMAGE_REPO=${IMAGE_REPO:-vanderlars/claudio}
+IMAGE_REPO=${IMAGE_REPO:-stadtlandnetz/claudio}
 SECRET=claudio-secrets
 
 for tool in kubectl node curl base64 openssl; do
@@ -57,7 +57,8 @@ else
 fi
 
 echo "== GitHub OAuth App (login) =="
-echo "   Callback URL of the app: https://<host>/auth/github/callback"
+BASE_URL=$(sed -n 's/^ *PUBLIC_BASE_URL: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$(dirname "$0")/../k8s/configmap.yaml")
+echo "   Callback URL of the app: ${BASE_URL:-https://<host>}/auth/github/callback"
 read -rp "Client ID: " GH_CLIENT_ID
 [ -n "$GH_CLIENT_ID" ] || GH_CLIENT_ID=$(existing GITHUB_CLIENT_ID)
 [ -n "$GH_CLIENT_ID" ] || { echo "client id must not be empty" >&2; exit 1; }

@@ -4,7 +4,7 @@
 
 ## Kontext
 
-Stadt.Land.Netz prüft Feature-Branches heute manuell: ein Reviewer liest das Ticket, verifiziert die Acceptance Criteria im Browser, bewertet UX/UI, schaut sich den geänderten Code an, leitet daraus betroffene Stellen ab und testet diese auf Regressionen. Claudio soll diesen Prozess weitgehend automatisieren. Das Repo `vanderlars/claudio` ist leer (nur README), wir starten auf der grünen Wiese.
+Stadt.Land.Netz prüft Feature-Branches heute manuell: ein Reviewer liest das Ticket, verifiziert die Acceptance Criteria im Browser, bewertet UX/UI, schaut sich den geänderten Code an, leitet daraus betroffene Stellen ab und testet diese auf Regressionen. Claudio soll diesen Prozess weitgehend automatisieren. Das Repo `StadtLandNetz/Claudio` ist leer (nur README), wir starten auf der grünen Wiese.
 
 ## Getroffene Entscheidungen
 

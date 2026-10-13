@@ -4,12 +4,12 @@
 #   2. builds a kubeconfig for that ServiceAccount from the CURRENT kubectl context
 #   3. verifies the permissions and stores the kubeconfig as repository secret KUBECONFIG_B64 (via gh)
 # Run as a cluster admin with the target cluster selected:  ./tools/create-deploy-kubeconfig.sh [--yes]
-# Env: NAMESPACE (claudio), GH_REPO (VanDerLars/Claudio), SET_GH_SECRET=0 to only print the command.
+# Env: NAMESPACE (claudio), GH_REPO (StadtLandNetz/Claudio), SET_GH_SECRET=0 to only print the command.
 set -euo pipefail
 
 NS=${NAMESPACE:-claudio}
 SA=github-deployer
-REPO=${GH_REPO:-VanDerLars/Claudio}
+REPO=${GH_REPO:-StadtLandNetz/Claudio}
 MANIFEST="$(dirname "$0")/../k8s/admin/github-deployer.yaml"
 
 for tool in kubectl base64; do

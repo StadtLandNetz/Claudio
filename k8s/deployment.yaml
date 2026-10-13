@@ -32,7 +32,7 @@ spec:
       terminationGracePeriodSeconds: 120
       initContainers:
         - name: migrate
-          image: ghcr.io/vanderlars/claudio:sha-0000000 # fallback for manual applies; the deploy job in release.yml sets the pushed commit's tag
+          image: ghcr.io/stadtlandnetz/claudio:sha-0000000 # fallback for manual applies; the deploy job in release.yml sets the pushed commit's tag
           command: ['node_modules/.bin/tsx', 'packages/db/src/migrate.ts']
           env:
             - name: DATABASE_URL
@@ -44,7 +44,7 @@ spec:
                 secretKeyRef: { name: claudio-secrets, key: DATABASE_MIGRATION_URL, optional: true }
       containers:
         - name: web
-          image: ghcr.io/vanderlars/claudio:sha-0000000
+          image: ghcr.io/stadtlandnetz/claudio:sha-0000000
           command: ['node', 'apps/web/build']
           ports:
             - name: http
@@ -78,7 +78,7 @@ spec:
             requests: { cpu: 50m, memory: 192Mi }
             limits: { memory: 512Mi }
         - name: worker
-          image: ghcr.io/vanderlars/claudio:sha-0000000
+          image: ghcr.io/stadtlandnetz/claudio:sha-0000000
           command: ['node_modules/.bin/tsx', 'apps/worker/src/main.ts']
           env: *appEnv
           envFrom:
@@ -90,7 +90,7 @@ spec:
             - { name: dshm, mountPath: /dev/shm }
           resources:
             # One run = one Chromium + one Claude Code session; scale with CLAUDIO_WORKER_CONCURRENCY
-            requests: { cpu: 500m, memory: 1Gi }
+            requests: { cpu: 200m, memory: 1Gi } # mostly idle; no CPU limit, so runs can burst
             limits: { memory: 3Gi }
       volumes:
         # Ephemeral run directories (live frames, traces, checkouts); screenshots are kept in the database
