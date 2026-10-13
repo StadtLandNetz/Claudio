@@ -1,4 +1,5 @@
 import type { HookCallback, HookCallbackMatcher, PreToolUseHookInput } from "@anthropic-ai/claude-agent-sdk";
+import { detectCaptcha, type BrowserAttachment } from "@claudio/browser";
 
 export type BrowserGuardOptions = {
   allowedHosts: string[];
@@ -71,4 +72,24 @@ function deny(reason: string) {
       permissionDecisionReason: reason,
     },
   };
+}
+
+/**
+ * After every browser action, checks the page for a CAPTCHA or bot check and
+ * tells the agent to hand over to a person instead of trying to solve it.
+ */
+export function createCaptchaHook(page: BrowserAttachment["activePage"], humanAvailable: boolean): HookCallbackMatcher {
+  const hook: HookCallback = async () => {
+    const captcha = await detectCaptcha(page());
+    if (!captcha) return {};
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse" as const,
+        additionalContext: humanAvailable
+          ? `A ${captcha} is on the page. Do not try to solve it. Call request_human_help and continue after the person is done.`
+          : `A ${captcha} is on the page. Do not try to solve it. Record the affected checks as blocked and continue with what you can test.`,
+      },
+    };
+  };
+  return { matcher: "^mcp__playwright__browser_", hooks: [hook] };
 }

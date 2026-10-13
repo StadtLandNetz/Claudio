@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { Locator, Page } from "playwright";
-import { describeStep, resolveCredentials, resolveStepTemplates, type RoleConfig, type Target, type TestStep } from "@claudio/core";
+import { describeStep, hostAllowed, resolveCredentials, resolveStepTemplates, type RoleConfig, type Target, type TestStep } from "@claudio/core";
 import type { BrowserAttachment } from "./driver.js";
 import { loginWithRole } from "./login.js";
 import type { RunStore } from "./run-store.js";
@@ -13,6 +13,10 @@ export type StepContext = {
   /** Short unique tag of this run, substituted for {{run}}. */
   runTag: string;
   store: RunStore;
+  /** Hosts besides the instance the test may open (repo and test settings, e.g. an auth provider). */
+  extraAllowedHosts?: string[];
+  /** The test may navigate anywhere. */
+  allowAnyHost?: boolean;
   /** Console/network sequence number at the start of the test, for expect_no_errors. */
   baselineSeq: number;
   actionTimeoutMs?: number;
@@ -26,6 +30,36 @@ export type StepOutcome = {
   assertionFailed?: boolean;
   durationMs: number;
 };
+
+export function allowedHosts(ctx: Pick<StepContext, "instanceUrl" | "extraAllowedHosts">): string[] {
+  return [new URL(ctx.instanceUrl).hostname, ...(ctx.extraAllowedHosts ?? [])];
+}
+
+/**
+ * Blocks page navigations (links, redirects, form posts) to hosts the test may
+ * not open, so a click cannot leave the instance either. Subresources such as
+ * fonts or CDN scripts are not affected.
+ */
+export async function guardNavigation(ctx: StepContext, onBlocked: (url: string) => void): Promise<void> {
+  if (ctx.allowAnyHost) return;
+  const allowed = allowedHosts(ctx);
+  await ctx.attachment.context.route("**/*", (route) => {
+    const req = route.request();
+    if (req.isNavigationRequest() && req.frame().parentFrame() === null) {
+      let host = "";
+      try {
+        host = new URL(req.url()).hostname;
+      } catch {
+        return route.continue();
+      }
+      if (host && !hostAllowed(host, allowed)) {
+        onBlocked(req.url());
+        return route.abort("blockedbyclient");
+      }
+    }
+    return route.continue();
+  });
+}
 
 /** The page the test drives: the newest open tab, or a fresh one. */
 export async function testPage(attachment: BrowserAttachment): Promise<Page> {
@@ -67,7 +101,10 @@ export async function executeStep(recorded: TestStep, ctx: StepContext): Promise
       }
       case "goto": {
         const url = new URL(step.path, ctx.instanceUrl);
-        if (url.host !== new URL(ctx.instanceUrl).host) return done(false, `goto leaves the instance (${url.host}).`);
+        const allowed = allowedHosts(ctx);
+        if (!ctx.allowAnyHost && !hostAllowed(url.hostname, allowed)) {
+          return done(false, `${url.host} is not allowed for this test (allowed: ${allowed.join(", ")}). More hosts can be allowed in the test or repository settings.`);
+        }
         await page.goto(url.toString(), { timeout: actionTimeout * 2 });
         await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
         return done(true);

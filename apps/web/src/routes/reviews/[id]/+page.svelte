@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import LiveLog from '#lib/components/LiveLog.svelte';
+	import HumanTakeover from '#lib/components/HumanTakeover.svelte';
 	import LiveView from '#lib/components/LiveView.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import { invalidateAll } from '$app/navigation';
@@ -62,7 +63,7 @@
 
 <svelte:head><title>#{review.prNumber} {review.prTitle ?? ''} · Claudio</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{review.repo}?tab=reviews">{review.repo}</a></p>
+<p class="crumb"><a href="/repos/{review.repo}?tab=reviews">Alle Reviews</a></p>
 <div class="title">
 	<h1>#{review.prNumber} {review.prTitle ?? ''}</h1>
 	{#if active}
@@ -118,7 +119,9 @@
 
 <div class="layout">
 	<div class="main">
-		{#if active}
+		{#if active && data.human}
+			<HumanTakeover src="/reviews/{data.review.id}/live" requestId={data.human.id} reason={data.human.reason} url={review.instanceUrl} />
+		{:else if active}
 			<LiveView src="/reviews/{data.review.id}/live" url={review.instanceUrl} />
 		{/if}
 
@@ -128,6 +131,7 @@
 				events={data.events}
 				active={isActive(data.review.status)}
 				onstatus={(s) => (liveStatus = s)}
+				online={(line) => /^Mensch (gebraucht|fertig):/.test(line) && invalidateAll()}
 			/>
 		{/if}
 
@@ -239,7 +243,7 @@
 								<input type="hidden" name="findingId" value={f.id} />
 								<label class="comment">
 									<span class="visually-hidden">Kommentar zu {f.id}</span>
-									<input type="text" name="comment" value={f.rating.comment} placeholder="Kommentar (optional)" />
+									<input type="text" name="comment" value={f.rating.comment} placeholder="Begründung (beim Verwerfen merkt sich Claudio sie)" />
 								</label>
 								<div class="rate-buttons" role="group" aria-label="Bewertung">
 									<button class="btn small" class:on={f.rating.status === 'confirmed'} name="status" value="confirmed" aria-pressed={f.rating.status === 'confirmed'}>
@@ -330,7 +334,12 @@
 				</dd>
 			{/if}
 			<dt>Gestartet</dt>
-			<dd>{formatDate(review.createdAt)}<br /><span class="faint">von {review.startedBy}</span></dd>
+			<dd>
+				{formatDate(review.createdAt)}<br />
+				<span class="faint">
+					{review.trigger === 'comment' ? `per Kommentar /claudio review, im Namen von ${review.startedBy}` : review.trigger === 'label' ? `per Label claudio-review, im Namen von ${review.startedBy}` : review.trigger === 'push' ? `automatisch nach Push, im Namen von ${review.startedBy}` : `von ${review.startedBy}`}
+				</span>
+			</dd>
 			{#if review.finishedAt}
 				<dt>Beendet</dt>
 				<dd>{formatDate(review.finishedAt)}</dd>

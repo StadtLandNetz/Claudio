@@ -17,3 +17,5 @@ Bugs a good review must find (see `fixtures/pr-context.json` for the PR and issu
 2. The new form lacks the required vehicle field, allows past dates, has unlabeled Von/Nach inputs and a button labelled "Senden" instead of "Speichern".
 3. The server does not validate required fields.
 4. The trip list logs a console error on every load.
+
+Bot check fixture: `/geschuetzt` redirects to `/pruefung` ("Ich bin kein Roboter") until a person confirms it. It is not a bug to find; it exercises Claudio's human takeover.

@@ -60,6 +60,10 @@ export const TestScriptSchema = z.object({
   roles: z.array(z.string()).default([]),
   determinism: DeterminismSchema.nullable(),
   steps: z.array(TestStepSchema).nullable(),
+  /** Hosts this test may open besides the instance (and the repo's allowed hosts). */
+  allowedHosts: z.array(z.string()).default([]),
+  /** Let the test navigate anywhere. */
+  allowAnyHost: z.boolean().default(false),
 });
 export type TestScript = z.infer<typeof TestScriptSchema>;
 
@@ -114,6 +118,24 @@ export const TestRunReportSchema = z.object({
   createdAt: z.string(),
 });
 export type TestRunReport = z.infer<typeof TestRunReportSchema>;
+
+/** Normalises user input ("https://www.google.com/x", "Google.com") to bare host names. */
+export function parseHostList(input: string): string[] {
+  return [
+    ...new Set(
+      input
+        .split(/[\s,;]+/)
+        .map((h) => h.trim().toLowerCase().replace(/^[a-z]+:\/\//, "").replace(/[/:?#].*$/, ""))
+        .filter((h) => /^[a-z0-9.-]+$/.test(h) && h.includes(".")),
+    ),
+  ];
+}
+
+/** Whether a host is the instance or one of the allowed hosts (subdomains included). */
+export function hostAllowed(host: string, allowed: string[]): boolean {
+  const h = host.toLowerCase();
+  return allowed.some((a) => h === a.toLowerCase() || h.endsWith(`.${a.toLowerCase()}`));
+}
 
 // ---------------------------------------------------------------- templates
 

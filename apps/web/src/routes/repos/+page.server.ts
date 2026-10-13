@@ -3,7 +3,7 @@ import { addRepo, listRepos, listReviews } from '@claudio/db';
 import { userToken } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 import { createDemoRepo, DEMO_REPO } from '#lib/server/demo.js';
-import { devFixtures } from '#lib/server/env.js';
+import { devFixtures, githubOAuthConfig } from '#lib/server/env.js';
 import { getRepoInfo, githubErrorMessage, listUserRepos, type GithubRepo } from '#lib/server/github.js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -35,13 +35,21 @@ export const load: PageServerLoad = async ({ locals }) => {
 		})),
 		github: github.map((g) => ({ ...g, added: added.has(g.fullName) })),
 		githubError,
-		demoAvailable: devFixtures() && !added.has(DEMO_REPO)
+		demoAvailable: devFixtures() && !added.has(DEMO_REPO),
+		// Organisations with OAuth access restrictions must grant Claudio access before their repos show up.
+		grantUrl: githubOAuthConfig() ? `https://github.com/settings/connections/applications/${githubOAuthConfig()!.clientId}` : null,
+		hasToken: Boolean(token)
 	};
 };
 
 export const actions: Actions = {
 	add: async ({ request, locals }) => {
-		const fullName = String((await request.formData()).get('fullName') ?? '').trim();
+		// Accepts owner/name or a GitHub URL.
+		const fullName = String((await request.formData()).get('fullName') ?? '')
+			.trim()
+			.replace(/^https?:\/\/github\.com\//i, '')
+			.replace(/\.git$/i, '')
+			.replace(/\/+$/, '');
 		if (!/^[\w.-]+\/[\w.-]+$/.test(fullName)) return fail(400, { error: 'Gib das Repository als besitzer/name an.' });
 		const token = await userToken(locals.user!);
 		if (!token) return fail(400, { error: 'Zum Hinzufügen brauchst du eine Anmeldung mit GitHub.' });

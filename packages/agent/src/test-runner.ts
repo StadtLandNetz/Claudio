@@ -1,16 +1,20 @@
 import { appendFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { query, type Options, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query, type HookCallback, type Options, type PreToolUseHookInput, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
   RunStore,
   StepRecorder,
   ariaSnapshot,
   createClaudioTools,
+  detectCaptcha,
+  guardNavigation,
   createDriver,
   createTestTools,
   executeStep,
   startLiveView,
   testPage,
+  type HumanBridge,
+  type HumanBridgeFactory,
   type StepContext,
 } from "@claudio/browser";
 import {
@@ -46,6 +50,8 @@ export type TestRunnerDeps = {
   onProgress?: (line: string) => void;
   onRunStarted?: (run: RunHandle) => void;
   liveView?: boolean;
+  /** Lets a person take over the browser for CAPTCHAs and bot checks. */
+  human?: HumanBridgeFactory;
 };
 
 const TEST_SYSTEM_APPEND = `
@@ -59,8 +65,11 @@ Rules for good recordings:
 - Locate rows and cells by the text you entered, not by their full content: {text: "claudio-{{run}}"} rather than a row name that includes ids or dates.
 - Use {{run}} in names of records you create so repeated runs do not collide, and {{date:+N:FORMAT}} for dates (FORMAT as the app expects, e.g. DD.MM.YYYY or YYYY-MM-DD).
 - Do not explore beyond the flow. Never type credentials; use login.
+- CAPTCHAs and bot checks are for humans: never try to solve one. Call request_human_help; the person solves it in the live view and you continue.
 - When the flow is done, call finish_test, then end with a short summary.
 `.trim();
+
+const BROWSER_GONE = /has been closed|Target closed|browser has disconnected|Browser closed/i;
 
 /** Short tag for {{run}}: time of day plus the run id's random suffix. */
 function runTagOf(runId: string): string {
@@ -93,6 +102,7 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
   const attachment = session.attachment;
   if (!attachment) throw new Error("The Playwright driver did not provide a browser attachment.");
   const liveView = deps.liveView !== false ? startLiveView(attachment, join(runDir, "live.jpg")) : null;
+  const human = deps.human ? deps.human(attachment) : undefined;
 
   const ctx: StepContext = {
     attachment,
@@ -100,9 +110,12 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
     roles: deps.config?.roles ?? {},
     env: { ...process.env, ...(deps.roleEnv ?? {}) },
     runTag: runTagOf(runId),
+    extraAllowedHosts: [...(deps.config?.extraAllowedHosts ?? []), ...(script.allowedHosts ?? [])],
+    allowAnyHost: script.allowAnyHost ?? false,
     store,
     baselineSeq: attachment.capture.lastSeq,
   };
+  await guardNavigation(ctx, (url) => log(`blocked navigation to ${url} (host not allowed for this test)`));
   await testPage(attachment);
 
   let steps: StepResult[] = [];
@@ -116,7 +129,7 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
   let assertionFailure: StepResult | undefined;
 
   const agentRun = async (prompt: string, recorder: StepRecorder, healing: boolean) => {
-    const res = await runTestAgent({ prompt, recorder, healing, ctx, store, runDir, profile, deps, abortController, log, language: request.language });
+    const res = await runTestAgent({ prompt, recorder, healing, ctx, store, runDir, profile, deps, abortController, log, language: request.language, human });
     agentCost += res.costUsd;
     agentTurns += res.turns;
     if (res.status !== "completed") status = res.status;
@@ -132,7 +145,16 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
           break;
         }
         const step = planned[i]!;
-        const out = await executeStep(step, ctx);
+        // A CAPTCHA in the way: hand over to a person, then go on. Retried once if it broke the step.
+        if (!(await clearChallenge(attachment, human, log))) {
+          status = "failed";
+          errors.push("Ein CAPTCHA oder eine Bot-Prüfung hat den Lauf blockiert, und niemand hat es gelöst.");
+          break;
+        }
+        let out = await executeStep(step, ctx);
+        if (!out.ok && (await detectCaptcha(attachment.activePage())) && (await clearChallenge(attachment, human, log))) {
+          out = await executeStep(step, ctx);
+        }
         const result: StepResult = { index: i, step, ok: out.ok, error: out.error, durationMs: out.durationMs, healed: false };
         steps.push(result);
         log(`${out.ok ? "✓" : "✗"} ${i + 1}/${planned.length} ${describeStep(step)}${out.error ? `: ${out.error}` : ""}`);
@@ -175,6 +197,14 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
     status = abortController.signal.aborted ? "aborted" : "failed";
     errors.push(`test error: ${(e as Error).message}`);
     log(`test error: ${(e as Error).message}`);
+  }
+
+  // A crashed browser makes every later step fail; report that instead of a test result.
+  const browserGone = !attachment.browser.isConnected() || steps.some((r) => r.error && BROWSER_GONE.test(r.error));
+  if (browserGone && status === "completed") {
+    status = "failed";
+    errors.push("Der Browser wurde während des Laufs unerwartet beendet. Starte den Test erneut.");
+    log("browser crashed during the run");
   }
 
   // Final state as evidence for people and for the judge.
@@ -272,6 +302,18 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
   return report;
 }
 
+/** Waits for a person when a CAPTCHA is on the page. False when it stays unsolved. */
+async function clearChallenge(attachment: StepContext["attachment"], human: HumanBridge | undefined, log: (line: string) => void): Promise<boolean> {
+  const captcha = await detectCaptcha(attachment.activePage());
+  if (!captcha) return true;
+  if (!human) {
+    log(`${captcha} on the page, and no person can take over in this run`);
+    return false;
+  }
+  const outcome = await human.wait(`${captcha} lösen`);
+  return outcome === "resolved";
+}
+
 // ---------------------------------------------------------------- agent session
 
 async function runTestAgent(a: {
@@ -286,6 +328,7 @@ async function runTestAgent(a: {
   abortController: AbortController;
   log: (line: string) => void;
   language: "de" | "en";
+  human?: HumanBridge;
 }): Promise<{ status: TestRunReport["status"]; costUsd: number; turns: number; errors: string[] }> {
   const base = createClaudioTools({
     runDir: a.runDir,
@@ -295,17 +338,35 @@ async function runTestAgent(a: {
     roles: a.ctx.roles,
     driver: "playwright",
     env: a.ctx.env,
-  }).filter((t) => ["capture_evidence", "get_console", "get_network", "note", "report_finding"].includes(t.name));
+    human: a.human,
+  }).filter((t) => ["capture_evidence", "get_console", "get_network", "note", "report_finding", "request_human_help"].includes(t.name));
   const tools = [...createTestTools(a.ctx, a.recorder, { healing: a.healing }), ...base];
 
   let knowledgeDir: string | null = null;
   if (a.deps.knowledge?.docs.length) knowledgeDir = writeKnowledgeFiles(join(a.runDir, "knowledge"), a.deps.knowledge);
   const roleEnvVars = Object.values(a.deps.config?.roles ?? {}).flatMap((r) => [r.usernameEnv, r.passwordEnv]);
 
+  // The agent may read its own run directory (knowledge base), nothing else: the cwd is Claudio's
+  // repository, not the app under test.
+  const runRoot = resolve(a.runDir);
+  const readGuard: HookCallback = async (input) => {
+    const i = input as PreToolUseHookInput;
+    const path = String((i.tool_input as { file_path?: string })?.file_path ?? "");
+    if (i.tool_name === "Read" && resolve(path).startsWith(runRoot + "/")) return {};
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse" as const,
+        permissionDecision: "deny" as const,
+        permissionDecisionReason: "In test runs only files of this run (the knowledge base) can be read. Use snapshot to inspect the app.",
+      },
+    };
+  };
+
   const options: Options = {
     cwd: resolve(a.deps.projectRoot ?? process.cwd()),
     settingSources: ["project"],
     systemPrompt: { type: "preset", preset: "claude_code", append: TEST_SYSTEM_APPEND },
+    hooks: { PreToolUse: [{ matcher: "^(Read|Grep|Glob)$", hooks: [readGuard] }] },
     model: a.profile.orchestratorModel,
     effort: a.profile.effort,
     thinking: { type: "adaptive" },
@@ -313,8 +374,8 @@ async function runTestAgent(a: {
     maxBudgetUsd: a.profile.maxBudgetUsd,
     mcpServers: { claudio: createClaudioSdkServer(tools) },
     strictMcpConfig: true,
-    allowedTools: ["mcp__claudio__*", "Read", "Grep", "Glob"],
-    disallowedTools: ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "KillShell", "BashOutput", "Agent"],
+    allowedTools: ["mcp__claudio__*", "Read"],
+    disallowedTools: ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "KillShell", "BashOutput", "Agent", "Grep", "Glob"],
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     additionalDirectories: knowledgeDir ? [knowledgeDir] : [],
@@ -357,6 +418,7 @@ ${script.expectation.trim()}
 
 ## Instance
 Base URL: ${request.instanceUrl}
+Hosts the test may open: ${script.allowAnyHost ? "any" : [new URL(request.instanceUrl).hostname, ...(deps.config?.extraAllowedHosts ?? []), ...(script.allowedHosts ?? [])].join(", ")}. For other hosts use goto with the full URL.
 Roles for login: ${roles.length ? roles.map(([n, r]) => `${n}${r.description ? ` (${r.description})` : ""}`).join(", ") : "none configured"}${script.roles.length ? `. Use: ${script.roles.join(", ")}` : ""}.
 ${deps.config?.notes ? `\n## Notes about the application\n${deps.config.notes.trim()}\n` : ""}
 Write summaries in ${request.language === "de" ? "German" : "English"}.`;

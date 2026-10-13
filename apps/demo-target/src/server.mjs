@@ -87,6 +87,21 @@ ${rows.map((t) => `<tr><td>${t.id}</td><td>${t.passenger}</td><td>${t.date}</td>
     return redirect(res, `/trips?created=${trip.id}`);
   }
   if (p === "/api/trips") return json(res, trips);
+  // Bot check fixture: /geschuetzt is only reachable after a person ticks "Ich bin kein Roboter".
+  // Used to verify Claudio's human takeover; a real app would show a CAPTCHA here.
+  if (p === "/geschuetzt") {
+    if (parseCookies(req).human !== "1") return redirect(res, "/pruefung?next=/geschuetzt");
+    return html(res, page("Geschützt", "<h1>Geschützter Bereich</h1><p>Die Bot-Prüfung wurde bestanden.</p>", user));
+  }
+  if (p === "/pruefung" && req.method === "GET") {
+    return html(res, page("Sicherheitsprüfung", `<h1>Sicherheitsprüfung</h1><p>Bitte bestätigen Sie, dass Sie ein Mensch sind.</p><form method="post" action="/pruefung?next=${encodeURIComponent(url.searchParams.get("next") ?? "/dashboard")}"><label style="display:flex;gap:8px;align-items:center;font-size:18px"><input type="checkbox" name="human" value="1" style="width:28px;height:28px" required> Ich bin kein Roboter</label><p><button type="submit">Weiter</button></p></form>`, user));
+  }
+  if (p === "/pruefung" && req.method === "POST") {
+    const b = await readBody(req);
+    if (b.get("human") !== "1") return redirect(res, "/pruefung");
+    res.setHeader("set-cookie", "human=1; Path=/; HttpOnly");
+    return redirect(res, url.searchParams.get("next") ?? "/dashboard");
+  }
   return html(res, page("404", "<h1>Seite nicht gefunden</h1>", user), 404);
 });
 

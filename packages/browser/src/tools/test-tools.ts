@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DeterminismSchema, TestOutcomeSchema, TestStepSchema, describeStep, type Determinism, type StepResult, type TestOutcome, type TestStep } from "@claudio/core";
-import { ariaSnapshot, executeStep, type StepContext } from "../steps.js";
+import { detectCaptcha } from "../human.js";
+import { ariaSnapshot, executeStep, testPage, type StepContext } from "../steps.js";
 import { def, type ClaudioTool } from "./definitions.js";
 
 export type TestFinish = { complete: boolean; outcome: TestOutcome; determinism: Determinism; summary: string };
@@ -39,10 +40,15 @@ export function createTestTools(ctx: StepContext, recorder: StepRecorder, opts: 
       "Execute one test step in the browser and record it. Actions: login(role), goto(path), click/fill/select/check/uncheck/press on a target, and assertions expect_visible, expect_hidden, expect_text, expect_url, expect_no_errors, plus screenshot(label). Targets, most robust first: {role, name} as in the snapshot (e.g. {role:'button', name:'Speichern'}), {label}, {placeholder}, {text}, {testId}, {css}. Use {{run}} in values for unique test data and {{date:+N:DD.MM.YYYY}} for dates relative to today. Only successful steps are recorded.",
     schema: { step: TestStepSchema },
     handler: async ({ step }) => {
+      if (!ctx.attachment.browser.isConnected()) {
+        return "The browser has crashed or was closed. Stop now: call finish_test with complete false and outcome inconclusive.";
+      }
       const out = await executeStep(step, ctx);
       const r = recorder.add(step, out.ok, out.durationMs, out.error, opts.healing);
-      if (out.ok) return `#${r.index} ok: ${describeStep(step)} (${out.durationMs} ms)`;
-      return `#${r.index} FAILED: ${describeStep(step)}: ${out.error}${out.assertionFailed ? "" : " Take a snapshot to find the right target, then retry; failed steps are not recorded."}`;
+      const captcha = await detectCaptcha(await testPage(ctx.attachment));
+      const hint = captcha ? ` A ${captcha} is on the page: call request_human_help; do not try to solve it yourself.` : "";
+      if (out.ok) return `#${r.index} ok: ${describeStep(step)} (${out.durationMs} ms).${hint}`;
+      return `#${r.index} FAILED: ${describeStep(step)}: ${out.error}${hint || (out.assertionFailed ? "" : " Take a snapshot to find the right target, then retry; failed steps are not recorded.")}`;
     },
   });
 
@@ -51,7 +57,11 @@ export function createTestTools(ctx: StepContext, recorder: StepRecorder, opts: 
     description: "Accessibility tree of the current page (roles and accessible names) plus URL and title. Use it to choose targets for test_step.",
     readOnly: true,
     schema: {},
-    handler: async () => ariaSnapshot(ctx.attachment),
+    handler: async () => {
+      const tree = await ariaSnapshot(ctx.attachment);
+      const captcha = await detectCaptcha(await testPage(ctx.attachment));
+      return captcha ? `${tree}\n\nNOTE: a ${captcha} is on the page. Call request_human_help; do not try to solve it yourself.` : tree;
+    },
   });
 
   const finishTest = def({

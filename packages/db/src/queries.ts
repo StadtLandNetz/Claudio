@@ -14,11 +14,14 @@ import type {
   TestScript,
   TestStep,
 } from "@claudio/core";
+import type { AutomationSettings } from "@claudio/github";
 import type { Db } from "./client.js";
 import { decrypt, encrypt, sha256 } from "./crypto.js";
 import {
   analyses,
   findings,
+  humanInputs,
+  humanRequests,
   knowledgeDocs,
   repoRoles,
   repos,
@@ -29,7 +32,12 @@ import {
   testScripts,
   users,
   type Analysis,
+  type AutoReviewDefaults,
+  type Lesson,
   type FindingStatus,
+  type HumanInputPayload,
+  type HumanRequest,
+  type RunKind,
   type Repo,
   type Review,
   type ReviewStatus,
@@ -134,6 +142,36 @@ export async function updateRepoSettings(
   await db.update(repos).set(input).where(eq(repos.id, id));
 }
 
+export async function updateAutomation(db: Db, id: number, automation: AutomationSettings, autoReview: AutoReviewDefaults): Promise<void> {
+  await db.update(repos).set({ automation, autoReview }).where(eq(repos.id, id));
+}
+
+export async function setWebhook(db: Db, id: number, hook: { webhookId: number; secret: string; userId: number } | null): Promise<void> {
+  await db
+    .update(repos)
+    .set(hook ? { webhookId: hook.webhookId, webhookSecretEnc: encrypt(hook.secret), automationUserId: hook.userId } : { webhookId: null, webhookSecretEnc: null })
+    .where(eq(repos.id, id));
+}
+
+export function webhookSecret(repo: Pick<Repo, "webhookSecretEnc">): string | null {
+  return repo.webhookSecretEnc ? decrypt(repo.webhookSecretEnc) : null;
+}
+
+export async function addLesson(db: Db, repoId: number, lesson: Lesson): Promise<void> {
+  const repo = await getRepoById(db, repoId);
+  if (!repo) return;
+  // One lesson per finding: rating the same finding again replaces it.
+  const rest = (repo.lessons ?? []).filter((l) => !(l.reviewId === lesson.reviewId && l.findingId === lesson.findingId));
+  await db.update(repos).set({ lessons: [...rest, lesson] }).where(eq(repos.id, repoId));
+}
+
+export async function removeLesson(db: Db, repoId: number, match: { reviewId: number; findingId: string }): Promise<void> {
+  const repo = await getRepoById(db, repoId);
+  if (!repo) return;
+  const lessons = (repo.lessons ?? []).filter((l) => !(l.reviewId === match.reviewId && l.findingId === match.findingId));
+  await db.update(repos).set({ lessons }).where(eq(repos.id, repoId));
+}
+
 export async function removeRepo(db: Db, id: number): Promise<void> {
   await db.delete(repoRoles).where(eq(repoRoles.repoId, id));
   await db.delete(repos).where(eq(repos.id, id));
@@ -205,7 +243,16 @@ export type ReviewListItem = Review & { repoFullName: string; startedByLogin: st
 
 export async function createReview(
   db: Db,
-  input: { repoId: number; prNumber: number; prTitle: string | null; request: ReviewRequest; fixture: string | null; startedBy: number },
+  input: {
+    repoId: number;
+    prNumber: number;
+    prTitle: string | null;
+    request: ReviewRequest;
+    fixture: string | null;
+    startedBy: number;
+    trigger?: string;
+    headSha?: string | null;
+  },
 ): Promise<number> {
   const [res] = await db.insert(reviews).values({
     repoId: input.repoId,
@@ -215,6 +262,8 @@ export async function createReview(
     request: input.request,
     fixture: input.fixture,
     startedBy: input.startedBy,
+    trigger: input.trigger ?? "manual",
+    headSha: input.headSha ?? null,
   });
   return res.insertId;
 }
@@ -239,6 +288,23 @@ export async function getReview(db: Db, id: number): Promise<ReviewListItem | un
     .innerJoin(users, eq(users.id, reviews.startedBy))
     .where(eq(reviews.id, id));
   return row ? { ...row.review, repoFullName: row.repoFullName, startedByLogin: row.startedByLogin } : undefined;
+}
+
+/** A queued or running review of the same PR (and commit, if given): a new event should not start another. */
+export async function findActiveReview(db: Db, repoId: number, prNumber: number, headSha?: string | null): Promise<Review | undefined> {
+  const [row] = await db
+    .select()
+    .from(reviews)
+    .where(
+      and(
+        eq(reviews.repoId, repoId),
+        eq(reviews.prNumber, prNumber),
+        inArray(reviews.status, ["queued", "running"]),
+        headSha ? eq(reviews.headSha, headSha) : undefined,
+      ),
+    )
+    .limit(1);
+  return row;
 }
 
 export async function requestAbort(db: Db, id: number): Promise<void> {
@@ -293,6 +359,7 @@ export async function finishReview(
       finishedAt: new Date(),
       ...(input.report ? { prTitle: input.report.pr.title } : {}),
       ...(input.report?.commentUrl ? { commentUrl: input.report.commentUrl } : {}),
+      ...(input.report?.pr.headSha ? { headSha: input.report.pr.headSha } : {}),
     })
     .where(eq(reviews.id, id));
   if (input.report && input.report.findings.length > 0) {
@@ -309,6 +376,8 @@ export async function failStaleRuns(db: Db): Promise<number> {
   const [a] = await db.update(reviews).set(set).where(eq(reviews.status, "running"));
   const [b] = await db.update(analyses).set(set).where(eq(analyses.status, "running"));
   const [c] = await db.update(testRuns).set(set).where(eq(testRuns.status, "running"));
+  // Nobody is waiting for an answer any more.
+  await db.update(humanRequests).set({ status: "cancelled", resolvedAt: new Date() }).where(eq(humanRequests.status, "open"));
   return a.affectedRows + b.affectedRows + c.affectedRows;
 }
 
@@ -467,7 +536,15 @@ export async function knowledgeDocsOf(db: Db, analysisId: number): Promise<Knowl
 
 // ---------------------------------------------------------------- test scripts & runs
 
-export type TestScriptInput = { name: string; description: string; expectation: string; roles: string[]; runInReviews: boolean };
+export type TestScriptInput = {
+  name: string;
+  description: string;
+  expectation: string;
+  roles: string[];
+  runInReviews: boolean;
+  allowedHosts: string[];
+  allowAnyHost: boolean;
+};
 
 export async function createTestScript(db: Db, repoId: number, input: TestScriptInput, createdBy: number): Promise<number> {
   const [res] = await db.insert(testScripts).values({ ...input, repoId, createdBy });
@@ -546,6 +623,8 @@ export function toTestScript(row: TestScriptRow): TestScript {
     roles: row.roles ?? [],
     determinism: row.determinism ?? null,
     steps: row.steps ?? null,
+    allowedHosts: row.allowedHosts ?? [],
+    allowAnyHost: row.allowAnyHost,
   };
 }
 
@@ -675,6 +754,59 @@ export async function requestTestRunAbort(db: Db, id: number): Promise<void> {
 export async function isTestRunAbortRequested(db: Db, id: number): Promise<boolean> {
   const [row] = await db.select({ abort: testRuns.abortRequested }).from(testRuns).where(eq(testRuns.id, id));
   return Boolean(row?.abort);
+}
+
+// ---------------------------------------------------------------- human takeover
+
+export async function createHumanRequest(db: Db, input: { runKind: RunKind; runRefId: number; repoId: number; reason: string }): Promise<number> {
+  const [res] = await db.insert(humanRequests).values({ ...input, reason: input.reason.slice(0, 500) });
+  return res.insertId;
+}
+
+export async function getHumanRequest(db: Db, id: number): Promise<HumanRequest | undefined> {
+  const [row] = await db.select().from(humanRequests).where(eq(humanRequests.id, id));
+  return row;
+}
+
+export async function openHumanRequest(db: Db, runKind: RunKind, runRefId: number): Promise<HumanRequest | undefined> {
+  const [row] = await db
+    .select()
+    .from(humanRequests)
+    .where(and(eq(humanRequests.runKind, runKind), eq(humanRequests.runRefId, runRefId), eq(humanRequests.status, "open")))
+    .orderBy(desc(humanRequests.id))
+    .limit(1);
+  return row;
+}
+
+export type OpenHumanRequest = HumanRequest & { repoFullName: string };
+
+export async function listOpenHumanRequests(db: Db): Promise<OpenHumanRequest[]> {
+  const rows = await db
+    .select({ req: humanRequests, repoFullName: repos.fullName })
+    .from(humanRequests)
+    .innerJoin(repos, eq(repos.id, humanRequests.repoId))
+    .where(eq(humanRequests.status, "open"))
+    .orderBy(asc(humanRequests.id));
+  return rows.map((r) => ({ ...r.req, repoFullName: r.repoFullName }));
+}
+
+export async function closeHumanRequest(db: Db, id: number, status: "resolved" | "cancelled" | "timeout", userId: number | null): Promise<void> {
+  await db
+    .update(humanRequests)
+    .set({ status, resolvedBy: userId, resolvedAt: new Date() })
+    .where(and(eq(humanRequests.id, id), eq(humanRequests.status, "open")));
+}
+
+export async function addHumanInput(db: Db, requestId: number, input: HumanInputPayload, userId: number): Promise<void> {
+  await db.insert(humanInputs).values({ requestId, input, userId });
+}
+
+export async function humanInputsSince(db: Db, requestId: number, afterId: number) {
+  return db
+    .select({ id: humanInputs.id, input: humanInputs.input })
+    .from(humanInputs)
+    .where(and(eq(humanInputs.requestId, requestId), gt(humanInputs.id, afterId)))
+    .orderBy(asc(humanInputs.id));
 }
 
 // ---------------------------------------------------------------- findings

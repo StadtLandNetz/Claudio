@@ -1,6 +1,18 @@
 import { error, fail } from '@sveltejs/kit';
 import { StrictnessSchema, blockingFindings, renderPrComment, sortBySeverity, verdict, withTests, type ReviewTestResult } from '@claudio/core';
-import { FINDING_STATUSES, eventsSince, getReview, listFindings, listTestRuns, rateFinding, requestAbort, setReviewCommentUrl } from '@claudio/db';
+import {
+	addLesson,
+	eventsSince,
+	getReview,
+	listFindings,
+	listTestRuns,
+	openHumanRequest,
+	rateFinding,
+	removeLesson,
+	requestAbort,
+	setReviewCommentUrl,
+	FINDING_STATUSES
+} from '@claudio/db';
 import { createGithubClient, postPullRequestComment } from '@claudio/github';
 import { userToken } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
@@ -53,7 +65,8 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			error: review.error,
 			abortRequested: review.abortRequested,
 			fixture: review.fixture,
-			commentUrl: review.commentUrl
+			commentUrl: review.commentUrl,
+			trigger: review.trigger
 		},
 		commentPreview: report
 			? renderMarkdown(renderPrComment(report, `${publicBaseUrl(url)}/reviews/${review.id}`, { strictness, dismissedIds: dismissed, tests }))
@@ -80,6 +93,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 				}
 			: null,
 		events: events.map((e) => ({ seq: e.seq, line: e.line })),
+		human: await openHumanRequest(db(), 'review', review.id).then((h) => (h ? { id: h.id, reason: h.reason } : null)),
 		tests: testRuns
 			.map((t) => ({ id: t.id, scriptId: t.scriptId, name: t.scriptName, status: t.status, outcome: t.outcome, healed: t.healed, mode: t.mode, summary: t.report?.summary ?? '' }))
 			.reverse()
@@ -93,9 +107,16 @@ export const actions: Actions = {
 		const findingId = String(f.get('findingId') ?? '');
 		const status = String(f.get('status') ?? '');
 		if (!(FINDING_STATUSES as readonly string[]).includes(status)) return fail(400, { error: 'Unbekannte Bewertung.' });
-		if (!review.report?.findings.some((x) => x.id === findingId)) return fail(400, { error: 'Unbekanntes Finding.' });
+		const finding = review.report?.findings.find((x) => x.id === findingId);
+		if (!finding) return fail(400, { error: 'Unbekanntes Finding.' });
 		const comment = String(f.get('comment') ?? '').trim().slice(0, 2000) || null;
 		await rateFinding(db(), review.id, findingId, { status: status as (typeof FINDING_STATUSES)[number], comment, userId: locals.user!.id });
+		// A dismissal with a reason teaches later reviews of this repo; undoing it forgets the lesson.
+		if (status === 'dismissed' && comment) {
+			await addLesson(db(), review.repoId, { text: `${finding.title}: ${comment}`, reviewId: review.id, findingId, by: locals.user!.login, at: new Date().toISOString() });
+		} else {
+			await removeLesson(db(), review.repoId, { reviewId: review.id, findingId });
+		}
 		return { rated: findingId };
 	},
 	comment: async ({ params, request, locals, url }) => {

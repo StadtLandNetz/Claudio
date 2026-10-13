@@ -121,6 +121,7 @@ export const ReviewReportSchema = z.object({
     headRef: z.string(),
     baseRef: z.string(),
     author: z.string().optional(),
+    headSha: z.string().optional(),
   }),
   issues: z.array(z.object({ number: z.number(), title: z.string(), url: z.string() })),
   summary: z.string(),
@@ -170,5 +171,7 @@ export const RepoConfigSchema = z.object({
   notes: z.string().optional(),
   /** Hosts the browser may visit in addition to the instance host (e.g. an auth provider). */
   extraAllowedHosts: z.array(z.string()).default([]),
+  /** What people told Claudio when they dismissed findings: things that are intended, not bugs. */
+  lessons: z.array(z.string()).default([]),
 });
 export type RepoConfig = z.infer<typeof RepoConfigSchema>;

@@ -1,7 +1,8 @@
 <script lang="ts">
+	import { liveFrames } from '#lib/live-frames.svelte.js';
+
 	let { src, url }: { src: string; url: string } = $props();
-	let hasFrame = $state(false);
-	let failed = $state(false);
+	const frames = liveFrames(() => src);
 </script>
 
 <section class="live sheet" aria-label="Live-Ansicht des Browsers">
@@ -11,17 +12,10 @@
 		<span class="url faint">{url}</span>
 	</header>
 	<div class="screen">
-		<img
-			{src}
-			alt="Aktueller Bildschirm des Browsers, den Claudio steuert"
-			class:show={hasFrame}
-			onload={() => (hasFrame = true)}
-			onerror={() => (failed = true)}
-		/>
-		{#if !hasFrame}
-			<p class="wait faint">
-				{failed ? 'Die Live-Ansicht ist gerade nicht erreichbar.' : 'Wartet auf das erste Bild, sobald der Browser startet …'}
-			</p>
+		{#if frames.url}
+			<img src={frames.url} alt="Aktueller Bildschirm des Browsers, den Claudio steuert" class="show" />
+		{:else}
+			<p class="wait faint">Wartet auf das erste Bild, sobald der Browser startet …</p>
 		{/if}
 	</div>
 </section>

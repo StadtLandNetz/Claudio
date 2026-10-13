@@ -125,3 +125,60 @@ export async function changedFilesBetween(octokit: Octokit, repoFullName: string
   const files = (data.files ?? []).map((f) => ({ filename: f.filename, status: f.status }));
   return { files, totalCommits: data.total_commits, truncated: files.length >= 300 };
 }
+
+export const WEBHOOK_EVENTS = ["pull_request", "issue_comment", "push"];
+
+/** Creates the repository webhook that sends PR, comment and push events to Claudio. Returns the hook id. */
+export async function createRepoWebhook(octokit: Octokit, repoFullName: string, url: string, secret: string): Promise<number> {
+  const { owner, repo } = parseRepo(repoFullName);
+  const { data } = await octokit.rest.repos.createWebhook({
+    owner,
+    repo,
+    name: "web",
+    active: true,
+    events: WEBHOOK_EVENTS,
+    config: { url, content_type: "json", secret, insecure_ssl: "0" },
+  });
+  return data.id;
+}
+
+export async function deleteRepoWebhook(octokit: Octokit, repoFullName: string, hookId: number): Promise<void> {
+  const { owner, repo } = parseRepo(repoFullName);
+  await octokit.rest.repos.deleteWebhook({ owner, repo, hook_id: hookId }).catch((e: { status?: number }) => {
+    if (e.status !== 404) throw e;
+  });
+}
+
+/** Last delivery status of the webhook, for the settings page. */
+export async function getRepoWebhook(octokit: Octokit, repoFullName: string, hookId: number) {
+  const { owner, repo } = parseRepo(repoFullName);
+  const { data } = await octokit.rest.repos.getWebhook({ owner, repo, hook_id: hookId });
+  return { active: data.active, url: data.config.url ?? "", lastResponse: data.last_response };
+}
+
+export type CommitState = "pending" | "success" | "failure" | "error";
+
+/** Sets the "Claudio" status on a commit; GitHub shows it in the PR's checks and branch protection can require it. */
+export async function setCommitStatus(octokit: Octokit, repoFullName: string, sha: string, state: CommitState, description: string, targetUrl?: string): Promise<void> {
+  const { owner, repo } = parseRepo(repoFullName);
+  await octokit.rest.repos.createCommitStatus({
+    owner,
+    repo,
+    sha,
+    state,
+    context: "Claudio",
+    description: description.slice(0, 140),
+    target_url: targetUrl,
+  });
+}
+
+export async function reactToComment(octokit: Octokit, repoFullName: string, commentId: number, content: "eyes" | "rocket" = "eyes"): Promise<void> {
+  const { owner, repo } = parseRepo(repoFullName);
+  await octokit.rest.reactions.createForIssueComment({ owner, repo, comment_id: commentId, content });
+}
+
+export async function getPullHead(octokit: Octokit, repoFullName: string, number: number): Promise<{ sha: string; branch: string; title: string; open: boolean }> {
+  const { owner, repo } = parseRepo(repoFullName);
+  const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: number });
+  return { sha: data.head.sha, branch: data.head.ref, title: data.title, open: data.state === "open" };
+}

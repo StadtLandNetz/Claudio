@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { AnalysisRequestSchema, KNOWLEDGE_DOCS, LoginStepSchema, TestRunRequestSchema } from '@claudio/core';
+import { AnalysisRequestSchema, KNOWLEDGE_DOCS, LoginStepSchema, TestRunRequestSchema, parseHostList } from '@claudio/core';
 import {
 	createAnalysis,
 	createTestRuns,
@@ -16,7 +16,10 @@ import {
 	listTestRuns,
 	listTestScripts,
 	testResultsByReview,
+	removeLesson,
 	removeRepo,
+	setWebhook,
+	updateAutomation,
 	roleUsername,
 	saveRole,
 	updateRepoSettings
@@ -24,7 +27,9 @@ import {
 import { userToken } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
-import { createGithubClient, getBranchHead } from '@claudio/github';
+import { createGithubClient, createRepoWebhook, deleteRepoWebhook, getBranchHead, getRepoWebhook } from '@claudio/github';
+import { DEFAULT_AUTOMATION, DEFAULT_AUTO_REVIEW } from '#lib/server/automation.js';
+import { publicBaseUrl } from '#lib/server/env.js';
 import { renderMarkdown } from '#lib/markdown.js';
 import { devFixtures } from '#lib/server/env.js';
 import { githubErrorMessage, listOpenPulls, type GithubPull } from '#lib/server/github.js';
@@ -80,6 +85,20 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		batchId ? listTestRuns(db(), { batchId, repoId: repo.id }, 200) : Promise.resolve([])
 	]);
 
+	// Webhook health, shown in the settings.
+	let webhook: { id: number; ok: boolean | null; status: string } | null = null;
+	if (repo.webhookId) {
+		const token = await userToken(locals.user!);
+		const info = token && !isDemo ? await getRepoWebhook(createGithubClient(token), repo.fullName, repo.webhookId).catch(() => null) : null;
+		const code = info?.lastResponse?.code ?? null;
+		webhook = {
+			id: repo.webhookId,
+			ok: code === null ? null : code >= 200 && code < 300,
+			status: info ? (code ? `Letzte Zustellung: HTTP ${code}${info.lastResponse?.message ? ` (${info.lastResponse.message})` : ''}` : 'Noch keine Zustellung') : 'Status nicht abrufbar'
+		};
+	}
+	const base = publicBaseUrl(url);
+
 	const tab = url.searchParams.get('tab');
 	return {
 		repo: {
@@ -88,7 +107,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			notes: repo.notes ?? '',
 			extraAllowedHosts: repo.extraAllowedHosts,
 			dataConfirmed: repo.dataConfirmed,
-			defaultInstanceUrl: repo.defaultInstanceUrl ?? ''
+			defaultInstanceUrl: repo.defaultInstanceUrl ?? '',
+			defaultBranch: repo.defaultBranch
 		},
 		roles: roles.map((r) => ({
 			name: r.name,
@@ -123,6 +143,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			startedBy: a.startedByLogin,
 			createdAt: a.createdAt
 		})),
+		automation: repo.automation ?? DEFAULT_AUTOMATION,
+		autoReview: repo.autoReview ?? DEFAULT_AUTO_REVIEW,
+		webhook,
+		webhookUrl: `${base}/webhooks/github`,
+		localBaseUrl: /^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(base),
+		lessons: repo.lessons ?? [],
 		tests: tests.map((t) => ({
 			id: t.id,
 			name: t.name,
@@ -161,10 +187,7 @@ export const actions: Actions = {
 		const f = await request.formData();
 		const defaultInstanceUrl = text(f.get('defaultInstanceUrl'));
 		if (defaultInstanceUrl && !URL.canParse(defaultInstanceUrl)) return fail(400, { error: 'Die Standard-URL ist keine gültige Adresse.', form: 'settings' });
-		const hosts = text(f.get('extraAllowedHosts'))
-			.split(/[\s,]+/)
-			.map((h) => h.trim())
-			.filter(Boolean);
+		const hosts = parseHostList(text(f.get('extraAllowedHosts')));
 		await updateRepoSettings(db(), repo.id, {
 			notes: text(f.get('notes')) || null,
 			extraAllowedHosts: hosts,
@@ -244,7 +267,9 @@ export const actions: Actions = {
 			description: text(f.get('description')),
 			expectation: text(f.get('expectation')),
 			roles: f.getAll('roles').map(String),
-			runInReviews: f.get('runInReviews') === 'on'
+			runInReviews: f.get('runInReviews') === 'on',
+			allowedHosts: parseHostList(text(f.get('allowedHosts'))),
+			allowAnyHost: f.get('allowAnyHost') === 'on'
 		};
 		if (!input.name || !input.description || !input.expectation) {
 			return fail(400, { error: 'Name, Ablauf und erwartetes Ergebnis sind Pflicht.', form: 'createTest' });
@@ -267,6 +292,72 @@ export const actions: Actions = {
 			scripts.map((s) => ({ scriptId: s.id, repoId: repo.id, request: parsed.data, batchId, startedBy: locals.user!.id }))
 		);
 		redirect(303, `/repos/${repo.fullName}?tab=tests&batch=${batchId}`);
+	},
+
+	automation: async ({ params, request }) => {
+		const repo = await loadRepo(params);
+		const f = await request.formData();
+		const template = text(f.get('instanceUrlTemplate'));
+		if (template && !URL.canParse(template.replace(/\{[a-z_]+\}/g, 'x'))) {
+			return fail(400, { error: 'Die URL-Vorlage ergibt keine gültige Adresse.', form: 'automation' });
+		}
+		const pick = <T extends string>(v: FormDataEntryValue | null, allowed: readonly T[], fallback: T): T =>
+			(allowed as readonly string[]).includes(String(v)) ? (String(v) as T) : fallback;
+		await updateAutomation(
+			db(),
+			repo.id,
+			{
+				instanceUrlTemplate: template,
+				onComment: f.get('onComment') === 'on',
+				onLabel: f.get('onLabel') === 'on',
+				onPush: f.get('onPush') === 'on',
+				analyzeOnMerge: f.get('analyzeOnMerge') === 'on',
+				commitStatus: f.get('commitStatus') === 'on'
+			},
+			{
+				roles: f.getAll('autoRoles').map(String),
+				budget: pick(f.get('autoBudget'), ['quick', 'standard', 'thorough'] as const, 'standard'),
+				strictness: pick(f.get('autoStrictness'), ['lenient', 'normal', 'strict'] as const, 'normal'),
+				postComment: f.get('autoComment') === 'on',
+				runTests: f.get('autoTests') === 'on'
+			}
+		);
+		return { saved: 'automation' };
+	},
+
+	installWebhook: async ({ params, locals, url }) => {
+		const repo = await loadRepo(params);
+		const token = await userToken(locals.user!);
+		if (!token) return fail(400, { error: 'Zum Einrichten brauchst du eine Anmeldung mit GitHub.', form: 'webhook' });
+		const secret = randomUUID() + randomUUID();
+		const github = createGithubClient(token);
+		try {
+			if (repo.webhookId) await deleteRepoWebhook(github, repo.fullName, repo.webhookId);
+			const id = await createRepoWebhook(github, repo.fullName, `${publicBaseUrl(url)}/webhooks/github`, secret);
+			await setWebhook(db(), repo.id, { webhookId: id, secret, userId: locals.user!.id });
+		} catch (e) {
+			const status = (e as { status?: number }).status;
+			return fail(400, {
+				error: status === 404 || status === 403 ? 'GitHub erlaubt das nicht: Für Webhooks brauchst du Admin-Rechte am Repository.' : `GitHub hat abgelehnt: ${(e as Error).message}`,
+				form: 'webhook'
+			});
+		}
+		return { saved: 'webhook' };
+	},
+
+	removeWebhook: async ({ params, locals }) => {
+		const repo = await loadRepo(params);
+		const token = await userToken(locals.user!);
+		if (repo.webhookId && token) await deleteRepoWebhook(createGithubClient(token), repo.fullName, repo.webhookId).catch(() => undefined);
+		await setWebhook(db(), repo.id, null);
+		return { saved: 'webhook-removed' };
+	},
+
+	removeLesson: async ({ params, request }) => {
+		const repo = await loadRepo(params);
+		const f = await request.formData();
+		await removeLesson(db(), repo.id, { reviewId: Number(f.get('reviewId')), findingId: text(f.get('findingId')) });
+		return { saved: 'lesson' };
 	},
 
 	remove: async ({ params }) => {

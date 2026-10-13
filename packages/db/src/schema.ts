@@ -1,4 +1,5 @@
 import { bigint, boolean, datetime, index, int, json, mediumtext, mysqlEnum, mysqlTable, text, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import type { AutomationSettings } from "@claudio/github";
 import type {
   AnalysisReport,
   AnalysisRequest,
@@ -51,9 +52,29 @@ export const repos = mysqlTable("repos", {
   /** Confirmation that review instances only hold synthetic data (screenshots go to Anthropic). */
   dataConfirmed: boolean("data_confirmed").notNull().default(false),
   defaultInstanceUrl: varchar("default_instance_url", { length: 500 }),
+  /** Webhook-driven automation (Phase 5). Null until configured. */
+  automation: json("automation").$type<AutomationSettings | null>(),
+  /** Defaults for reviews started by GitHub events. */
+  autoReview: json("auto_review").$type<AutoReviewDefaults | null>(),
+  webhookId: bigint("webhook_id", { mode: "number" }),
+  webhookSecretEnc: text("webhook_secret_enc"),
+  /** Whose GitHub token automated runs use (the person who installed the webhook). */
+  automationUserId: ref("automation_user_id"),
+  /** Dismissed findings with a reason; every later review is told about them. */
+  lessons: json("lessons").$type<Lesson[]>().notNull().$defaultFn(() => []),
   createdBy: ref("created_by").notNull(),
   createdAt: createdAt(),
 });
+
+export type AutoReviewDefaults = {
+  roles: string[];
+  budget: "quick" | "standard" | "thorough";
+  strictness: "lenient" | "normal" | "strict";
+  postComment: boolean;
+  runTests: boolean;
+};
+
+export type Lesson = { text: string; reviewId: number; findingId: string; by: string; at: string };
 
 export const repoRoles = mysqlTable(
   "repo_roles",
@@ -86,6 +107,10 @@ export const reviews = mysqlTable(
     request: json("request").$type<ReviewRequest>().notNull(),
     /** Use the demo fixture instead of GitHub (only honoured with CLAUDIO_DEV_FIXTURES=1). */
     fixture: varchar("fixture", { length: 60 }),
+    /** manual, comment, label or push (automatic). */
+    trigger: varchar("trigger", { length: 20 }).notNull().default("manual"),
+    /** PR head commit the review is about (for the commit status). */
+    headSha: varchar("head_sha", { length: 64 }),
     status: mysqlEnum("status", REVIEW_STATUSES).notNull().default("queued"),
     runId: varchar("run_id", { length: 120 }),
     report: json("report").$type<ReviewReport>(),
@@ -162,6 +187,9 @@ export const testScripts = mysqlTable(
     stepsUpdatedAt: datetime("steps_updated_at", { mode: "date" }),
     /** Run as a regression test with every PR review of the repo. */
     runInReviews: boolean("run_in_reviews").notNull().default(false),
+    /** Hosts this test may open besides the instance and the repo's allowed hosts. */
+    allowedHosts: json("allowed_hosts").$type<string[] | null>(),
+    allowAnyHost: boolean("allow_any_host").notNull().default(false),
     createdBy: ref("created_by").notNull(),
     createdAt: createdAt(),
     updatedAt: datetime("updated_at", { mode: "date" }).notNull().$defaultFn(() => new Date()),
@@ -206,6 +234,46 @@ export const testRuns = mysqlTable(
     index("test_runs_batch_idx").on(t.batchId),
   ],
 );
+
+export const RUN_KINDS = ["review", "analysis", "test"] as const;
+export type RunKind = (typeof RUN_KINDS)[number];
+export const HUMAN_REQUEST_STATUSES = ["open", "resolved", "cancelled", "timeout"] as const;
+
+/** A run waiting for a person (CAPTCHA, bot check). The person works in the live view, then resolves it. */
+export const humanRequests = mysqlTable(
+  "human_requests",
+  {
+    id: id(),
+    runKind: mysqlEnum("run_kind", RUN_KINDS).notNull(),
+    runRefId: ref("run_ref_id").notNull(),
+    repoId: ref("repo_id").notNull(),
+    reason: varchar("reason", { length: 500 }).notNull(),
+    status: mysqlEnum("status", HUMAN_REQUEST_STATUSES).notNull().default("open"),
+    resolvedBy: ref("resolved_by"),
+    createdAt: createdAt(),
+    resolvedAt: datetime("resolved_at", { mode: "date" }),
+  },
+  (t) => [index("human_requests_run_idx").on(t.runKind, t.runRefId), index("human_requests_status_idx").on(t.status)],
+);
+
+/** Clicks and keystrokes from the live view, applied in order by the worker. */
+export const humanInputs = mysqlTable(
+  "human_inputs",
+  {
+    id: id(),
+    requestId: ref("request_id").notNull(),
+    input: json("input").$type<HumanInputPayload>().notNull(),
+    userId: ref("user_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("human_inputs_request_idx").on(t.requestId)],
+);
+
+export type HumanInputPayload =
+  | { type: "click"; x: number; y: number }
+  | { type: "type"; text: string }
+  | { type: "key"; key: string }
+  | { type: "scroll"; dy: number };
 
 /** Live log lines of a review, an analysis or a test run (exactly one id is set). */
 export const runEvents = mysqlTable(
@@ -253,3 +321,4 @@ export type FindingRow = typeof findings.$inferSelect;
 export type Analysis = typeof analyses.$inferSelect;
 export type TestScriptRow = typeof testScripts.$inferSelect;
 export type TestRun = typeof testRuns.$inferSelect;
+export type HumanRequest = typeof humanRequests.$inferSelect;

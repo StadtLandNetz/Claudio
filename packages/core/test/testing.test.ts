@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TestStepSchema, describeStep, resolveStepTemplates, resolveTemplate } from "../src/index.js";
+import { TestStepSchema, describeStep, hostAllowed, parseHostList, resolveStepTemplates, resolveTemplate } from "../src/index.js";
 
 const now = new Date(2026, 9, 12, 10, 0, 0);
 
@@ -24,5 +24,16 @@ describe("describeStep", () => {
     expect(describeStep({ action: "click", target: { role: "button", name: "Speichern" } })).toBe("Klicken auf button „Speichern“");
     expect(describeStep({ action: "fill", target: { label: "Datum" }, value: "{{date:+1}}" })).toBe("Feld „Datum“ ausfüllen mit „{{date:+1}}“");
     expect(describeStep({ action: "expect_no_errors" })).toBe("Prüfen: keine Fehler in Konsole und Netzwerk");
+  });
+});
+
+describe("allowed hosts", () => {
+  it("normalises user input to host names", () => {
+    expect(parseHostList("https://www.Google.com/search?q=x, login.example.de;  bad host, localhost")).toEqual(["www.google.com", "login.example.de"]);
+  });
+  it("allows subdomains of allowed hosts only", () => {
+    expect(hostAllowed("www.google.com", ["google.com"])).toBe(true);
+    expect(hostAllowed("evilgoogle.com", ["google.com"])).toBe(false);
+    expect(hostAllowed("127.0.0.1", ["127.0.0.1"])).toBe(true);
   });
 });

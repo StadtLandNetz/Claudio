@@ -14,7 +14,7 @@ export function roleEnvNames(roleName: string): { usernameEnv: string; passwordE
  * Claudio tools (login_as), never to the agent process.
  */
 export function toRepoConfig(
-  repo: Pick<Repo, "fullName" | "notes" | "extraAllowedHosts">,
+  repo: Pick<Repo, "fullName" | "notes" | "extraAllowedHosts"> & Partial<Pick<Repo, "lessons">>,
   roles: RepoRole[],
   decryptFn: (value: string) => string = decrypt,
 ): { config: RepoConfig; roleEnv: Record<string, string> } {
@@ -36,6 +36,7 @@ export function toRepoConfig(
     repo: repo.fullName,
     notes: repo.notes ?? undefined,
     extraAllowedHosts: repo.extraAllowedHosts ?? [],
+    lessons: (repo.lessons ?? []).map((l) => l.text),
     roles: configRoles,
   });
   return { config, roleEnv };

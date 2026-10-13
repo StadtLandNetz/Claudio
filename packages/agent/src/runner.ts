@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { query, type Options, type SDKMessage, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
-import { RunStore, createClaudioTools, createDriver, startLiveView, type DriverSession } from "@claudio/browser";
+import { RunStore, createClaudioTools, createDriver, startLiveView, type DriverSession, type HumanBridgeFactory } from "@claudio/browser";
 import {
   ReviewRequestSchema,
   budgetProfile,
@@ -20,7 +20,7 @@ import {
   type RunStatus,
 } from "@claudio/core";
 import { createGithubClient, fetchPullRequestContext, postPullRequestComment, type PullRequestContext } from "@claudio/github";
-import { createBrowserGuard } from "./hooks.js";
+import { createBrowserGuard, createCaptchaHook } from "./hooks.js";
 import { SYSTEM_APPEND, buildReviewPrompt, extractAffectedAreas } from "./prompts.js";
 import { createClaudioSdkServer } from "./sdk-tools.js";
 
@@ -46,6 +46,8 @@ export type RunnerDeps = {
   onProgress?: (line: string) => void;
   /** Latest knowledge base of the repository (from a repo analysis), handed to the agent as files. */
   knowledge?: KnowledgeBase | null;
+  /** Lets a person take over the browser for CAPTCHAs and bot checks (web UI). */
+  human?: HumanBridgeFactory;
   /** Write the browser screencast to runDir/live.jpg for the web UI. Default: true. */
   liveView?: boolean;
   /** Link to this review in the web UI, used in the PR comment. */
@@ -110,6 +112,7 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     language: request.language,
   });
   log(`browser driver: ${session.name}${session.attachment ? ` (cdp ${session.attachment.cdpEndpoint})` : ""}`);
+  const human = session.attachment && deps.human ? deps.human(session.attachment) : undefined;
   // Screencast for the live view in the web UI (runDir/live.jpg).
   const liveView = session.attachment && deps.liveView !== false ? startLiveView(session.attachment, join(runDir, "live.jpg")) : null;
 
@@ -121,6 +124,7 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     roles: config?.roles ?? {},
     driver: session.name,
     env: deps.roleEnv ? { ...process.env, ...deps.roleEnv } : undefined,
+    human,
   });
   const claudioServer = createClaudioSdkServer(tools);
 
@@ -165,7 +169,10 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     disallowedTools: [...session.disallowedTools, "Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "KillShell", "BashOutput"],
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
-    hooks: { PreToolUse: guard.hooks },
+    hooks: {
+      PreToolUse: guard.hooks,
+      PostToolUse: session.attachment ? [createCaptchaHook(() => session.attachment?.activePage(), Boolean(human))] : [],
+    },
     additionalDirectories: [repoDir, knowledgeDir].filter((d): d is string => Boolean(d)),
     extraArgs: session.extraArgs,
     abortController,
@@ -200,7 +207,7 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     runId,
     status,
     request,
-    pr: { number: pr.number, title: pr.title, url: pr.url, headRef: pr.headRef, baseRef: pr.baseRef, author: pr.author },
+    pr: { number: pr.number, title: pr.title, url: pr.url, headRef: pr.headRef, baseRef: pr.baseRef, author: pr.author, headSha: pr.headSha },
     issues: pr.issues.map((i) => ({ number: i.number, title: i.title, url: i.url })),
     summary,
     affectedAreas: extractAffectedAreas(summary),

@@ -12,6 +12,8 @@
   "dependencies": {
     "@claudio/agent": "workspace:*",
     "@claudio/core": "workspace:*",
-    "@claudio/db": "workspace:*"
+    "@claudio/db": "workspace:*",
+    "@claudio/github": "workspace:*",
+    "@claudio/browser": "workspace:*"
   }
 }

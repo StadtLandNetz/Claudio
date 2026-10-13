@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { invalidateAll } from '$app/navigation';
 	import { enhance } from '$app/forms';
 	import LiveLog from '#lib/components/LiveLog.svelte';
+	import HumanTakeover from '#lib/components/HumanTakeover.svelte';
 	import LiveView from '#lib/components/LiveView.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import Severity from '#lib/components/Severity.svelte';
@@ -28,7 +30,7 @@
 
 <svelte:head><title>{run.scriptName} · Testlauf · Claudio</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{run.repo}?tab=tests">{run.repo}</a> / <a href="/tests/{run.scriptId}">{run.scriptName}</a></p>
+<p class="crumb"><a href="/repos/{run.repo}?tab=tests">Tests</a> / <a href="/tests/{run.scriptId}">{run.scriptName}</a></p>
 <div class="title">
 	<h1>Testlauf: {run.scriptName}</h1>
 	{#if active}
@@ -54,7 +56,9 @@
 
 <div class="layout">
 	<div class="main">
-		{#if active}
+		{#if active && data.human}
+			<HumanTakeover src="/test-runs/{data.run.id}/live" requestId={data.human.id} reason={data.human.reason} url={run.instanceUrl} />
+		{:else if active}
 			<LiveView src="/test-runs/{data.run.id}/live" url={run.instanceUrl} />
 		{/if}
 		{#if isActive(data.run.status) || data.events.length > 0}
@@ -63,6 +67,7 @@
 				events={data.events}
 				active={isActive(data.run.status)}
 				onstatus={(s) => (liveStatus = s)}
+				online={(line) => /^Mensch (gebraucht|fertig):/.test(line) && invalidateAll()}
 			/>
 		{/if}
 

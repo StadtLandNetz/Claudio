@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { DeterminismSchema, TestRunRequestSchema, describeStep } from '@claudio/core';
+import { DeterminismSchema, TestRunRequestSchema, describeStep, parseHostList } from '@claudio/core';
 import {
 	createTestRun,
 	deleteTestScript,
@@ -35,6 +35,8 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			roles: script.roles ?? [],
 			determinism: script.determinism,
 			runInReviews: script.runInReviews,
+			allowedHosts: script.allowedHosts ?? [],
+			allowAnyHost: script.allowAnyHost,
 			stepsVersion: script.stepsVersion,
 			stepsUpdatedAt: script.stepsUpdatedAt,
 			steps: (script.steps ?? []).map((s) => ({ text: describeStep(s), assertion: s.action.startsWith('expect_') }))
@@ -70,6 +72,8 @@ export const actions: Actions = {
 			expectation: text(f.get('expectation')),
 			roles: f.getAll('roles').map(String),
 			runInReviews: f.get('runInReviews') === 'on',
+			allowedHosts: parseHostList(text(f.get('allowedHosts'))),
+			allowAnyHost: f.get('allowAnyHost') === 'on',
 			determinism: determinism.success ? determinism.data : script.determinism
 		};
 		if (!input.name || !input.description || !input.expectation) return fail(400, { error: 'Name, Ablauf und erwartetes Ergebnis sind Pflicht.', form: 'update' });

@@ -8,7 +8,6 @@
 
 <svelte:head><title>Review starten · Claudio</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{data.repo}">{data.repo}</a></p>
 <h1>Review starten</h1>
 
 {#if data.pr}
@@ -105,10 +104,6 @@
 </form>
 
 <style>
-	.crumb {
-		font-size: 0.875rem;
-		margin-bottom: 0.25rem;
-	}
 	.pr {
 		margin: 0.5rem 0 1.5rem;
 		display: grid;

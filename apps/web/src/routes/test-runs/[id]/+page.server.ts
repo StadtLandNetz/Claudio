@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { describeStep, resolveStepTemplates, sortBySeverity } from '@claudio/core';
-import { eventsSince, getTestRun, requestTestRunAbort } from '@claudio/db';
+import { eventsSince, getTestRun, openHumanRequest, requestTestRunAbort } from '@claudio/db';
 import { db } from '#lib/server/db.js';
 import { runFileUrl } from '#lib/server/run-files.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -64,7 +64,8 @@ export const load: PageServerLoad = async ({ params }) => {
 					errors: r.errors
 				}
 			: null,
-		events: events.map((e) => ({ seq: e.seq, line: e.line }))
+		events: events.map((e) => ({ seq: e.seq, line: e.line })),
+		human: await openHumanRequest(db(), 'test', run.id).then((h) => (h ? { id: h.id, reason: h.reason } : null))
 	};
 };
 

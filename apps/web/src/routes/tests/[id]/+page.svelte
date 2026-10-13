@@ -25,7 +25,7 @@
 
 <svelte:head><title>{s.name} · Tests · Claudio</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{s.repo}?tab=tests">{s.repo}</a></p>
+<p class="crumb"><a href="/repos/{s.repo}?tab=tests">Alle Tests</a></p>
 <h1>{s.name}</h1>
 <p class="kind">
 	{#if s.determinism}
@@ -34,6 +34,7 @@
 		<span class="muted">Noch nicht aufgezeichnet. Der erste Lauf zeichnet den Ablauf mit einem Agenten auf.</span>
 	{/if}
 	{#if s.runInReviews}<span class="tag">läuft bei PR-Reviews mit</span>{/if}
+	{#if s.allowAnyHost}<span class="tag">darf beliebige Websites öffnen</span>{:else if s.allowedHosts.length}<span class="tag">darf auch {s.allowedHosts.join(', ')} öffnen</span>{/if}
 </p>
 
 {#if data.isNew}
@@ -182,6 +183,18 @@
 			</select>
 			<small>Ändert sich der Ablauf grundlegend, verwirf zusätzlich die Aufzeichnung.</small>
 		</label>
+		<fieldset>
+			<legend>Andere Websites</legend>
+			<label class="field">
+				<span>Weitere erlaubte Hosts</span>
+				<input type="text" name="allowedHosts" value={s.allowedHosts.join(', ')} placeholder="google.com, login.example.de" />
+				<small>Standardmäßig bleibt der Test auf der Instanz. Hier eingetragene Hosts darf er zusätzlich öffnen; mehrere mit Komma trennen, Subdomains sind mit erlaubt.</small>
+			</label>
+			<label class="check">
+				<input type="checkbox" name="allowAnyHost" checked={s.allowAnyHost} />
+				<span>Beliebige Websites erlauben <span class="faint">Nur für Tests, die bewusst im offenen Web arbeiten. Große Suchmaschinen zeigen automatisierten Browsern oft ein Captcha.</span></span>
+			</label>
+		</fieldset>
 		<label class="check">
 			<input type="checkbox" name="runInReviews" checked={s.runInReviews} />
 			<span>Bei jedem PR-Review als Regressionstest mitlaufen lassen</span>

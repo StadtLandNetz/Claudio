@@ -12,6 +12,7 @@ import {
   type RoleConfig,
 } from "@claudio/core";
 import type { BrowserAttachment } from "../driver.js";
+import { detectCaptcha, type HumanBridge } from "../human.js";
 import { loginWithRole } from "../login.js";
 import type { RunStore } from "../run-store.js";
 
@@ -25,6 +26,8 @@ export type ToolContext = {
   env?: NodeJS.ProcessEnv;
   /** Repository analysis only: directory the knowledge documents are written to. Enables write_knowledge. */
   knowledgeDir?: string;
+  /** A person who can take over the browser for a moment (CAPTCHA, bot check). Enables request_human_help. */
+  human?: HumanBridge;
 };
 
 /** A tool definition that both the Agent SDK adapter and the stdio MCP server can consume. */
@@ -239,7 +242,33 @@ export function createClaudioTools(ctx: ToolContext): ClaudioTool<any>[] {
 
   const tools: ClaudioTool<any>[] = [loginAs, captureEvidence, getConsole, getNetwork, reportFinding, recordAc, note, todoAdd, todoNext, todoDone];
   if (ctx.knowledgeDir) tools.push(writeKnowledgeTool(ctx.knowledgeDir));
+  if (ctx.human) tools.push(humanHelpTool(ctx.human, ctx.attachment));
   return tools;
+}
+
+/**
+ * Pauses the run until a person has dealt with something only a person may
+ * handle: a CAPTCHA or bot check. The agent never solves those itself.
+ */
+export function humanHelpTool(human: HumanBridge, attachment: BrowserAttachment | null): ClaudioTool<any> {
+  return def({
+    name: "request_human_help",
+    description:
+      "Pause and ask a person to take over the browser, for a CAPTCHA, a bot check or a similar challenge meant for humans. Never try to solve such a challenge yourself. Blocks until the person is done (or gives up), then take a fresh snapshot and continue.",
+    schema: { reason: z.string().describe("What the person should do, e.g. 'reCAPTCHA auf der Login-Seite lösen'") },
+    handler: async ({ reason }) => {
+      const outcome = await human.wait(reason);
+      if (outcome !== "resolved") {
+        return outcome === "timeout"
+          ? "Nobody responded in time. Record what is blocked (not_testable / note) and continue with what you can test without it, or finish."
+          : "The person cancelled. Record the blocked part and finish what you can.";
+      }
+      const still = await detectCaptcha(attachment?.activePage());
+      return still
+        ? `The person is done, but the page still shows a challenge (${still}). Take a snapshot; if it is still there, record it as blocked.`
+        : "The person is done. Take a fresh snapshot and continue where you left off.";
+    },
+  });
 }
 
 /** Writes one document of the repository knowledge base (Markdown). */

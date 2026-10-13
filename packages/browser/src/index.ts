@@ -6,6 +6,7 @@ export * from "./run-store.js";
 export * from "./login.js";
 export * from "./live-view.js";
 export * from "./steps.js";
+export * from "./human.js";
 export * from "./tools/test-tools.js";
 export * from "./tools/definitions.js";
 

@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { query, type Options, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
-import { RunStore, createClaudioTools, createDriver, startLiveView, type DriverSession } from "@claudio/browser";
+import { RunStore, createClaudioTools, createDriver, startLiveView, type DriverSession, type HumanBridgeFactory } from "@claudio/browser";
 import {
   AnalysisRequestSchema,
   KNOWLEDGE_DOCS,
@@ -18,7 +18,7 @@ import {
 } from "@claudio/core";
 import { changedFilesBetween, createGithubClient, getDefaultBranch, type ChangedSince } from "@claudio/github";
 import { ANALYSIS_SYSTEM_APPEND, buildAnalysisPrompt } from "./analysis-prompt.js";
-import { createBrowserGuard } from "./hooks.js";
+import { createBrowserGuard, createCaptchaHook } from "./hooks.js";
 import { cloneBranch, describe, envWithout, mapStatus, scrub, writeKnowledgeFiles, type RunnerDeps } from "./runner.js";
 import { createClaudioSdkServer } from "./sdk-tools.js";
 
@@ -94,6 +94,7 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
     language: request.language,
   });
   log(`browser driver: ${session.name}`);
+  const human = session.attachment && deps.human ? deps.human(session.attachment) : undefined;
   // Screencast for the live view in the web UI (runDir/live.jpg).
   const liveView = session.attachment && deps.liveView !== false ? startLiveView(session.attachment, join(runDir, "live.jpg")) : null;
 
@@ -105,6 +106,7 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
     roles: config?.roles ?? {},
     driver: session.name,
     env: deps.roleEnv ? { ...process.env, ...deps.roleEnv } : undefined,
+    human,
     knowledgeDir,
   });
 
@@ -147,7 +149,10 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
     disallowedTools: [...session.disallowedTools, "Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "KillShell", "BashOutput"],
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
-    hooks: { PreToolUse: guard.hooks },
+    hooks: {
+      PreToolUse: guard.hooks,
+      PostToolUse: session.attachment ? [createCaptchaHook(() => session.attachment?.activePage(), Boolean(human))] : [],
+    },
     additionalDirectories: [repoDir, knowledgeDir].filter((d): d is string => Boolean(d)),
     extraArgs: session.extraArgs,
     abortController,

@@ -7,7 +7,9 @@
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import {
 		ANALYSIS_BUDGET_LABEL,
+		BUDGET_LABEL,
 		DETERMINISM_LABEL,
+		STRICTNESS_LABEL,
 		MODE_LABEL,
 		TEST_BUDGET_LABEL,
 		formatDate,
@@ -44,7 +46,6 @@
 
 <svelte:head><title>{data.repo.fullName} · Claudio</title></svelte:head>
 
-<p class="crumb"><a href="/repos">Repositories</a></p>
 <h1>{data.repo.fullName}</h1>
 
 <nav class="tabs" aria-label="Bereiche">
@@ -204,6 +205,18 @@
 					{/each}
 				</div>
 			</fieldset>
+			<fieldset>
+				<legend>Andere Websites</legend>
+				<label class="field">
+					<span>Weitere erlaubte Hosts</span>
+					<input type="text" name="allowedHosts" placeholder="google.com, login.example.de" />
+					<small>Standardmäßig bleibt der Test auf der Instanz. Hier eingetragene Hosts darf er zusätzlich öffnen; mehrere mit Komma trennen, Subdomains sind mit erlaubt.</small>
+				</label>
+				<label class="check">
+					<input type="checkbox" name="allowAnyHost" />
+					<span>Beliebige Websites erlauben <span class="faint">Nur für Tests, die bewusst im offenen Web arbeiten. Große Suchmaschinen zeigen automatisierten Browsern oft ein Captcha.</span></span>
+				</label>
+			</fieldset>
 			<label class="check">
 				<input type="checkbox" name="runInReviews" checked />
 				<span>Bei jedem PR-Review als Regressionstest mitlaufen lassen</span>
@@ -350,8 +363,8 @@
 			</label>
 			<label class="field">
 				<span>Weitere erlaubte Hosts</span>
-				<input type="text" name="extraAllowedHosts" value={data.repo.extraAllowedHosts.join(', ')} placeholder="auth.example.de" />
-				<small>Der Browser darf nur die Instanz besuchen und diese Hosts, z. B. einen Login-Anbieter.</small>
+				<input type="text" name="extraAllowedHosts" value={data.repo.extraAllowedHosts.join(', ')} placeholder="auth.example.de, login.example.com" />
+				<small>Der Browser darf nur die Instanz besuchen und diese Hosts, z. B. einen Login-Anbieter. Mehrere mit Komma trennen; Subdomains sind mit erlaubt, ganze URLs werden auf den Host gekürzt. Gilt für Reviews, Analysen und alle Tests.</small>
 			</label>
 			<label class="check">
 				<input type="checkbox" name="dataConfirmed" checked={data.repo.dataConfirmed} />
@@ -365,6 +378,88 @@
 				{#if saved === 'settings'}<span class="ok" role="status">Gespeichert</span>{/if}
 			</div>
 		</form>
+	</section>
+
+	<section class="part">
+		<div class="intro">
+			<h2>Automatisierung</h2>
+			<p class="muted">Reviews direkt aus GitHub starten und das Ergebnis am Pull Request anzeigen.</p>
+		</div>
+		<div class="fields">
+			<form method="POST" action="?/automation" use:enhance={() => ({ update }) => update({ reset: false })} class="sheet fields">
+				{#if formError('automation')}<p class="notice error" role="alert">{formError('automation')}</p>{/if}
+				<label class="field">
+					<span>URL-Vorlage der PR-Instanzen</span>
+					<input type="text" name="instanceUrlTemplate" value={data.automation.instanceUrlTemplate} placeholder="https://pr-{'{pr}'}.preview.example.de" />
+					<small>Platzhalter: {'{pr}'} Nummer, {'{branch_slug}'} Branch als URL-Teil, {'{branch}'}, {'{sha}'}. Ohne Vorlage startet GitHub keine Reviews.</small>
+				</label>
+				<fieldset>
+					<legend>Review starten bei</legend>
+					<label class="check"><input type="checkbox" name="onComment" checked={data.automation.onComment} /> <span>Kommentar <code>/claudio review</code> im PR <span class="faint">(optional mit quick, standard oder thorough)</span></span></label>
+					<label class="check"><input type="checkbox" name="onLabel" checked={data.automation.onLabel} /> <span>Label <code>claudio-review</code> am PR</span></label>
+					<label class="check"><input type="checkbox" name="onPush" checked={data.automation.onPush} /> <span>Jedem neuen und aktualisierten PR <span class="faint">(außer Entwürfen; kostet pro Push)</span></span></label>
+				</fieldset>
+				<label class="check"><input type="checkbox" name="commitStatus" checked={data.automation.commitStatus} /> <span>Ergebnis als GitHub-Status „Claudio“ am Commit setzen <span class="faint">(per Branch-Schutz als Pflicht-Check nutzbar)</span></span></label>
+				<label class="check"><input type="checkbox" name="analyzeOnMerge" checked={data.automation.analyzeOnMerge} /> <span>Wissensbasis nach jedem Push auf {data.repo.defaultBranch ?? 'den Hauptbranch'} aktualisieren <span class="faint">(gegen die Standard-URL)</span></span></label>
+				<fieldset>
+					<legend>Automatische Reviews</legend>
+					<div class="options">
+						{#each data.roles as role (role.name)}
+							<label class="check"><input type="checkbox" name="autoRoles" value={role.name} checked={data.autoReview.roles.includes(role.name)} /> <span>{role.name}</span></label>
+						{/each}
+					</div>
+					<div class="grid">
+						<label class="field">
+							<span>Budget</span>
+							<select name="autoBudget">
+								{#each Object.entries(BUDGET_LABEL) as [value, label] (value)}<option {value} selected={data.autoReview.budget === value}>{label}</option>{/each}
+							</select>
+						</label>
+						<label class="field">
+							<span>Strenge</span>
+							<select name="autoStrictness">
+								{#each Object.entries(STRICTNESS_LABEL) as [value, label] (value)}<option {value} selected={data.autoReview.strictness === value}>{label}</option>{/each}
+							</select>
+						</label>
+					</div>
+					<label class="check"><input type="checkbox" name="autoComment" checked={data.autoReview.postComment} /> <span>Kurzfassung als Kommentar in den PR schreiben</span></label>
+					<label class="check"><input type="checkbox" name="autoTests" checked={data.autoReview.runTests} /> <span>Regressionstests mitlaufen lassen</span></label>
+				</fieldset>
+				<div class="actions">
+					<button class="btn primary" type="submit">Automatisierung speichern</button>
+					{#if saved === 'automation'}<span class="ok" role="status">Gespeichert</span>{/if}
+				</div>
+			</form>
+
+			<div class="sheet fields hook">
+				<h3>Webhook</h3>
+				{#if formError('webhook')}<p class="notice error" role="alert">{formError('webhook')}</p>{/if}
+				{#if data.webhook}
+					<p>
+						<span class="dot-ok" class:bad={data.webhook.ok === false}></span>
+						Eingerichtet (ID {data.webhook.id}). <span class="faint">{data.webhook.status}</span>
+					</p>
+				{:else}
+					<p class="muted">Noch nicht eingerichtet. Claudio legt den Webhook mit deinem GitHub-Zugang an; dafür brauchst du Admin-Rechte am Repository. Automatische Läufe laufen danach in deinem Namen.</p>
+				{/if}
+				<p class="faint">Ziel: <code>{data.webhookUrl}</code></p>
+				{#if data.localBaseUrl}
+					<p class="notice">
+						GitHub kann <code>localhost</code> nicht erreichen. Setze <code>PUBLIC_BASE_URL</code> auf eine öffentliche Adresse (Server oder Tunnel wie cloudflared), bevor du den Webhook einrichtest.
+					</p>
+				{/if}
+				<div class="actions">
+					<form method="POST" action="?/installWebhook" use:enhance>
+						<button class="btn {data.webhook ? '' : 'primary'}" type="submit">{data.webhook ? 'Neu einrichten' : 'Webhook einrichten'}</button>
+					</form>
+					{#if data.webhook}
+						<form method="POST" action="?/removeWebhook" use:enhance>
+							<button class="btn danger" type="submit">Entfernen</button>
+						</form>
+					{/if}
+				</div>
+			</div>
+		</div>
 	</section>
 
 	<section class="part">
@@ -395,6 +490,34 @@
 				<summary><strong>Neue Rolle</strong></summary>
 				{@render roleForm(null)}
 			</details>
+		</div>
+	</section>
+
+	<section class="part">
+		<div class="intro">
+			<h2>Gelernte Entscheidungen</h2>
+			<p class="muted">Entstehen, wenn jemand ein Finding mit Begründung verwirft. Jeder spätere Review bekommt sie als „gewollt, nicht melden“ mit.</p>
+		</div>
+		<div>
+			{#if data.lessons.length}
+				<ul class="lessons sheet">
+					{#each data.lessons as lesson (lesson.reviewId + lesson.findingId)}
+						<li>
+							<div>
+								<p>{lesson.text}</p>
+								<span class="faint"><a href="/reviews/{lesson.reviewId}">Review #{lesson.reviewId}</a>, {lesson.by}, {formatDate(lesson.at)}</span>
+							</div>
+							<form method="POST" action="?/removeLesson" use:enhance>
+								<input type="hidden" name="reviewId" value={lesson.reviewId} />
+								<input type="hidden" name="findingId" value={lesson.findingId} />
+								<button class="btn small" type="submit">Vergessen</button>
+							</form>
+						</li>
+					{/each}
+				</ul>
+			{:else}
+				<p class="muted">Noch keine.</p>
+			{/if}
 		</div>
 	</section>
 
@@ -454,10 +577,6 @@
 {/snippet}
 
 <style>
-	.crumb {
-		font-size: 0.875rem;
-		margin-bottom: 0.25rem;
-	}
 	h1 {
 		word-break: break-word;
 	}
@@ -553,8 +672,13 @@
 		display: grid;
 		gap: 1rem;
 	}
-	form.sheet {
+	form.sheet,
+	.sheet.hook {
 		padding: 1.25rem;
+	}
+	.hook > p,
+	.hook .notice {
+		margin: 0;
 	}
 	.grid {
 		display: grid;
@@ -600,6 +724,36 @@
 	input[readonly] {
 		background: var(--sunken);
 		color: var(--ink-2);
+	}
+	.hook h3 {
+		font-size: 1rem;
+	}
+	.dot-ok {
+		display: inline-block;
+		width: 0.55rem;
+		height: 0.55rem;
+		border-radius: 50%;
+		background: var(--pass);
+		margin-right: 0.3rem;
+	}
+	.dot-ok.bad {
+		background: var(--block);
+	}
+	.lessons {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.lessons li {
+		display: flex;
+		gap: 1rem;
+		align-items: flex-start;
+		justify-content: space-between;
+		padding: 0.75rem 1rem;
+		border-bottom: 1px solid var(--rule);
+	}
+	.lessons li:last-child {
+		border-bottom: 0;
 	}
 	.kb-head {
 		display: grid;

@@ -48,7 +48,7 @@
 	{/if}
 </section>
 
-<section class="block">
+<section class="block" id="hinzufuegen">
 	<div class="gh-head">
 		<h2>Aus GitHub hinzufügen</h2>
 		{#if data.github.length > 0}
@@ -86,6 +86,20 @@
 		{#if data.github.length > filtered.length && !query}
 			<p class="faint more">Die {filtered.length} zuletzt geänderten von {data.github.length} Repositories. Suche, um weitere zu finden.</p>
 		{/if}
+	{/if}
+
+	{#if data.hasToken}
+		<form method="POST" action="?/add" class="by-name sheet">
+			<label class="field">
+				<span>Repository nicht in der Liste?</span>
+				<input type="text" name="fullName" required placeholder="besitzer/name oder https://github.com/besitzer/name" />
+				<small>
+					Repositories von Organisationen erscheinen erst, wenn die Organisation Claudio freigegeben hat.
+					{#if data.grantUrl}<a href={data.grantUrl} target="_blank" rel="noopener noreferrer">Freigabe bei GitHub verwalten</a>{/if}
+				</small>
+			</label>
+			<button class="btn primary" type="submit">Hinzufügen</button>
+		</form>
 	{/if}
 </section>
 
@@ -153,5 +167,17 @@
 	}
 	.more {
 		margin-top: 0.25rem;
+	}
+	.by-name {
+		display: flex;
+		align-items: flex-end;
+		gap: 0.75rem;
+		padding: 1rem;
+		flex-wrap: wrap;
+		margin-top: 0.5rem;
+	}
+	.by-name .field {
+		flex: 1;
+		min-width: 16rem;
 	}
 </style>

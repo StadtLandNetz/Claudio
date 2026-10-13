@@ -10,7 +10,7 @@
 
 <svelte:head><title>Vergleich · {data.script.name} · Claudio</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{data.script.repo}?tab=tests">{data.script.repo}</a> / <a href="/tests/{data.script.id}">{data.script.name}</a></p>
+<p class="crumb"><a href="/repos/{data.script.repo}?tab=tests">Tests</a> / <a href="/tests/{data.script.id}">{data.script.name}</a></p>
 <h1>Läufe vergleichen</h1>
 
 <div class="sheet table">

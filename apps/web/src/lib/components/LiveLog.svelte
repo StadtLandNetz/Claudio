@@ -7,7 +7,8 @@
 		streamUrl,
 		events,
 		active,
-		onstatus
+		onstatus,
+		online
 	}: {
 		/** SSE endpoint of the run, e.g. /reviews/3/events */
 		streamUrl: string;
@@ -17,6 +18,8 @@
 		active: boolean;
 		/** Status changes from the stream (queued → running → finished). */
 		onstatus?: (status: string | null) => void;
+		/** Every new log line, e.g. to react to "Mensch gebraucht:". */
+		online?: (line: string) => void;
 	} = $props();
 
 	let live = $state<Entry[]>([]);
@@ -36,7 +39,9 @@
 			const seq = Number(ev.lastEventId);
 			if (seq <= lastSeq) return;
 			lastSeq = seq;
-			live.push({ seq, line: JSON.parse(ev.data) });
+			const line = JSON.parse(ev.data);
+			live.push({ seq, line });
+			online?.(line);
 		});
 		const finish = (status: string) => {
 			if (!streaming) return;

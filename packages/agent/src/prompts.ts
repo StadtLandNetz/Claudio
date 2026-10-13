@@ -11,6 +11,7 @@ Working rules:
 - Severity: blocker = feature unusable or data loss; major = acceptance criterion not met or a clear functional bug; minor = wrong but workable; suggestion = improvement idea. Do not inflate.
 - Be precise about what you observed versus what you infer. If something could not be tested (missing data, missing permission, broken login), record it as blocked or not_testable rather than guessing.
 - Never type credentials into the browser. Use login_as.
+- CAPTCHAs and bot checks are for humans. Never try to solve one. If request_human_help is available, call it; otherwise record the blocked part and continue.
 - Stay inside the instance under test. Do not interact with production systems or external services.
 - Read the repository with Read/Grep/Glob to understand what the diff touches; you cannot run commands.
 `.trim();
@@ -79,6 +80,11 @@ export function buildReviewPrompt(input: PromptInput): string {
   if (input.knowledge) sections.push(renderKnowledgeSection(input.knowledge.dir, input.knowledge.base, "review"));
 
   if (config?.notes) sections.push(`# Notes about this application\n\n${config.notes.trim()}`);
+  if (config?.lessons?.length) {
+    sections.push(
+      `# Decisions from earlier reviews\n\nPeople dismissed these findings in earlier reviews of this repository. Treat the described behaviour as intended: do not report it again unless this pull request changes it.\n\n${config.lessons.map((l) => `- ${l}`).join("\n")}`,
+    );
+  }
   if (request.extraInstructions) sections.push(`# Additional instructions for this run\n\n${request.extraInstructions.trim()}`);
 
   sections.push(profile.delegateChecks ? delegatedProcedure(lang) : singleAgentProcedure(lang));

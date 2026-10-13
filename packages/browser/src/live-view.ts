@@ -10,6 +10,8 @@ export type LiveViewOptions = {
   quality?: number;
   maxWidth?: number;
   maxHeight?: number;
+  /** Take a real screenshot when the screencast has sent nothing for this long (ms). */
+  refreshMs?: number;
 };
 
 /**
@@ -72,6 +74,26 @@ export function startLiveView(attachment: BrowserAttachment, file: string, opts:
     const active = attachment.activePage();
     if (active && active !== page) void attach(active);
   }, 1000);
+
+  // The screencast misses changes inside cross-origin iframes (reCAPTCHA, payment widgets),
+  // so a still page can show a stale frame. A real screenshot includes them; take one when
+  // the screencast has been quiet for a moment.
+  let shooting = false;
+  const refresh = setInterval(() => {
+    if (shooting || Date.now() - lastWrite < (opts.refreshMs ?? 700)) return;
+    const current = attachment.activePage();
+    if (!current || current.isClosed()) return;
+    shooting = true;
+    current
+      .screenshot({ type: "jpeg", quality: opts.quality ?? 60, timeout: 3000, animations: "allow", caret: "initial" })
+      .then((buf) => {
+        lastWrite = Date.now();
+        writeFileSync(tmp, buf);
+        renameSync(tmp, file);
+      })
+      .catch(() => undefined)
+      .finally(() => (shooting = false));
+  }, 250);
   const first = attachment.activePage();
   if (first) void attach(first);
 
@@ -79,6 +101,7 @@ export function startLiveView(attachment: BrowserAttachment, file: string, opts:
     async stop() {
       stopped = true;
       clearInterval(poll);
+      clearInterval(refresh);
       await detach();
       rmSync(tmp, { force: true });
     },

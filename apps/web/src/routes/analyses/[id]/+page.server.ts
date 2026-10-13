@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { KNOWLEDGE_DOCS, sortBySeverity } from '@claudio/core';
-import { eventsSince, getAnalysis, knowledgeDocsOf, requestAnalysisAbort } from '@claudio/db';
+import { eventsSince, getAnalysis, knowledgeDocsOf, openHumanRequest, requestAnalysisAbort } from '@claudio/db';
 import { db } from '#lib/server/db.js';
 import { runEvidence, runFindings } from '#lib/server/run-files.js';
 import { renderMarkdown } from '#lib/markdown.js';
@@ -38,7 +38,8 @@ export const load: PageServerLoad = async ({ params }) => {
 		docs: docs.map((d) => ({ name: d.name, title: KNOWLEDGE_DOCS[d.name].title, html: renderMarkdown(d.content), chars: d.content.length })),
 		evidence: a.runId ? runEvidence(a.runId).filter((e) => e.url && e.kind === 'screenshot') : [],
 		findings: a.runId ? sortBySeverity(runFindings(a.runId)) : [],
-		events: events.map((e) => ({ seq: e.seq, line: e.line }))
+		events: events.map((e) => ({ seq: e.seq, line: e.line })),
+		human: await openHumanRequest(db(), 'analysis', a.id).then((h) => (h ? { id: h.id, reason: h.reason } : null))
 	};
 };
 

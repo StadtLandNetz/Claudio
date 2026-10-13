@@ -37,6 +37,8 @@ import {
   type ReviewStatus,
   type TestRun,
 } from "@claudio/db";
+import { finalizeReview } from "./finalize.js";
+import { humanBridge } from "./human.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 if (existsSync(resolve(projectRoot, ".env"))) process.loadEnvFile(resolve(projectRoot, ".env"));
@@ -110,7 +112,16 @@ async function prepare(db: Db, job: Job) {
     flush: () => pending,
     abort,
     stop: () => clearInterval(abortPoll),
-    common: { runsRoot, projectRoot, config, roleEnv, githubToken, abortController: abort, onProgress: emit },
+    common: {
+      runsRoot,
+      projectRoot,
+      config,
+      roleEnv,
+      githubToken,
+      abortController: abort,
+      onProgress: emit,
+      human: humanBridge(db, { kind: job.kind, id: job.row.id, repoId: job.row.repoId }, emit, abort.signal),
+    },
     knowledge,
     fixture,
   };
@@ -129,7 +140,8 @@ async function execute(db: Db, job: Job): Promise<void> {
     const c = ctx;
     if (job.kind === "review") {
       if (c.knowledge) c.emit(`Wissensbasis von Commit ${c.knowledge.commitSha.slice(0, 7)} wird mitgegeben.`);
-      const report = await runReview(job.row.request, {
+      // The comment is posted by finalizeReview once the regression tests are done, so it can include them.
+      const report = await runReview({ ...job.row.request, postComment: false }, {
         ...c.common,
         knowledge: c.knowledge,
         reportUrl: publicBaseUrl ? `${publicBaseUrl}/reviews/${job.row.id}` : undefined,
@@ -145,6 +157,7 @@ async function execute(db: Db, job: Job): Promise<void> {
         error: report.errors.length ? report.errors.join("\n") : null,
       });
       log(`review ${job.row.id} finished: ${report.status}, ${report.cost.usd.toFixed(2)} USD`);
+      await finalizeReview(db, job.row.id, publicBaseUrl, log);
     } else if (job.kind === "test") {
       const row = await getTestScript(db, job.row.scriptId);
       if (!row) throw new Error("Der Test existiert nicht mehr.");
@@ -165,6 +178,7 @@ async function execute(db: Db, job: Job): Promise<void> {
         await c.flush();
       }
       log(`test run ${job.row.id} (${script.name}) finished: ${report.outcome}, ${report.mode}, ${report.cost.usd.toFixed(2)} USD`);
+      if (job.row.reviewId) await finalizeReview(db, job.row.reviewId, publicBaseUrl, log);
     } else {
       if (c.knowledge) c.emit(`Aktualisiert die Wissensbasis von Commit ${c.knowledge.commitSha.slice(0, 7)}.`);
       const report = await runAnalysis(job.row.request, {
@@ -188,6 +202,8 @@ async function execute(db: Db, job: Job): Promise<void> {
     await ctx?.flush();
     await finish(ctx?.abort.signal.aborted ? "aborted" : "failed", message);
     log(`${job.kind} ${job.row.id} failed: ${message}`);
+    const reviewId = job.kind === "review" ? job.row.id : job.kind === "test" ? job.row.reviewId : null;
+    if (reviewId) await finalizeReview(db, reviewId, publicBaseUrl, log).catch(() => undefined);
   } finally {
     ctx?.stop();
   }

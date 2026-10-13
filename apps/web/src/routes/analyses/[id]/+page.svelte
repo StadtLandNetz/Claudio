@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { invalidateAll } from '$app/navigation';
 	import { enhance } from '$app/forms';
 	import KnowledgeView from '#lib/components/KnowledgeView.svelte';
 	import LiveLog from '#lib/components/LiveLog.svelte';
+	import HumanTakeover from '#lib/components/HumanTakeover.svelte';
 	import LiveView from '#lib/components/LiveView.svelte';
 	import Severity from '#lib/components/Severity.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
@@ -18,7 +20,7 @@
 
 <svelte:head><title>Analyse {a.repo} · Claudio</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{a.repo}?tab=knowledge">{a.repo}</a></p>
+<p class="crumb"><a href="/repos/{a.repo}?tab=knowledge">Wissen</a></p>
 <div class="title">
 	<div>
 		<h1>{isUpdate ? 'Wissensbasis aktualisieren' : 'Repository analysieren'}</h1>
@@ -49,7 +51,9 @@
 			</p>
 		{/if}
 
-		{#if active}
+		{#if active && data.human}
+			<HumanTakeover src="/analyses/{data.analysis.id}/live" requestId={data.human.id} reason={data.human.reason} url={a.instanceUrl} />
+		{:else if active}
 			<LiveView src="/analyses/{data.analysis.id}/live" url={a.instanceUrl} />
 		{/if}
 
@@ -59,6 +63,7 @@
 				events={data.events}
 				active={isActive(data.analysis.status)}
 				onstatus={(s) => (liveStatus = s)}
+				online={(line) => /^Mensch (gebraucht|fertig):/.test(line) && invalidateAll()}
 			/>
 		{/if}
 
