@@ -1,0 +1,26 @@
+{
+  "repo": "owner/name",
+  "notes": "Dispositions-Software für Schüler- und Personenbeförderung. Hauptobjekte: Fahrten, Touren, Fahrgäste, Fahrzeuge, Fahrer. Datumsfelder erwarten TT.MM.JJJJ.",
+  "extraAllowedHosts": [],
+  "roles": {
+    "admin": {
+      "description": "Vollzugriff, Mandantenverwaltung",
+      "usernameEnv": "CLAUDIO_ROLE_ADMIN_USER",
+      "passwordEnv": "CLAUDIO_ROLE_ADMIN_PASSWORD",
+      "loginPath": "/login",
+      "successUrlContains": "/dashboard"
+    },
+    "dispatcher": {
+      "description": "Disponent: plant Fahrten und Touren",
+      "usernameEnv": "CLAUDIO_ROLE_DISPATCHER_USER",
+      "passwordEnv": "CLAUDIO_ROLE_DISPATCHER_PASSWORD",
+      "recipe": [
+        { "action": "goto", "url": "/login" },
+        { "action": "fill", "selector": "input[name=email]", "value": "$USER" },
+        { "action": "fill", "selector": "input[name=password]", "value": "$PASSWORD" },
+        { "action": "click", "selector": "button[type=submit]" },
+        { "action": "waitForUrl", "pattern": "/dashboard" }
+      ]
+    }
+  }
+}

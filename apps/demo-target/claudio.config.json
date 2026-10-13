@@ -1,0 +1,8 @@
+{
+  "repo": "vanderlars/dispo-demo",
+  "notes": "Demo-Dispositionsapp. Rollen: Disponent (legt Fahrten an), Admin. Datum im Format JJJJ-MM-TT.",
+  "roles": {
+    "dispatcher": { "description": "Disponent", "usernameEnv": "DEMO_DISPATCHER_USER", "passwordEnv": "DEMO_DISPATCHER_PASSWORD", "loginPath": "/login", "successUrlContains": "/dashboard" },
+    "admin": { "description": "Administrator", "usernameEnv": "DEMO_ADMIN_USER", "passwordEnv": "DEMO_ADMIN_PASSWORD", "loginPath": "/login", "successUrlContains": "/dashboard" }
+  }
+}

@@ -1,0 +1,100 @@
+# Web UI and worker in ONE pod: during a run the web UI shows the live frames and the trace the worker writes,
+# so both share the run directory (an emptyDir – nothing on disk has to survive a deploy). Screenshots are stored
+# in the database after each run and deleted after CLAUDIO_ARTIFACT_RETENTION_DAYS. One replica, one worker.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: claudio
+  namespace: claudio
+  labels:
+    app.kubernetes.io/name: claudio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: claudio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: claudio
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001 # pwuser in the Playwright base image
+        runAsGroup: 1001
+        fsGroup: 1001 # makes the run directory writable
+      # One secret for everything: image pull, database, encryption key, GitHub OAuth (see k8s/examples)
+      imagePullSecrets:
+        - name: claudio-secrets
+      # On deploy the worker asks running agents to stop (their cost is still recorded); give them time.
+      terminationGracePeriodSeconds: 120
+      initContainers:
+        - name: migrate
+          image: ghcr.io/vanderlars/claudio:sha-0000000 # fallback for manual applies; the deploy job in release.yml sets the pushed commit's tag
+          command: ['node_modules/.bin/tsx', 'packages/db/src/migrate.ts']
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: claudio-secrets, key: DATABASE_URL }
+            # Optional: a user WITH DDL privileges just for migrations (falls back to DATABASE_URL)
+            - name: DATABASE_MIGRATION_URL
+              valueFrom:
+                secretKeyRef: { name: claudio-secrets, key: DATABASE_MIGRATION_URL, optional: true }
+      containers:
+        - name: web
+          image: ghcr.io/vanderlars/claudio:sha-0000000
+          command: ['node', 'apps/web/build']
+          ports:
+            - name: http
+              containerPort: 3000
+          env: &appEnv
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: claudio-secrets, key: DATABASE_URL }
+            - name: CLAUDIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: claudio-secrets, key: CLAUDIO_SECRET_KEY }
+            - name: GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef: { name: claudio-secrets, key: GITHUB_CLIENT_ID }
+            - name: GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: claudio-secrets, key: GITHUB_CLIENT_SECRET }
+          envFrom:
+            - configMapRef:
+                name: claudio-config
+          volumeMounts:
+            - { name: runs, mountPath: /data }
+          readinessProbe:
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/health, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 50m, memory: 192Mi }
+            limits: { memory: 512Mi }
+        - name: worker
+          image: ghcr.io/vanderlars/claudio:sha-0000000
+          command: ['node_modules/.bin/tsx', 'apps/worker/src/main.ts']
+          env: *appEnv
+          envFrom:
+            - configMapRef:
+                name: claudio-config
+          volumeMounts:
+            - { name: runs, mountPath: /data }
+            # Chromium needs more shared memory than the container default of 64 MB
+            - { name: dshm, mountPath: /dev/shm }
+          resources:
+            # One run = one Chromium + one Claude Code session; scale with CLAUDIO_WORKER_CONCURRENCY
+            requests: { cpu: 500m, memory: 1Gi }
+            limits: { memory: 3Gi }
+      volumes:
+        # Ephemeral run directories (live frames, traces, checkouts); screenshots are kept in the database
+        - name: runs
+          emptyDir: { sizeLimit: 10Gi }
+        - name: dshm
+          emptyDir: { medium: Memory, sizeLimit: 1Gi }

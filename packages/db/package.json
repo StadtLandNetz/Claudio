@@ -1,0 +1,25 @@
+{
+  "name": "@claudio/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "generate": "drizzle-kit generate",
+    "migrate": "tsx src/migrate.ts"
+  },
+  "dependencies": {
+    "@claudio/core": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "mysql2": "^3.24.5",
+    "@claudio/github": "workspace:*"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.11"
+  }
+}

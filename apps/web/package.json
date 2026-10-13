@@ -1,0 +1,38 @@
+{
+	"name": "@claudio/web",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev --port 5173 --strictPort",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --threshold error",
+		"start": "node build"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-node": "^6.0.0",
+		"@sveltejs/kit": "^3.0.0",
+		"@sveltejs/vite-plugin-svelte": "^7.2.0",
+		"svelte": "^5.57.1",
+		"svelte-check": "^4.6.0",
+		"typescript": "^6.0.3",
+		"vite": "^8.3.0"
+	},
+	"imports": {
+		"#lib": "./src/lib/index.js",
+		"#lib/*": "./src/lib/*"
+	},
+	"dependencies": {
+		"@claudio/core": "workspace:*",
+		"@claudio/db": "workspace:*",
+		"@claudio/github": "workspace:*",
+		"marked": "^18.1.0",
+		"octokit": "^5.0.5",
+		"zod": "^4.6.5",
+		"drizzle-orm": "^0.45.4"
+	}
+}

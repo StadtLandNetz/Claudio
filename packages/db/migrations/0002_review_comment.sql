@@ -1,0 +1,1 @@
+ALTER TABLE `reviews` ADD `comment_url` varchar(500);

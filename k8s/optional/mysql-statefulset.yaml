@@ -1,0 +1,71 @@
+# Optional: MySQL 8 in the cluster (staging/test only). Production uses the existing MySQL server.
+# Apply: kubectl -n claudio apply -f k8s/optional/mysql-statefulset.yaml
+# DATABASE_URL then: mysql://claudio:<PASS>@mysql.claudio.svc:3306/claudio
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-credentials
+  namespace: claudio
+type: Opaque
+stringData:
+  MYSQL_ROOT_PASSWORD: CHANGE_ME_ROOT
+  MYSQL_DATABASE: claudio
+  MYSQL_USER: claudio
+  MYSQL_PASSWORD: CHANGE_ME
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: claudio
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: mysql
+  ports:
+    - port: 3306
+      name: mysql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: claudio
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mysql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.4
+          args: ['--character-set-server=utf8mb4', '--collation-server=utf8mb4_0900_ai_ci']
+          envFrom:
+            - secretRef:
+                name: mysql-credentials
+          ports:
+            - containerPort: 3306
+              name: mysql
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ['ReadWriteOnce']
+        resources:
+          requests:
+            storage: 10Gi

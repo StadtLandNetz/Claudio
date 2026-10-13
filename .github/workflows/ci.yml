@@ -1,0 +1,71 @@
+name: CI
+
+# Pull requests run it directly; pushes to main run it as the first job of release.yml (build + deploy).
+on:
+  pull_request:
+  workflow_call:
+
+jobs:
+  test:
+    name: Typecheck, tests, migrations, build
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: claudio
+          MYSQL_USER: claudio
+          MYSQL_PASSWORD: claudio
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DATABASE_URL: mysql://claudio:claudio@127.0.0.1:3306/claudio
+      TZ: Europe/Berlin
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version comes from "packageManager" in package.json
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (packages, worker, CLI, SvelteKit)
+        run: pnpm typecheck
+
+      - name: Chromium for the browser integration test
+        run: pnpm --filter @claudio/browser exec playwright install --with-deps chromium
+
+      - name: Unit and integration tests
+        run: pnpm test
+        env:
+          CLAUDIO_INTEGRATION: '1'
+
+      - name: Apply migrations to an empty database
+        run: pnpm db:migrate
+
+      - name: Migrations complete? (drizzle-kit generate must not create anything new)
+        run: |
+          pnpm db:generate
+          if [ -n "$(git status --porcelain packages/db/migrations)" ]; then
+            echo "::error::Schema changed but no migration committed. Run 'pnpm db:generate' and commit packages/db/migrations."
+            git status --porcelain packages/db/migrations
+            exit 1
+          fi
+
+      - name: Build web UI
+        run: pnpm --filter @claudio/web build
+
+      - name: Build Docker image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: claudio:ci

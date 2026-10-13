@@ -1,0 +1,32 @@
+{
+  "owner": "vanderlars",
+  "repo": "dispo-demo",
+  "number": 17,
+  "title": "Fahrten: Neue Fahrt anlegen und Suche in der Fahrtenliste",
+  "body": "Closes #16\n\nFügt das Formular zum Anlegen einer Fahrt hinzu und eine Suche (Fahrgast/Fahrzeug) in der Fahrtenliste.",
+  "url": "https://github.com/vanderlars/dispo-demo/pull/17",
+  "author": "dev",
+  "headRef": "feature/16-neue-fahrt",
+  "headSha": "abc123",
+  "baseRef": "main",
+  "draft": false,
+  "files": [
+    {
+      "filename": "src/server.mjs",
+      "status": "modified",
+      "additions": 38,
+      "deletions": 4,
+      "patch": "@@ -40,6 +40,20 @@\n   if (p === \"/trips\" && req.method === \"GET\") {\n+    const q = (url.searchParams.get(\"q\") ?? \"\").toLowerCase();\n+    const rows = trips.filter((t) => !q || t.passenger.toLowerCase().includes(q) || t.vehicle.toLowerCase().includes(q));\n+    const created = url.searchParams.get(\"created\");\n     return html(res, page(\"Fahrten\", `<h1>Fahrten</h1>\n+<form method=\"get\" action=\"/trips\"><label>Suche (Fahrgast oder Fahrzeug)</label><input name=\"q\" value=\"${q}\"> <button type=\"submit\">Filtern</button></form>\n+<p><a href=\"/trips/new\"><button type=\"button\">Neue Fahrt</button></a></p>\n@@ -60,0 +75,22 @@\n+  if (p === \"/trips/new\" && req.method === \"GET\") {\n+    return html(res, page(\"Neue Fahrt\", `<h1>Neue Fahrt</h1><form method=\"post\" action=\"/trips/new\">\n+<label>Fahrgast</label><input name=\"passenger\" required>\n+<label>Datum</label><input name=\"date\" type=\"date\" required>\n+<label>Uhrzeit</label><input name=\"time\" type=\"time\" required>\n+<input name=\"from\" placeholder=\"Von\"> <input name=\"to\" placeholder=\"Nach\">\n+<p><button type=\"submit\">Senden</button></p></form>`, user));\n+  }\n+  if (p === \"/trips/new\" && req.method === \"POST\") {\n+    const b = await readBody(req);\n+    const trip = { id: trips.length + 1, passenger: b.get(\"passenger\") ?? \"\", date: b.get(\"date\") ?? \"\", time: b.get(\"time\") ?? \"\", from: b.get(\"from\") ?? \"\", to: b.get(\"to\") ?? \"\", vehicle: null };\n+    trips.push(trip);\n+    return redirect(res, `/trips?created=${trip.id}`);\n+  }"
+    }
+  ],
+  "issues": [
+    {
+      "number": 16,
+      "title": "Disponent kann eine neue Fahrt anlegen",
+      "body": "Als Disponent möchte ich eine neue Fahrt anlegen, damit sie in der Fahrtenliste erscheint.\n\n**Acceptance Criteria**\n- In der Fahrtenliste gibt es einen Button \"Neue Fahrt\", der ein Formular öffnet.\n- Das Formular hat die Felder Fahrgast, Datum, Uhrzeit, Von, Nach und Fahrzeug. Fahrgast, Datum, Uhrzeit und Fahrzeug sind Pflichtfelder.\n- Das Datum darf nicht in der Vergangenheit liegen; sonst erscheint eine Fehlermeldung am Feld.\n- Nach dem Speichern erscheint die neue Fahrt in der Liste und eine Erfolgsmeldung wird angezeigt.\n- Die Fahrtenliste lässt sich nach Fahrgast oder Fahrzeug durchsuchen.\n- Nur Disponenten und Admins dürfen Fahrten anlegen.",
+      "url": "https://github.com/vanderlars/dispo-demo/issues/16",
+      "labels": ["feature"],
+      "state": "open"
+    }
+  ]
+}
