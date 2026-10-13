@@ -6,8 +6,8 @@ metadata:
 data:
   TZ: Europe/Berlin
   # Public URL of the web UI: SvelteKit CSRF origin check, OAuth callback, links in PR comments, webhook target
-  ORIGIN: https://claudio.nova-hub.app
-  PUBLIC_BASE_URL: https://claudio.nova-hub.app
+  ORIGIN: https://claudio.stadtlandnetz.de
+  PUBLIC_BASE_URL: https://claudio.stadtlandnetz.de
   # Who may sign in (comma-separated GitHub organisations / users; empty = every GitHub user)
   CLAUDIO_ALLOWED_GITHUB_ORGS: StadtLandNetz
   CLAUDIO_ALLOWED_GITHUB_USERS: ''

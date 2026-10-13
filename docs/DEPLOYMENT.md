@@ -29,10 +29,11 @@ pull request ─► ci.yml (same checks, no deploy)
 
 ## First-time setup (cluster admin, once)
 
-1. **Host name**: adjust `claudio.nova-hub.app` in `k8s/ingress.yaml` and `ORIGIN`/`PUBLIC_BASE_URL` in
-   `k8s/configmap.yaml`. Check `CLAUDIO_ALLOWED_GITHUB_ORGS` (who may sign in).
+1. **Host name**: `claudio.stadtlandnetz.de` (in `k8s/ingress.yaml` and `ORIGIN`/`PUBLIC_BASE_URL` in
+   `k8s/configmap.yaml`). The DNS record must point to the cluster's ingress before the first rollout, otherwise
+   cert-manager cannot issue the certificate. Check `CLAUDIO_ALLOWED_GITHUB_ORGS` (who may sign in).
 2. **GitHub OAuth App for production** (Settings → Developer settings → OAuth Apps): homepage
-   `https://<host>`, callback `https://<host>/auth/github/callback`. Leave "Expire user access tokens" either way;
+   `https://claudio.stadtlandnetz.de`, callback `https://claudio.stadtlandnetz.de/auth/github/callback`. Leave "Expire user access tokens" either way;
    Claudio renews expiring tokens.
 3. **Database**: empty MySQL database with `DEFAULT CHARACTER SET utf8mb4`. The migrate init container needs
    CREATE, ALTER, DROP, INDEX, REFERENCES – either for the app user, or a separate user as `DATABASE_MIGRATION_URL`.

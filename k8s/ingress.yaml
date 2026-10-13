@@ -16,10 +16,10 @@ metadata:
 spec:
   ingressClassName: nginx
   tls:
-    - hosts: [claudio.nova-hub.app]
+    - hosts: [claudio.stadtlandnetz.de]
       secretName: claudio-web-tls
   rules:
-    - host: claudio.nova-hub.app
+    - host: claudio.stadtlandnetz.de
       http:
         paths:
           - path: /
