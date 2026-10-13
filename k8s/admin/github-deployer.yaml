@@ -1,0 +1,63 @@
+# One-time admin setup for the GitHub Actions deploy job (release.yml → job "deploy").
+# Lives outside `kubectl apply -f k8s/` on purpose – applied once by a cluster admin:
+#   kubectl apply -f k8s/admin/github-deployer.yaml
+#   ./tools/create-deploy-kubeconfig.sh      # builds the kubeconfig and stores it as repository secret KUBECONFIG_B64
+#
+# Least privilege: namespace-scoped, may manage the app's Deployment/Service/ConfigMap/Ingress/PVC and read
+# pods, events and logs for diagnostics. It can NOT read Secrets or touch the namespace itself.
+# Rotate the token: kubectl -n claudio delete secret github-deployer-token && re-apply this file && re-run the script.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-deployer
+  namespace: claudio
+automountServiceAccountToken: false
+---
+# Long-lived token for the ServiceAccount (populated by the token controller)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-deployer-token
+  namespace: claudio
+  annotations:
+    kubernetes.io/service-account.name: github-deployer
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: github-deployer
+  namespace: claudio
+rules:
+  - apiGroups: ['apps']
+    resources: ['deployments']
+    verbs: ['get', 'list', 'watch', 'create', 'update', 'patch']
+  - apiGroups: ['apps']
+    resources: ['replicasets'] # rollout undo
+    verbs: ['get', 'list', 'watch']
+  - apiGroups: ['']
+    resources: ['services', 'configmaps', 'persistentvolumeclaims']
+    verbs: ['get', 'list', 'watch', 'create', 'update', 'patch']
+  - apiGroups: ['networking.k8s.io']
+    resources: ['ingresses']
+    verbs: ['get', 'list', 'watch', 'create', 'update', 'patch']
+  - apiGroups: ['']
+    resources: ['pods', 'events'] # diagnostics on failed rollouts
+    verbs: ['get', 'list', 'watch']
+  - apiGroups: ['']
+    resources: ['pods/log']
+    verbs: ['get']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: github-deployer
+  namespace: claudio
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: github-deployer
+subjects:
+  - kind: ServiceAccount
+    name: github-deployer
+    namespace: claudio

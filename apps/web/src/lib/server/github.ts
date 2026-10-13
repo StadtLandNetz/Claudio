@@ -47,7 +47,12 @@ export async function listUserRepos(token: string, max = 500): Promise<GithubRep
 export async function getRepoInfo(token: string, fullName: string) {
 	const [owner, repo] = fullName.split('/') as [string, string];
 	const { data } = await octokit(token).rest.repos.get({ owner, repo });
-	return { fullName: data.full_name, isPrivate: data.private, defaultBranch: data.default_branch };
+	return {
+		fullName: data.full_name,
+		isPrivate: data.private,
+		defaultBranch: data.default_branch,
+		canWrite: Boolean(data.permissions?.push || data.permissions?.maintain || data.permissions?.admin)
+	};
 }
 
 export async function listOpenPulls(token: string, fullName: string): Promise<GithubPull[]> {
@@ -76,17 +81,6 @@ export async function getPull(token: string, fullName: string, number: number): 
 		updatedAt: p.updated_at,
 		url: p.html_url
 	};
-}
-
-export async function exchangeCode(clientId: string, clientSecret: string, code: string, redirectUri: string): Promise<string> {
-	const res = await fetch('https://github.com/login/oauth/access_token', {
-		method: 'POST',
-		headers: { accept: 'application/json', 'content-type': 'application/json' },
-		body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code, redirect_uri: redirectUri })
-	});
-	const body = (await res.json()) as { access_token?: string; error_description?: string; error?: string };
-	if (!body.access_token) throw new Error(body.error_description ?? body.error ?? `GitHub antwortete mit ${res.status}`);
-	return body.access_token;
 }
 
 export async function fetchGithubUser(token: string) {

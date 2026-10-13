@@ -28,7 +28,11 @@
 		{ id: 'settings', label: 'Einstellungen' }
 	] as const;
 
-	const ready = $derived(data.repo.dataConfirmed && data.roles.length > 0);
+	const hasKey = $derived(Boolean(data.anthropicKey) || data.keyOptional);
+	const ready = $derived(data.repo.dataConfirmed && data.roles.length > 0 && hasKey);
+	// What the user may do here follows their permission on GitHub.
+	const canWrite = $derived(data.level === 'write' || data.level === 'admin');
+	const isAdmin = $derived(data.level === 'admin');
 	const saved = $derived(form && 'saved' in form ? form.saved : null);
 	const runningAnalysis = $derived(data.analyses.find((a) => isActive(a.status)));
 	let analyzing = $state(false);
@@ -49,7 +53,7 @@
 <h1>{data.repo.fullName}</h1>
 
 <nav class="tabs" aria-label="Bereiche">
-	{#each tabs as t (t.id)}
+	{#each tabs.filter((t) => t.id !== 'settings' || isAdmin) as t (t.id)}
 		<a href="?tab={t.id}" aria-current={data.tab === t.id ? 'page' : undefined}>
 			{t.label}
 			{#if t.id === 'reviews' && data.reviews.length}<span class="count">{data.reviews.length}</span>{/if}
@@ -61,11 +65,13 @@
 </nav>
 
 {#if data.tab === 'pulls'}
-	{#if !ready}
+	{#if !canWrite}
+		<p class="notice">Du hast an diesem Repository auf GitHub nur Lesezugriff. Berichte, Tests und Wissen kannst du ansehen, aber nichts starten.</p>
+	{:else if !ready}
 		<p class="notice">
-			Bevor Claudio Pull Requests prüfen kann, fehlen noch
-			{#if !data.repo.dataConfirmed && data.roles.length === 0}die Datenschutz-Bestätigung und mindestens eine Rolle{:else if !data.repo.dataConfirmed}die Datenschutz-Bestätigung{:else}Zugangsdaten für mindestens eine Rolle{/if}.
-			<a href="?tab=settings">Einstellungen öffnen</a>
+			Bevor Claudio Pull Requests prüfen kann, fehlt noch:
+			{[!hasKey && 'ein Anthropic-API-Key', !data.repo.dataConfirmed && 'die Bestätigung, dass die Instanzen nur Testdaten enthalten', data.roles.length === 0 && 'mindestens eine Rolle mit Zugangsdaten'].filter(Boolean).join(', ')}.
+			{#if isAdmin}<a href="?tab=settings">Einstellungen öffnen</a>{:else}Das kann ein Admin des Repositorys in den Einstellungen eintragen.{/if}
 		</p>
 	{/if}
 	{#if data.pullsError}
@@ -84,7 +90,7 @@
 							{#if pr.fixture}<span class="tag">Demo-Fixture</span>{/if}
 						</span>
 					</div>
-					{#if ready}
+					{#if ready && canWrite}
 						<a class="btn small primary" href="/reviews/new?repo={encodeURIComponent(data.repo.fullName)}&pr={pr.number}">Review starten</a>
 					{/if}
 				</li>
@@ -153,10 +159,10 @@
 		</section>
 	{/if}
 
-	{#if data.tests.length && !data.activeTestRuns}
+	{#if data.tests.length && !data.activeTestRuns && canWrite}
 		<details class="sheet analyze" open={!!formError('runTests')}>
 			<summary><strong>Alle Tests ausführen</strong></summary>
-			<form method="POST" action="?/runTests" class="fields" onsubmit={() => (runningTests = true)}>
+			<form method="POST" action="?tab=tests&/runTests" class="fields" onsubmit={() => (runningTests = true)}>
 				{#if formError('runTests')}<p class="notice error" role="alert">{formError('runTests')}</p>{/if}
 				<label class="field">
 					<span>Adresse der Instanz</span>
@@ -180,9 +186,10 @@
 		<p class="notice">{data.activeTestRuns} Testläufe warten oder laufen gerade.</p>
 	{/if}
 
+	{#if canWrite}
 	<details class="sheet analyze" open={data.tests.length === 0 || !!formError('createTest')}>
 		<summary><strong>Neuer Test</strong></summary>
-		<form method="POST" action="?/createTest" class="fields">
+		<form method="POST" action="?tab=tests&/createTest" class="fields">
 			{#if formError('createTest')}<p class="notice error" role="alert">{formError('createTest')}</p>{/if}
 			<label class="field">
 				<span>Name</span>
@@ -224,6 +231,7 @@
 			<div class="actions"><button class="btn primary" type="submit">Test anlegen</button></div>
 		</form>
 	</details>
+	{/if}
 {:else if data.tab === 'knowledge'}
 	{#if runningAnalysis}
 		<p class="notice">
@@ -262,7 +270,7 @@
 		</section>
 	{/if}
 
-	{#if !runningAnalysis}
+	{#if !runningAnalysis && canWrite}
 		{#if !ready}
 			<p class="notice">
 				Für eine Analyse braucht Claudio Rollen und die Datenschutz-Bestätigung. <a href="?tab=settings">Einstellungen öffnen</a>
@@ -270,7 +278,7 @@
 		{:else}
 			<details class="sheet analyze" open={!data.knowledge || !!formError('analyze')}>
 				<summary><strong>{data.knowledge ? 'Wissensbasis aktualisieren' : 'Analyse starten'}</strong></summary>
-				<form method="POST" action="?/analyze" class="fields" onsubmit={() => (analyzing = true)}>
+				<form method="POST" action="?tab=knowledge&/analyze" class="fields" onsubmit={() => (analyzing = true)}>
 					{#if formError('analyze')}<p class="notice error" role="alert">{formError('analyze')}</p>{/if}
 					<label class="field">
 						<span>Adresse einer laufenden Instanz</span>
@@ -339,17 +347,75 @@
 	{:else}
 		<p class="muted">Für dieses Repository gibt es noch keine Reviews.</p>
 	{/if}
+{:else if !isAdmin}
+	<p class="notice">Die Einstellungen kann nur ändern, wer auf GitHub Admin-Rechte an diesem Repository hat.</p>
 {:else}
 	{#if data.isNew}
-		<p class="notice ok">Repository hinzugefügt. Lege jetzt fest, als wer Claudio sich in der App anmeldet.</p>
+		<p class="notice ok">
+			Repository hinzugefügt. Hinterlege als Nächstes den Anthropic-API-Key{data.keySources.length ? ' (oder übernimm ihn aus einem deiner Repositories)' : ''} und lege fest, als wer Claudio sich in der App anmeldet.
+		</p>
 	{/if}
+
+	<section class="part" id="anthropic">
+		<div class="intro">
+			<h2>Anthropic-API-Key</h2>
+			<p class="muted">Alle Modellaufrufe dieses Repositorys laufen über diesen Key und werden darüber abgerechnet. Ohne Key startet Claudio hier keine Reviews, Analysen oder Aufzeichnungen.</p>
+		</div>
+		<div class="sheet fields keybox">
+			{#if formError('key')}<p class="notice error" role="alert">{formError('key')}</p>{/if}
+			{#if data.anthropicKey}
+				<p>
+					<span class="dot-ok"></span>
+					Hinterlegt, endet auf <code>…{data.anthropicKey.hint}</code>{#if data.anthropicKey.by}, gesetzt von {data.anthropicKey.by}{/if}{#if data.anthropicKey.at}, {formatDate(data.anthropicKey.at)}{/if}.
+					{#if saved === 'key'}<span class="ok" role="status">Gespeichert</span>{/if}
+				</p>
+			{:else if data.keyOptional}
+				<p class="muted">Kein Key hinterlegt. Das Demo-Repository nutzt auf dem Entwicklungsserver die Claude-Anmeldung dieses Rechners.</p>
+			{:else}
+				<p class="notice">Noch kein Key hinterlegt.</p>
+			{/if}
+
+			{#if data.keySources.length}
+				<form method="POST" action="?tab=settings&/setKey" use:enhance={() => ({ update }) => update({ reset: false })} class="row-form">
+					<label class="field">
+						<span>Aus einem anderen Repository übernehmen</span>
+						<select name="source">
+							{#each data.keySources as src (src.fullName)}
+								<option value={src.fullName}>{src.fullName} (…{src.hint})</option>
+							{/each}
+						</select>
+						<small>Kopiert den Key. Danach lässt er sich hier unabhängig ändern.</small>
+					</label>
+					<button class="btn {data.anthropicKey ? '' : 'primary'}" type="submit">Übernehmen</button>
+				</form>
+			{/if}
+
+			<form method="POST" action="?tab=settings&/setKey" use:enhance class="row-form">
+				<label class="field">
+					<span>{data.anthropicKey ? 'Neuen Key setzen' : 'Key eintragen'}</span>
+					<input type="password" name="key" autocomplete="off" placeholder="sk-ant-…" />
+					<small>Aus der Anthropic Console (console.anthropic.com → API Keys). Am besten ein eigener Workspace mit Ausgabenlimit. Claudio prüft den Key beim Speichern.</small>
+				</label>
+				{#if form && 'unverified' in form && form.unverified}
+					<label class="check"><input type="checkbox" name="force" /> <span>Trotzdem speichern</span></label>
+				{/if}
+				<button class="btn {data.anthropicKey || data.keySources.length ? '' : 'primary'}" type="submit">Speichern</button>
+			</form>
+
+			{#if data.anthropicKey}
+				<form method="POST" action="?tab=settings&/removeKey" use:enhance onsubmit={(e) => { if (!confirm('Key entfernen? Danach startet Claudio für dieses Repository keine Modellaufrufe mehr.')) e.preventDefault(); }}>
+					<button class="btn small danger" type="submit">Key entfernen</button>
+				</form>
+			{/if}
+		</div>
+	</section>
 
 	<section class="part">
 		<div class="intro">
 			<h2>Allgemein</h2>
 			<p class="muted">Hinweise für den Agenten und wo die Instanzen der Pull Requests laufen.</p>
 		</div>
-		<form method="POST" action="?/settings" use:enhance={() => ({ update }) => update({ reset: false })} class="sheet fields">
+		<form method="POST" action="?tab=settings&/settings" use:enhance={() => ({ update }) => update({ reset: false })} class="sheet fields">
 			{#if formError('settings')}<p class="notice error" role="alert">{formError('settings')}</p>{/if}
 			<label class="field">
 				<span>Hinweise zur App</span>
@@ -386,7 +452,7 @@
 			<p class="muted">Reviews direkt aus GitHub starten und das Ergebnis am Pull Request anzeigen.</p>
 		</div>
 		<div class="fields">
-			<form method="POST" action="?/automation" use:enhance={() => ({ update }) => update({ reset: false })} class="sheet fields">
+			<form method="POST" action="?tab=settings&/automation" use:enhance={() => ({ update }) => update({ reset: false })} class="sheet fields">
 				{#if formError('automation')}<p class="notice error" role="alert">{formError('automation')}</p>{/if}
 				<label class="field">
 					<span>URL-Vorlage der PR-Instanzen</span>
@@ -399,7 +465,7 @@
 					<label class="check"><input type="checkbox" name="onLabel" checked={data.automation.onLabel} /> <span>Label <code>claudio-review</code> am PR</span></label>
 					<label class="check"><input type="checkbox" name="onPush" checked={data.automation.onPush} /> <span>Jedem neuen und aktualisierten PR <span class="faint">(außer Entwürfen; kostet pro Push)</span></span></label>
 				</fieldset>
-				<label class="check"><input type="checkbox" name="commitStatus" checked={data.automation.commitStatus} /> <span>Ergebnis als GitHub-Status „Claudio“ am Commit setzen <span class="faint">(per Branch-Schutz als Pflicht-Check nutzbar)</span></span></label>
+				<label class="check"><input type="checkbox" name="commitStatus" checked={data.automation.commitStatus} /> <span>Ergebnis als GitHub-Status „Claudio“ am PR anzeigen <span class="faint">(grün oder rot; kann per Branch-Schutz das Mergen blockieren, siehe „So funktioniert das“)</span></span></label>
 				<label class="check"><input type="checkbox" name="analyzeOnMerge" checked={data.automation.analyzeOnMerge} /> <span>Wissensbasis nach jedem Push auf {data.repo.defaultBranch ?? 'den Hauptbranch'} aktualisieren <span class="faint">(gegen die Standard-URL)</span></span></label>
 				<fieldset>
 					<legend>Automatische Reviews</legend>
@@ -437,23 +503,45 @@
 				{#if data.webhook}
 					<p>
 						<span class="dot-ok" class:bad={data.webhook.ok === false}></span>
-						Eingerichtet (ID {data.webhook.id}). <span class="faint">{data.webhook.status}</span>
+						Eingerichtet{data.webhook.by ? ` von ${data.webhook.by}` : ''}. <span class="faint">{data.webhook.status}</span>
 					</p>
 				{:else}
-					<p class="muted">Noch nicht eingerichtet. Claudio legt den Webhook mit deinem GitHub-Zugang an; dafür brauchst du Admin-Rechte am Repository. Automatische Läufe laufen danach in deinem Namen.</p>
+					<p class="muted">Noch nicht eingerichtet. Ohne Webhook startest du Reviews nur hier in Claudio.</p>
 				{/if}
-				<p class="faint">Ziel: <code>{data.webhookUrl}</code></p>
 				{#if data.localBaseUrl}
 					<p class="notice">
 						GitHub kann <code>localhost</code> nicht erreichen. Setze <code>PUBLIC_BASE_URL</code> auf eine öffentliche Adresse (Server oder Tunnel wie cloudflared), bevor du den Webhook einrichtest.
 					</p>
 				{/if}
+
+				<details class="howto">
+					<summary>So funktioniert das</summary>
+					<div class="howto-body">
+						<p><strong>Was „Webhook einrichten“ tut:</strong> Claudio legt im Repository auf GitHub unter Settings → Webhooks einen Eintrag an. Darüber meldet GitHub neue und aktualisierte Pull Requests, Kommentare, Labels und Pushes an <code>{data.webhookUrl}</code>. Jede Meldung ist mit einem Geheimnis signiert, das nur dieses Repository und Claudio kennen.</p>
+						<p><strong>Voraussetzungen:</strong></p>
+						<ul>
+							<li>Du hast Admin-Rechte am Repository auf GitHub.</li>
+							<li>Claudio ist unter einer öffentlichen Adresse erreichbar (<code>PUBLIC_BASE_URL</code>).</li>
+							<li>Oben ist eine URL-Vorlage eingetragen, damit Claudio weiß, wo die Instanz eines PRs läuft.</li>
+						</ul>
+						<p><strong>Danach</strong> startet ein Review, sobald jemand im PR <code>/claudio review</code> kommentiert, das Label <code>claudio-review</code> setzt oder (falls eingeschaltet) neue Commits pusht. Claudio reagiert auf den Kommentar mit 👀 und schreibt die Kurzfassung als Kommentar zurück.</p>
+						<p><strong>In wessen Namen:</strong> Automatische Läufe nutzen den GitHub-Zugang der Person, die den Webhook einrichtet. Kommentare und Status erscheinen unter ihrem Namen. Richtet ihn jemand anderes neu ein, wechselt das.</p>
+						<p><strong>GitHub-Status als Pflicht-Check:</strong> Mit eingeschaltetem Status zeigt jeder PR einen Check „Claudio“: gelb während des Reviews, dann grün (Abnahme empfohlen) oder rot (Änderungen nötig). Damit rote Reviews das Mergen verhindern:</p>
+						<ol>
+							<li>Einmal einen Review laufen lassen, damit GitHub den Check „Claudio“ kennt.</li>
+							<li>Auf GitHub: Settings → Branches → Branch protection rule für {data.repo.defaultBranch ?? 'den Hauptbranch'} anlegen oder bearbeiten.</li>
+							<li>„Require status checks to pass before merging“ anhaken und „Claudio“ auswählen.</li>
+						</ol>
+						<p><strong>Entfernen</strong> löscht den Webhook auf GitHub. Bereits gestartete Reviews laufen zu Ende.</p>
+					</div>
+				</details>
+
 				<div class="actions">
-					<form method="POST" action="?/installWebhook" use:enhance>
+					<form method="POST" action="?tab=settings&/installWebhook" use:enhance>
 						<button class="btn {data.webhook ? '' : 'primary'}" type="submit">{data.webhook ? 'Neu einrichten' : 'Webhook einrichten'}</button>
 					</form>
 					{#if data.webhook}
-						<form method="POST" action="?/removeWebhook" use:enhance>
+						<form method="POST" action="?tab=settings&/removeWebhook" use:enhance>
 							<button class="btn danger" type="submit">Entfernen</button>
 						</form>
 					{/if}
@@ -480,7 +568,7 @@
 						{#if saved === `role:${role.name}`}<span class="ok" role="status">Gespeichert</span>{/if}
 					</summary>
 					{@render roleForm(role)}
-					<form method="POST" action="?/deleteRole" class="delete">
+					<form method="POST" action="?tab=settings&/deleteRole" class="delete">
 						<input type="hidden" name="name" value={role.name} />
 						<button class="btn small danger" type="submit">Rolle löschen</button>
 					</form>
@@ -507,7 +595,7 @@
 								<p>{lesson.text}</p>
 								<span class="faint"><a href="/reviews/{lesson.reviewId}">Review #{lesson.reviewId}</a>, {lesson.by}, {formatDate(lesson.at)}</span>
 							</div>
-							<form method="POST" action="?/removeLesson" use:enhance>
+							<form method="POST" action="?tab=settings&/removeLesson" use:enhance>
 								<input type="hidden" name="reviewId" value={lesson.reviewId} />
 								<input type="hidden" name="findingId" value={lesson.findingId} />
 								<button class="btn small" type="submit">Vergessen</button>
@@ -526,7 +614,7 @@
 			<h2>Entfernen</h2>
 			<p class="muted">Nimmt das Repository aus Claudio heraus. Auf GitHub ändert sich nichts.</p>
 		</div>
-		<form method="POST" action="?/remove" class="fields">
+		<form method="POST" action="?tab=settings&/remove" class="fields">
 			{#if formError('remove')}<p class="notice error" role="alert">{formError('remove')}</p>{/if}
 			<div><button class="btn danger" type="submit">Repository entfernen</button></div>
 		</form>
@@ -534,7 +622,7 @@
 {/if}
 
 {#snippet roleForm(role: (typeof data.roles)[number] | null)}
-	<form method="POST" action="?/role" use:enhance={() => ({ update }) => update({ reset: !role })} class="fields">
+	<form method="POST" action="?tab=settings&/role" use:enhance={() => ({ update }) => update({ reset: !role })} class="fields">
 		<div class="grid">
 			<label class="field">
 				<span>Name</span>
@@ -725,6 +813,22 @@
 		background: var(--sunken);
 		color: var(--ink-2);
 	}
+	.keybox > p {
+		margin: 0;
+	}
+	.row-form {
+		display: flex;
+		align-items: flex-end;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+	.row-form .field {
+		flex: 1;
+		min-width: 16rem;
+	}
+	.sheet.keybox {
+		padding: 1.25rem;
+	}
 	.hook h3 {
 		font-size: 1rem;
 	}
@@ -738,6 +842,26 @@
 	}
 	.dot-ok.bad {
 		background: var(--block);
+	}
+	.howto summary {
+		cursor: pointer;
+		font-weight: 600;
+		color: var(--petrol);
+	}
+	.howto-body {
+		display: grid;
+		gap: 0.6rem;
+		margin-top: 0.75rem;
+		font-size: 0.9375rem;
+		max-width: 46rem;
+	}
+	.howto-body ul,
+	.howto-body ol {
+		margin: 0;
+		padding-left: 1.25rem;
+	}
+	.howto-body ul {
+		list-style: disc;
 	}
 	.lessons {
 		list-style: none;

@@ -1,6 +1,8 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { ReviewRequestSchema } from '@claudio/core';
-import { createReview, createTestRuns, getRepo, listRoles, listTestScripts } from '@claudio/db';
+import { createReview, createTestRuns, listRoles, listTestScripts } from '@claudio/db';
+import { requireRepo } from '#lib/server/access.js';
+import { keyOptional } from '#lib/server/anthropic.js';
 import { userToken } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
@@ -11,11 +13,11 @@ import type { Actions, PageServerLoad } from './$types';
 async function context(url: URL, user: App.Locals['user']) {
 	const fullName = url.searchParams.get('repo') ?? '';
 	const prNumber = Number(url.searchParams.get('pr'));
-	const repo = await getRepo(db(), fullName);
-	if (!repo) error(404, 'Dieses Repository ist in Claudio nicht eingerichtet.');
+	const { repo } = await requireRepo(user, fullName, 'write');
 	if (!Number.isInteger(prNumber) || prNumber <= 0) error(400, 'Pull-Request-Nummer fehlt.');
 	const roles = await listRoles(db(), repo.id);
 	if (!repo.dataConfirmed || roles.length === 0) redirect(303, `/repos/${repo.fullName}?tab=settings`);
+	if (!repo.anthropicKeyEnc && !keyOptional(repo)) redirect(303, `/repos/${repo.fullName}?tab=settings#anthropic`);
 
 	const fixture = repo.fullName === DEMO_REPO && devFixtures() ? DEMO_FIXTURE : null;
 	let pr: { title: string; headRef: string; url: string } | null = null;

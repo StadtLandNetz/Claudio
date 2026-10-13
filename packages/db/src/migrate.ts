@@ -8,6 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../../..");
 if (existsSync(resolve(root, ".env"))) process.loadEnvFile(resolve(root, ".env"));
 
-await migrate(getDb(), { migrationsFolder: resolve(here, "../migrations") });
+// DATABASE_MIGRATION_URL: optional user with DDL privileges, only for migrations (Kubernetes init container).
+await migrate(getDb(process.env.DATABASE_MIGRATION_URL || undefined), { migrationsFolder: resolve(here, "../migrations") });
 await closeDb();
 console.log("migrations applied");

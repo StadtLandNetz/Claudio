@@ -13,26 +13,30 @@ import {
 	setReviewCommentUrl,
 	FINDING_STATUSES
 } from '@claudio/db';
+import type { AccessLevel } from '@claudio/db';
 import { createGithubClient, postPullRequestComment } from '@claudio/github';
 import { userToken } from '#lib/server/auth.js';
+import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { publicBaseUrl } from '#lib/server/env.js';
 import { runFileUrl } from '#lib/server/run-files.js';
 import { renderMarkdown } from '#lib/markdown.js';
 import type { Actions, PageServerLoad } from './$types';
 
-async function loadReview(idParam: string) {
+async function loadReview(idParam: string, user: App.Locals['user'], min: AccessLevel = 'read') {
 	const id = Number(idParam);
 	const review = Number.isInteger(id) ? await getReview(db(), id) : undefined;
 	if (!review) error(404, 'Diesen Review gibt es nicht.');
+	// Visible only with access to its repository on GitHub.
+	await requireRepo(user, review.repoId, min);
 	return review;
 }
 
 const dismissedOf = (rows: Awaited<ReturnType<typeof listFindings>>) =>
 	rows.filter((r) => r.finding.status === 'dismissed').map((r) => r.finding.findingId);
 
-export const load: PageServerLoad = async ({ params, url }) => {
-	const review = await loadReview(params.id);
+export const load: PageServerLoad = async ({ params, url, locals }) => {
+	const review = await loadReview(params.id, locals.user, 'read');
 	const [rows, events, testRuns] = await Promise.all([
 		listFindings(db(), review.id),
 		eventsSince(db(), { reviewId: review.id }, 0, 5000),
@@ -102,7 +106,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 
 export const actions: Actions = {
 	rate: async ({ params, request, locals }) => {
-		const review = await loadReview(params.id);
+		const review = await loadReview(params.id, locals.user, 'write');
 		const f = await request.formData();
 		const findingId = String(f.get('findingId') ?? '');
 		const status = String(f.get('status') ?? '');
@@ -120,7 +124,7 @@ export const actions: Actions = {
 		return { rated: findingId };
 	},
 	comment: async ({ params, request, locals, url }) => {
-		const review = await loadReview(params.id);
+		const review = await loadReview(params.id, locals.user, 'write');
 		if (!review.report) return fail(400, { error: 'Dieser Review hat keinen Bericht.', form: 'comment' });
 		if (review.fixture) return fail(400, { error: 'Der Demo-PR existiert nicht auf GitHub, deshalb gibt es dort nichts zu kommentieren.', form: 'comment' });
 		const token = await userToken(locals.user!);
@@ -138,8 +142,8 @@ export const actions: Actions = {
 			return fail(400, { error: `GitHub hat den Kommentar abgelehnt: ${(e as Error).message}`, form: 'comment' });
 		}
 	},
-	abort: async ({ params }) => {
-		const review = await loadReview(params.id);
+	abort: async ({ params, locals }) => {
+		const review = await loadReview(params.id, locals.user, 'write');
 		await requestAbort(db(), review.id);
 		return { aborted: true };
 	}

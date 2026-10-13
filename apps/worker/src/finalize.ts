@@ -6,7 +6,7 @@ import {
   getUser,
   setReviewCommentUrl,
   testResultsByReview,
-  userAccessToken,
+  freshAccessToken,
   type Db,
 } from "@claudio/db";
 import { createGithubClient, postPullRequestComment, setCommitStatus, type CommitState } from "@claudio/github";
@@ -31,7 +31,7 @@ export async function finalizeReview(db: Db, reviewId: number, publicBaseUrl: st
   const tests = (await testResultsByReview(db, [reviewId])).get(reviewId) ?? [];
   const pendingTests = tests.filter((t) => ACTIVE.has(t.status)).length;
   const user = await getUser(db, repo.automationUserId ?? review.startedBy);
-  const token = user ? userAccessToken(user) || null : null;
+  const token = user ? await freshAccessToken(db, user) : null;
   if (!token) return;
   const github = createGithubClient(token);
   const url = publicBaseUrl ? `${publicBaseUrl}/reviews/${reviewId}` : undefined;

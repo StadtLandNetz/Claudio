@@ -23,13 +23,14 @@ import {
   isTestRunAbortRequested,
   latestKnowledge,
   listRoles,
+  repoAnthropicKey,
   saveTestSteps,
   setAnalysisRunId,
   setReviewRunId,
   setTestRunStarted,
   toRepoConfig,
   toTestScript,
-  userAccessToken,
+  freshAccessToken,
   type Analysis,
   type Db,
   type EventTarget,
@@ -39,6 +40,7 @@ import {
 } from "@claudio/db";
 import { finalizeReview } from "./finalize.js";
 import { humanBridge } from "./human.js";
+import { purgeOldRuns } from "./retention.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 if (existsSync(resolve(projectRoot, ".env"))) process.loadEnvFile(resolve(projectRoot, ".env"));
@@ -56,6 +58,14 @@ const FIXTURES: Record<string, { prContextFile: string; repoDir: string }> = {
     repoDir: resolve(projectRoot, "apps/demo-target"),
   },
 };
+
+/** The offline demo may use the machine's own Claude login on the dev server; every real repo needs its own key. */
+const DEMO_REPO = "vanderlars/dispo-demo";
+const NO_KEY = "Für dieses Repository ist kein Anthropic-API-Key hinterlegt. Ein Admin kann ihn in den Repo-Einstellungen eintragen.";
+
+/** Soft-stop handles of the runs in progress, so a shutdown (deploy) can end them cleanly. */
+const runningStops = new Set<AbortController>();
+const retentionDays = Number(process.env.CLAUDIO_RUN_RETENTION_DAYS ?? 60);
 
 const log = (msg: string) => console.log(`[worker] ${new Date().toISOString()} ${msg}`);
 
@@ -79,14 +89,20 @@ async function prepare(db: Db, job: Job) {
     pending = pending.then(fn).catch((e) => log(`write failed: ${(e as Error).message}`));
   };
 
+  // Cancelling first asks the agent to stop (soft), so the SDK still reports the cost;
+  // only if it does not finish within a minute is the process killed (hard).
   const abort = new AbortController();
+  const stop = new AbortController();
+  runningStops.add(stop);
+  let hardAbort: ReturnType<typeof setTimeout> | undefined;
   const abortRequested = job.kind === "review" ? isAbortRequested : job.kind === "analysis" ? isAnalysisAbortRequested : isTestRunAbortRequested;
   const abortPoll = setInterval(() => {
     abortRequested(db, job.row.id)
       .then((yes) => {
-        if (yes && !abort.signal.aborted) {
-          emit("Abbruch angefordert, Run wird beendet …");
-          abort.abort();
+        if (yes && !stop.signal.aborted) {
+          emit("Abbruch angefordert, Claudio beendet den Lauf …");
+          stop.abort();
+          hardAbort = setTimeout(() => abort.abort(), 60_000);
         }
       })
       .catch(() => undefined);
@@ -95,9 +111,13 @@ async function prepare(db: Db, job: Job) {
   const repo = await getRepoById(db, job.row.repoId);
   if (!repo) throw new Error(`Repo ${job.row.repoId} existiert nicht mehr.`);
   const user = await getUser(db, job.row.startedBy);
-  const githubToken = user ? userAccessToken(user) || undefined : undefined;
+  const githubToken = user ? ((await freshAccessToken(db, user)) ?? undefined) : undefined;
   const { config, roleEnv } = toRepoConfig(repo, await listRoles(db, repo.id));
   const knowledge = await latestKnowledge(db, repo.id);
+  const anthropicApiKey = repoAnthropicKey(repo) ?? undefined;
+  const keyOptional = process.env.CLAUDIO_DEV_FIXTURES === "1" && repo.fullName === DEMO_REPO;
+  // Reviews and analyses always need the model; test replays may run without it.
+  if (!anthropicApiKey && !keyOptional && job.kind !== "test") throw new Error(NO_KEY);
 
   let fixture: (typeof FIXTURES)[string] | undefined;
   if (job.row.fixture) {
@@ -111,7 +131,12 @@ async function prepare(db: Db, job: Job) {
     after,
     flush: () => pending,
     abort,
-    stop: () => clearInterval(abortPoll),
+    stop: () => {
+      clearInterval(abortPoll);
+      clearTimeout(hardAbort);
+      runningStops.delete(stop);
+    },
+    stopped: () => stop.signal.aborted || abort.signal.aborted,
     common: {
       runsRoot,
       projectRoot,
@@ -119,8 +144,11 @@ async function prepare(db: Db, job: Job) {
       roleEnv,
       githubToken,
       abortController: abort,
+      stopSignal: stop.signal,
+      anthropicApiKey,
+      requireApiKey: !keyOptional,
       onProgress: emit,
-      human: humanBridge(db, { kind: job.kind, id: job.row.id, repoId: job.row.repoId }, emit, abort.signal),
+      human: humanBridge(db, { kind: job.kind, id: job.row.id, repoId: job.row.repoId }, emit, stop.signal),
     },
     knowledge,
     fixture,
@@ -200,7 +228,7 @@ async function execute(db: Db, job: Job): Promise<void> {
     const message = (e as Error).message;
     ctx?.emit(`Fehler: ${message}`);
     await ctx?.flush();
-    await finish(ctx?.abort.signal.aborted ? "aborted" : "failed", message);
+    await finish(ctx?.stopped() ? "aborted" : "failed", message);
     log(`${job.kind} ${job.row.id} failed: ${message}`);
     const reviewId = job.kind === "review" ? job.row.id : job.kind === "test" ? job.row.reviewId : null;
     if (reviewId) await finalizeReview(db, reviewId, publicBaseUrl, log).catch(() => undefined);
@@ -228,13 +256,19 @@ async function main(): Promise<void> {
 
   const active = new Set<Promise<void>>();
   let stopping = false;
-  const stop = () => {
+  const stop = (signal: string) => {
     if (stopping) process.exit(1);
     stopping = true;
-    log("stopping after the current run(s); press Ctrl+C again to force");
+    // On SIGTERM (Kubernetes deploy) running agents are asked to finish now, so their cost is still
+    // recorded; the pod's termination grace period covers that. Ctrl+C locally lets them finish.
+    if (signal === "SIGTERM") for (const s of runningStops) s.abort();
+    log(signal === "SIGTERM" ? `stopping ${runningStops.size} running run(s) for shutdown` : "stopping after the current run(s); press Ctrl+C again to force");
   };
-  process.on("SIGINT", stop);
-  process.on("SIGTERM", stop);
+  process.on("SIGINT", () => stop("SIGINT"));
+  process.on("SIGTERM", () => stop("SIGTERM"));
+
+  await purgeOldRuns(runsRoot, retentionDays, log);
+  const purge = setInterval(() => void purgeOldRuns(runsRoot, retentionDays, log), 6 * 3_600_000);
 
   while (!stopping) {
     if (active.size < concurrency) {
@@ -253,6 +287,7 @@ async function main(): Promise<void> {
     await new Promise((r) => setTimeout(r, pollMs));
   }
   await Promise.all(active);
+  clearInterval(purge);
   await closeDb();
 }
 

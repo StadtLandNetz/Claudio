@@ -1,5 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { addRepo, listRepos, listReviews } from '@claudio/db';
+import { addRepo, listReviews } from '@claudio/db';
+import { visibleRepos } from '#lib/server/access.js';
 import { userToken } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 import { createDemoRepo, DEMO_REPO } from '#lib/server/demo.js';
@@ -8,7 +9,8 @@ import { getRepoInfo, githubErrorMessage, listUserRepos, type GithubRepo } from 
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
-	const [repos, reviews] = await Promise.all([listRepos(db()), listReviews(db(), { limit: 500 })]);
+	const { repos } = await visibleRepos(locals.user!);
+	const reviews = await listReviews(db(), { limit: 500, repoIds: repos.map((r) => r.id) });
 	const lastReview = new Map<number, Date>();
 	for (const r of reviews) if (!lastReview.has(r.repoId)) lastReview.set(r.repoId, r.createdAt);
 
@@ -59,7 +61,8 @@ export const actions: Actions = {
 		} catch (e) {
 			return fail(400, { error: githubErrorMessage(e) });
 		}
-		await addRepo(db(), { ...info, createdBy: locals.user!.id });
+		if (!info.canWrite) return fail(403, { error: 'Zum Einrichten in Claudio brauchst du Schreibrechte an diesem Repository auf GitHub.' });
+		await addRepo(db(), { fullName: info.fullName, isPrivate: info.isPrivate, defaultBranch: info.defaultBranch, createdBy: locals.user!.id });
 		redirect(303, `/repos/${info.fullName}?tab=settings&new=1`);
 	},
 	demo: async ({ locals }) => {

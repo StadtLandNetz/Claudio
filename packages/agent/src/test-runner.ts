@@ -37,7 +37,8 @@ import {
 } from "@claudio/core";
 import { runJudge } from "./judge.js";
 import { renderKnowledgeSection } from "./prompts.js";
-import { describe, envWithout, mapStatus, writeKnowledgeFiles, type RunHandle } from "./runner.js";
+import { createStopHook } from "./hooks.js";
+import { describe, envWithout, mapStatus, modelEnv, writeKnowledgeFiles, type RunHandle } from "./runner.js";
 import { createClaudioSdkServer } from "./sdk-tools.js";
 
 export type TestRunnerDeps = {
@@ -47,6 +48,12 @@ export type TestRunnerDeps = {
   roleEnv?: Record<string, string>;
   knowledge?: KnowledgeBase | null;
   abortController?: AbortController;
+  /** The repository's Anthropic API key (see RunnerDeps.anthropicApiKey). */
+  anthropicApiKey?: string;
+  /** Without a key, do not start any model session (replays still run). Set by the worker. */
+  requireApiKey?: boolean;
+  /** Soft stop (see RunnerDeps.stopSignal). */
+  stopSignal?: AbortSignal;
   onProgress?: (line: string) => void;
   onRunStarted?: (run: RunHandle) => void;
   liveView?: boolean;
@@ -128,7 +135,16 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
   let status: TestRunReport["status"] = "completed";
   let assertionFailure: StepResult | undefined;
 
+  const NO_KEY = "Für dieses Repository ist kein Anthropic-API-Key hinterlegt. Ein Admin kann ihn in den Repo-Einstellungen eintragen.";
+  const modelAllowed = !deps.requireApiKey || Boolean(deps.anthropicApiKey);
+
   const agentRun = async (prompt: string, recorder: StepRecorder, healing: boolean) => {
+    if (!modelAllowed) {
+      status = "failed";
+      errors.push(NO_KEY);
+      log(NO_KEY);
+      return;
+    }
     const res = await runTestAgent({ prompt, recorder, healing, ctx, store, runDir, profile, deps, abortController, log, language: request.language, human });
     agentCost += res.costUsd;
     agentTurns += res.turns;
@@ -140,7 +156,7 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
     if (mode === "replay") {
       const planned = script.steps!;
       for (let i = 0; i < planned.length; i++) {
-        if (abortController.signal.aborted) {
+        if (abortController.signal.aborted || deps.stopSignal?.aborted) {
           status = "aborted";
           break;
         }
@@ -241,6 +257,9 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
     outcome = "failed";
   } else if (!needsJudge) {
     outcome = allOk ? "passed" : "failed";
+  } else if (!modelAllowed) {
+    outcome = "inconclusive";
+    errors.push(NO_KEY);
   } else {
     log("judge: comparing the final state with the expectation");
     const j = await runJudge({
@@ -256,6 +275,7 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
       model: profile.orchestratorModel,
       runDir,
       abortController,
+      apiKey: deps.anthropicApiKey,
     });
     agentCost += j.costUsd;
     if (j.error) errors.push(j.error);
@@ -366,7 +386,7 @@ async function runTestAgent(a: {
     cwd: resolve(a.deps.projectRoot ?? process.cwd()),
     settingSources: ["project"],
     systemPrompt: { type: "preset", preset: "claude_code", append: TEST_SYSTEM_APPEND },
-    hooks: { PreToolUse: [{ matcher: "^(Read|Grep|Glob)$", hooks: [readGuard] }] },
+    hooks: { PreToolUse: [...createStopHook(a.deps.stopSignal), { matcher: "^(Read|Grep|Glob)$", hooks: [readGuard] }] },
     model: a.profile.orchestratorModel,
     effort: a.profile.effort,
     thinking: { type: "adaptive" },
@@ -380,7 +400,7 @@ async function runTestAgent(a: {
     allowDangerouslySkipPermissions: true,
     additionalDirectories: knowledgeDir ? [knowledgeDir] : [],
     abortController: a.abortController,
-    env: envWithout(process.env, roleEnvVars),
+    env: modelEnv(envWithout(process.env, roleEnvVars), a.deps.anthropicApiKey),
     stderr: (data) => appendFileSync(join(a.runDir, "claude-stderr.log"), data),
   };
   const fullPrompt = knowledgeDir && a.deps.knowledge ? `${a.prompt}\n\n${renderKnowledgeSection(knowledgeDir, a.deps.knowledge, "review")}` : a.prompt;
@@ -395,7 +415,7 @@ async function runTestAgent(a: {
       describe(m, a.log);
       if (m.type === "result") result = m;
     }
-    status = mapStatus(result);
+    status = a.deps.stopSignal?.aborted ? "aborted" : mapStatus(result);
     if (result && result.subtype !== "success") errors.push(...result.errors);
   } catch (e) {
     status = a.abortController.signal.aborted ? "aborted" : "failed";

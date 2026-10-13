@@ -3,27 +3,32 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { AnalysisRequestSchema, KNOWLEDGE_DOCS, LoginStepSchema, TestRunRequestSchema, parseHostList } from '@claudio/core';
 import {
+	type AccessLevel,
 	createAnalysis,
 	createTestRuns,
 	createTestScript,
 	deleteRole,
 	dismissedFindingIds,
-	getRepo,
+	getUser,
 	latestKnowledge,
 	listAnalyses,
 	listReviews,
 	listRoles,
 	listTestRuns,
 	listTestScripts,
-	testResultsByReview,
 	removeLesson,
 	removeRepo,
-	setWebhook,
-	updateAutomation,
+	repoAnthropicKey,
+	setAnthropicKey,
 	roleUsername,
 	saveRole,
+	setWebhook,
+	testResultsByReview,
+	updateAutomation,
 	updateRepoSettings
 } from '@claudio/db';
+import { atLeast, requireRepo, visibleRepos } from '#lib/server/access.js';
+import { NO_KEY_MESSAGE, checkAnthropicKey, keyOptional } from '#lib/server/anthropic.js';
 import { userToken } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
@@ -36,14 +41,13 @@ import { githubErrorMessage, listOpenPulls, type GithubPull } from '#lib/server/
 import { summarize } from '#lib/server/summary.js';
 import type { Actions, PageServerLoad } from './$types';
 
-async function loadRepo(params: { owner: string; name: string }) {
-	const repo = await getRepo(db(), `${params.owner}/${params.name}`);
-	if (!repo) error(404, 'Dieses Repository ist in Claudio nicht eingerichtet.');
-	return repo;
+/** The repo of this page, if the user has at least `min` access on GitHub (404 / 403 otherwise). */
+async function loadRepo(params: { owner: string; name: string }, user: App.Locals['user'], min: AccessLevel = 'read') {
+	return (await requireRepo(user, `${params.owner}/${params.name}`, min)).repo;
 }
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
-	const repo = await loadRepo(params);
+	const { repo, level } = await requireRepo(locals.user, `${params.owner}/${params.name}`, 'read');
 	const [roles, reviews] = await Promise.all([listRoles(db(), repo.id), listReviews(db(), { repoId: repo.id, limit: 100 })]);
 	const [dismissed, reviewTests] = await Promise.all([
 		dismissedFindingIds(db(), reviews.map((r) => r.id)),
@@ -86,18 +90,30 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	]);
 
 	// Webhook health, shown in the settings.
-	let webhook: { id: number; ok: boolean | null; status: string } | null = null;
+	let webhook: { id: number; ok: boolean | null; status: string; by: string | null } | null = null;
 	if (repo.webhookId) {
+		const owner = repo.automationUserId ? await getUser(db(), repo.automationUserId) : undefined;
 		const token = await userToken(locals.user!);
 		const info = token && !isDemo ? await getRepoWebhook(createGithubClient(token), repo.fullName, repo.webhookId).catch(() => null) : null;
 		const code = info?.lastResponse?.code ?? null;
 		webhook = {
 			id: repo.webhookId,
 			ok: code === null ? null : code >= 200 && code < 300,
-			status: info ? (code ? `Letzte Zustellung: HTTP ${code}${info.lastResponse?.message ? ` (${info.lastResponse.message})` : ''}` : 'Noch keine Zustellung') : 'Status nicht abrufbar'
+			status: info ? (code ? `Letzte Zustellung: HTTP ${code}${info.lastResponse?.message ? ` (${info.lastResponse.message})` : ''}` : 'Noch keine Zustellung') : 'Status nicht abrufbar',
+			by: owner?.login ?? null
 		};
 	}
 	const base = publicBaseUrl(url);
+
+	// Anthropic key: status, and other repos (where this user is admin) whose key can be copied over.
+	const keySetBy = repo.anthropicKeySetBy ? await getUser(db(), repo.anthropicKeySetBy) : undefined;
+	let keySources: { fullName: string; hint: string }[] = [];
+	if (level === 'admin') {
+		const { repos: visible, levels } = await visibleRepos(locals.user!);
+		keySources = visible
+			.filter((r) => r.id !== repo.id && r.anthropicKeyEnc && atLeast(levels.get(r.id) ?? 'none', 'admin'))
+			.map((r) => ({ fullName: r.fullName, hint: r.anthropicKeyHint ?? '' }));
+	}
 
 	const tab = url.searchParams.get('tab');
 	return {
@@ -143,6 +159,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			startedBy: a.startedByLogin,
 			createdAt: a.createdAt
 		})),
+		anthropicKey: repo.anthropicKeyEnc
+			? { hint: repo.anthropicKeyHint ?? '', by: keySetBy?.login ?? null, at: repo.anthropicKeySetAt }
+			: null,
+		keyOptional: keyOptional(repo),
+		keySources,
 		automation: repo.automation ?? DEFAULT_AUTOMATION,
 		autoReview: repo.autoReview ?? DEFAULT_AUTO_REVIEW,
 		webhook,
@@ -164,6 +185,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		batch: batchId
 			? batchRuns.map((r) => ({ id: r.id, scriptName: r.scriptName, status: r.status, outcome: r.outcome, healed: r.healed, mode: r.mode, costUsd: r.costUsd }))
 			: null,
+		level,
 		tab: tab === 'settings' || tab === 'reviews' || tab === 'knowledge' || tab === 'tests' ? tab : 'pulls',
 		isNew: url.searchParams.has('new')
 	};
@@ -182,8 +204,8 @@ const RoleForm = z.object({
 });
 
 export const actions: Actions = {
-	settings: async ({ params, request }) => {
-		const repo = await loadRepo(params);
+	settings: async ({ params, request, locals }) => {
+		const repo = await loadRepo(params, locals.user, 'admin');
 		const f = await request.formData();
 		const defaultInstanceUrl = text(f.get('defaultInstanceUrl'));
 		if (defaultInstanceUrl && !URL.canParse(defaultInstanceUrl)) return fail(400, { error: 'Die Standard-URL ist keine gültige Adresse.', form: 'settings' });
@@ -197,8 +219,8 @@ export const actions: Actions = {
 		return { saved: 'settings' };
 	},
 
-	role: async ({ params, request }) => {
-		const repo = await loadRepo(params);
+	role: async ({ params, request, locals }) => {
+		const repo = await loadRepo(params, locals.user, 'admin');
 		const f = await request.formData();
 		const parsed = RoleForm.safeParse(Object.fromEntries(['name', 'description', 'username', 'password', 'loginPath', 'successUrlContains', 'recipe'].map((k) => [k, text(f.get(k))])));
 		if (!parsed.success) return fail(400, { error: parsed.error.issues[0]?.message ?? 'Eingaben prüfen.', form: 'role' });
@@ -227,16 +249,17 @@ export const actions: Actions = {
 		return { saved: `role:${v.name}` };
 	},
 
-	deleteRole: async ({ params, request }) => {
-		const repo = await loadRepo(params);
+	deleteRole: async ({ params, request, locals }) => {
+		const repo = await loadRepo(params, locals.user, 'admin');
 		await deleteRole(db(), repo.id, text((await request.formData()).get('name')));
 		return { saved: 'deleted' };
 	},
 
 	analyze: async ({ params, request, locals }) => {
-		const repo = await loadRepo(params);
+		const repo = await loadRepo(params, locals.user, 'write');
 		const roles = await listRoles(db(), repo.id);
 		if (!repo.dataConfirmed || roles.length === 0) return fail(400, { error: 'Richte zuerst Rollen und die Datenschutz-Bestätigung ein.', form: 'analyze' });
+		if (!repo.anthropicKeyEnc && !keyOptional(repo)) return fail(400, { error: NO_KEY_MESSAGE, form: 'analyze' });
 		if ((await listAnalyses(db(), { repoId: repo.id, activeOnly: true })).length > 0) {
 			return fail(400, { error: 'Für dieses Repository läuft schon eine Analyse.', form: 'analyze' });
 		}
@@ -260,7 +283,7 @@ export const actions: Actions = {
 	},
 
 	createTest: async ({ params, request, locals }) => {
-		const repo = await loadRepo(params);
+		const repo = await loadRepo(params, locals.user, 'write');
 		const f = await request.formData();
 		const input = {
 			name: text(f.get('name')),
@@ -279,7 +302,7 @@ export const actions: Actions = {
 	},
 
 	runTests: async ({ params, request, locals }) => {
-		const repo = await loadRepo(params);
+		const repo = await loadRepo(params, locals.user, 'write');
 		if (!repo.dataConfirmed) return fail(400, { error: 'Bestätige zuerst in den Einstellungen, dass die Instanz nur Testdaten enthält.', form: 'runTests' });
 		const f = await request.formData();
 		const parsed = TestRunRequestSchema.safeParse({ repo: repo.fullName, instanceUrl: text(f.get('instanceUrl')), budget: f.get('budget') });
@@ -294,8 +317,8 @@ export const actions: Actions = {
 		redirect(303, `/repos/${repo.fullName}?tab=tests&batch=${batchId}`);
 	},
 
-	automation: async ({ params, request }) => {
-		const repo = await loadRepo(params);
+	automation: async ({ params, request, locals }) => {
+		const repo = await loadRepo(params, locals.user, 'admin');
 		const f = await request.formData();
 		const template = text(f.get('instanceUrlTemplate'));
 		if (template && !URL.canParse(template.replace(/\{[a-z_]+\}/g, 'x'))) {
@@ -326,7 +349,7 @@ export const actions: Actions = {
 	},
 
 	installWebhook: async ({ params, locals, url }) => {
-		const repo = await loadRepo(params);
+		const repo = await loadRepo(params, locals.user, 'admin');
 		const token = await userToken(locals.user!);
 		if (!token) return fail(400, { error: 'Zum Einrichten brauchst du eine Anmeldung mit GitHub.', form: 'webhook' });
 		const secret = randomUUID() + randomUUID();
@@ -346,22 +369,48 @@ export const actions: Actions = {
 	},
 
 	removeWebhook: async ({ params, locals }) => {
-		const repo = await loadRepo(params);
+		const repo = await loadRepo(params, locals.user, 'admin');
 		const token = await userToken(locals.user!);
 		if (repo.webhookId && token) await deleteRepoWebhook(createGithubClient(token), repo.fullName, repo.webhookId).catch(() => undefined);
 		await setWebhook(db(), repo.id, null);
 		return { saved: 'webhook-removed' };
 	},
 
-	removeLesson: async ({ params, request }) => {
-		const repo = await loadRepo(params);
+	setKey: async ({ params, request, locals }) => {
+		const repo = await loadRepo(params, locals.user, 'admin');
+		const f = await request.formData();
+		const source = text(f.get('source'));
+		let key = text(f.get('key'));
+		if (source) {
+			// Copy from another repository, only if the user is admin there too.
+			const { repo: from } = await requireRepo(locals.user, source, 'admin');
+			key = repoAnthropicKey(from) ?? '';
+			if (!key) return fail(400, { error: `In ${from.fullName} ist kein Key hinterlegt.`, form: 'key' });
+		}
+		if (!key) return fail(400, { error: 'Trage einen Key ein oder wähle ein Repository, aus dem er übernommen wird.', form: 'key' });
+		const check = await checkAnthropicKey(key);
+		if (!check.ok && !(check.unverified && f.get('force') === 'on')) {
+			return fail(400, { error: check.reason, unverified: check.unverified ?? false, form: 'key' });
+		}
+		await setAnthropicKey(db(), repo.id, key, locals.user!.id);
+		return { saved: 'key' };
+	},
+
+	removeKey: async ({ params, locals }) => {
+		const repo = await loadRepo(params, locals.user, 'admin');
+		await setAnthropicKey(db(), repo.id, null, locals.user!.id);
+		return { saved: 'key-removed' };
+	},
+
+	removeLesson: async ({ params, request, locals }) => {
+		const repo = await loadRepo(params, locals.user, 'admin');
 		const f = await request.formData();
 		await removeLesson(db(), repo.id, { reviewId: Number(f.get('reviewId')), findingId: text(f.get('findingId')) });
 		return { saved: 'lesson' };
 	},
 
-	remove: async ({ params }) => {
-		const repo = await loadRepo(params);
+	remove: async ({ params, locals }) => {
+		const repo = await loadRepo(params, locals.user, 'admin');
 		const [reviews, analyses] = await Promise.all([listReviews(db(), { repoId: repo.id, limit: 1 }), listAnalyses(db(), { repoId: repo.id, limit: 1 })]);
 		if (reviews.length > 0 || analyses.length > 0) {
 			return fail(400, { error: 'Repositories mit Reviews oder Analysen bleiben erhalten, damit Prüfprotokolle und Wissensbasis nicht verloren gehen.', form: 'remove' });

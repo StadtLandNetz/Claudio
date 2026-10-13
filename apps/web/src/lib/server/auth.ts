@@ -1,5 +1,5 @@
 import type { Cookies } from '@sveltejs/kit';
-import { createSession, deleteSession, getUser, userAccessToken, type User } from '@claudio/db';
+import { createSession, deleteSession, freshAccessToken, getUser, type User } from '@claudio/db';
 import { db } from './db.js';
 import { allowedOrgs, allowedUsers } from './env.js';
 import { fetchUserOrgs } from './github.js';
@@ -34,9 +34,7 @@ export async function isAllowed(login: string, token: string): Promise<boolean> 
 /** The signed-in user's GitHub token, or null for the offline demo user. */
 export async function userToken(user: SessionUser): Promise<string | null> {
 	const row = await getUser(db(), user.id);
-	if (!row) return null;
-	const token = userAccessToken(row);
-	return token || null;
+	return row ? freshAccessToken(db(), row) : null;
 }
 
 export function safeNext(next: string | null): string {

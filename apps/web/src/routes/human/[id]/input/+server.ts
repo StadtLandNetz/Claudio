@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { z } from 'zod';
 import { addHumanInput, getHumanRequest } from '@claudio/db';
+import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import type { RequestHandler } from './$types';
 
@@ -15,6 +16,7 @@ const InputSchema = z.discriminatedUnion('type', [
 export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const req = await getHumanRequest(db(), Number(params.id));
 	if (!req) error(404, 'Unbekannte Anfrage.');
+	await requireRepo(locals.user, req.repoId, 'write');
 	if (req.status !== 'open') error(409, 'Die Anfrage ist bereits erledigt.');
 	const parsed = InputSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) error(400, 'Ungültige Eingabe.');

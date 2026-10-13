@@ -10,20 +10,25 @@ import {
 	resetTestSteps,
 	updateTestScript
 } from '@claudio/db';
+import type { AccessLevel } from '@claudio/db';
+import { requireRepo } from '#lib/server/access.js';
+import { NO_KEY_MESSAGE, keyOptional } from '#lib/server/anthropic.js';
 import { db } from '#lib/server/db.js';
 import type { Actions, PageServerLoad } from './$types';
 
-async function loadScript(idParam: string) {
+async function loadScript(idParam: string, user: App.Locals['user'], min: AccessLevel = 'read') {
 	const id = Number(idParam);
 	const script = Number.isInteger(id) ? await getTestScript(db(), id) : undefined;
 	if (!script) error(404, 'Diesen Test gibt es nicht.');
+	// Visible only with access to its repository on GitHub.
+	await requireRepo(user, script.repoId, min);
 	return script;
 }
 
 const text = (v: FormDataEntryValue | null) => String(v ?? '').trim();
 
-export const load: PageServerLoad = async ({ params, url }) => {
-	const script = await loadScript(params.id);
+export const load: PageServerLoad = async ({ params, url, locals }) => {
+	const script = await loadScript(params.id, locals.user, 'read');
 	const [repo, roles, runs] = await Promise.all([getRepoById(db(), script.repoId), listRoles(db(), script.repoId), listTestRuns(db(), { scriptId: script.id }, 50)]);
 	return {
 		script: {
@@ -62,8 +67,8 @@ export const load: PageServerLoad = async ({ params, url }) => {
 };
 
 export const actions: Actions = {
-	update: async ({ params, request }) => {
-		const script = await loadScript(params.id);
+	update: async ({ params, request, locals }) => {
+		const script = await loadScript(params.id, locals.user, 'write');
 		const f = await request.formData();
 		const determinism = DeterminismSchema.safeParse(f.get('determinism'));
 		const input = {
@@ -81,10 +86,15 @@ export const actions: Actions = {
 		return { saved: true };
 	},
 	run: async ({ params, request, locals }) => {
-		const script = await loadScript(params.id);
+		const script = await loadScript(params.id, locals.user, 'write');
 		const repo = await getRepoById(db(), script.repoId);
 		if (!repo?.dataConfirmed) return fail(400, { error: 'Bestätige zuerst in den Repo-Einstellungen, dass die Instanz nur Testdaten enthält.', form: 'run' });
 		const f = await request.formData();
+		// Without a key only a model-free replay can run: recorded steps, deterministic, no re-recording.
+		const needsModel = !script.steps?.length || script.determinism !== 'deterministic' || f.get('rerecord') === 'on';
+		if (repo && !repo.anthropicKeyEnc && !keyOptional(repo) && needsModel) {
+			return fail(400, { error: `${NO_KEY_MESSAGE} Ohne Key laufen nur deterministische Tests, die schon aufgezeichnet sind.`, form: 'run' });
+		}
 		const parsed = TestRunRequestSchema.safeParse({
 			repo: script.repoFullName,
 			instanceUrl: text(f.get('instanceUrl')),
@@ -95,13 +105,13 @@ export const actions: Actions = {
 		const id = await createTestRun(db(), { scriptId: script.id, repoId: script.repoId, request: parsed.data, startedBy: locals.user!.id });
 		redirect(303, `/test-runs/${id}`);
 	},
-	reset: async ({ params }) => {
-		const script = await loadScript(params.id);
+	reset: async ({ params, locals }) => {
+		const script = await loadScript(params.id, locals.user, 'write');
 		await resetTestSteps(db(), script.id);
 		return { saved: true };
 	},
-	delete: async ({ params }) => {
-		const script = await loadScript(params.id);
+	delete: async ({ params, locals }) => {
+		const script = await loadScript(params.id, locals.user, 'write');
 		await deleteTestScript(db(), script.id);
 		redirect(303, `/repos/${script.repoFullName}?tab=tests`);
 	}

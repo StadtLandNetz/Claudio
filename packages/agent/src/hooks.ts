@@ -93,3 +93,23 @@ export function createCaptchaHook(page: BrowserAttachment["activePage"], humanAv
   };
   return { matcher: "^mcp__playwright__browser_", hooks: [hook] };
 }
+
+/**
+ * Soft stop: once the signal fires, every further tool call is denied with an
+ * instruction to finish. The agent ends its turn and the SDK still reports the
+ * run's real cost, which a hard abort would lose.
+ */
+export function createStopHook(signal: AbortSignal | undefined): HookCallbackMatcher[] {
+  if (!signal) return [];
+  const hook: HookCallback = async () => {
+    if (!signal.aborted) return {};
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse" as const,
+        permissionDecision: "deny" as const,
+        permissionDecisionReason: "The run was cancelled by a person. Do not call any more tools. Reply with one short sentence and end your turn now.",
+      },
+    };
+  };
+  return [{ matcher: ".*", hooks: [hook] }];
+}

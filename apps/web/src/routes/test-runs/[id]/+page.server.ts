@@ -1,22 +1,26 @@
 import { error } from '@sveltejs/kit';
 import { describeStep, resolveStepTemplates, sortBySeverity } from '@claudio/core';
 import { eventsSince, getTestRun, openHumanRequest, requestTestRunAbort } from '@claudio/db';
+import type { AccessLevel } from '@claudio/db';
+import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { runFileUrl } from '#lib/server/run-files.js';
 import type { Actions, PageServerLoad } from './$types';
 
-async function loadRun(idParam: string) {
+async function loadRun(idParam: string, user: App.Locals['user'], min: AccessLevel = 'read') {
 	const id = Number(idParam);
 	const run = Number.isInteger(id) ? await getTestRun(db(), id) : undefined;
 	if (!run) error(404, 'Diesen Testlauf gibt es nicht.');
+	// Visible only with access to its repository on GitHub.
+	await requireRepo(user, run.repoId, min);
 	return run;
 }
 
 /** Same tag the runner used for {{run}}, so the page shows the actual test data. */
 const runTagOf = (runId: string) => runId.split('-').slice(-2).join('');
 
-export const load: PageServerLoad = async ({ params }) => {
-	const run = await loadRun(params.id);
+export const load: PageServerLoad = async ({ params, locals }) => {
+	const run = await loadRun(params.id, locals.user, 'read');
 	const events = await eventsSince(db(), { testRunId: run.id }, 0, 5000);
 	const r = run.report;
 	const tplCtx = r ? { runTag: runTagOf(r.runId), now: new Date(r.createdAt) } : null;
@@ -70,8 +74,8 @@ export const load: PageServerLoad = async ({ params }) => {
 };
 
 export const actions: Actions = {
-	abort: async ({ params }) => {
-		const run = await loadRun(params.id);
+	abort: async ({ params, locals }) => {
+		const run = await loadRun(params.id, locals.user, 'write');
 		await requestTestRunAbort(db(), run.id);
 		return { aborted: true };
 	}

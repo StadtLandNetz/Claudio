@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: claudio-config
+  namespace: claudio
+data:
+  TZ: Europe/Berlin
+  # Public URL of the web UI: SvelteKit CSRF origin check, OAuth callback, links in PR comments, webhook target
+  ORIGIN: https://claudio.nova-hub.app
+  PUBLIC_BASE_URL: https://claudio.nova-hub.app
+  # Who may sign in (comma-separated GitHub organisations / users; empty = every GitHub user)
+  CLAUDIO_ALLOWED_GITHUB_ORGS: StadtLandNetz
+  CLAUDIO_ALLOWED_GITHUB_USERS: ''
+  # Runs at the same time. Each run starts a Chromium and a Claude Code session (~0.5–1 GB RAM);
+  # raise together with the worker's memory limit.
+  CLAUDIO_WORKER_CONCURRENCY: '1'
+  # Run directories (screenshots, traces) older than this are deleted; reports stay in the database
+  CLAUDIO_RUN_RETENTION_DAYS: '60'
+  # How long a run waits for a person to solve a CAPTCHA before giving up
+  CLAUDIO_HUMAN_TIMEOUT_MIN: '15'

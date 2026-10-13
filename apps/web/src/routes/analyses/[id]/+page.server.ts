@@ -1,20 +1,24 @@
 import { error } from '@sveltejs/kit';
 import { KNOWLEDGE_DOCS, sortBySeverity } from '@claudio/core';
 import { eventsSince, getAnalysis, knowledgeDocsOf, openHumanRequest, requestAnalysisAbort } from '@claudio/db';
+import type { AccessLevel } from '@claudio/db';
+import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { runEvidence, runFindings } from '#lib/server/run-files.js';
 import { renderMarkdown } from '#lib/markdown.js';
 import type { Actions, PageServerLoad } from './$types';
 
-async function loadAnalysis(idParam: string) {
+async function loadAnalysis(idParam: string, user: App.Locals['user'], min: AccessLevel = 'read') {
 	const id = Number(idParam);
 	const analysis = Number.isInteger(id) ? await getAnalysis(db(), id) : undefined;
 	if (!analysis) error(404, 'Diese Analyse gibt es nicht.');
+	// Visible only with access to its repository on GitHub.
+	await requireRepo(user, analysis.repoId, min);
 	return analysis;
 }
 
-export const load: PageServerLoad = async ({ params }) => {
-	const a = await loadAnalysis(params.id);
+export const load: PageServerLoad = async ({ params, locals }) => {
+	const a = await loadAnalysis(params.id, locals.user, 'read');
 	const [events, docs] = await Promise.all([eventsSince(db(), { analysisId: a.id }, 0, 5000), knowledgeDocsOf(db(), a.id)]);
 	return {
 		analysis: {
@@ -44,8 +48,8 @@ export const load: PageServerLoad = async ({ params }) => {
 };
 
 export const actions: Actions = {
-	abort: async ({ params }) => {
-		const a = await loadAnalysis(params.id);
+	abort: async ({ params, locals }) => {
+		const a = await loadAnalysis(params.id, locals.user, 'write');
 		await requestAnalysisAbort(db(), a.id);
 		return { aborted: true };
 	}

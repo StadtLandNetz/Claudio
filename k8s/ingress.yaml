@@ -1,0 +1,31 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: claudio-web
+  namespace: claudio
+  annotations:
+    # No basic auth: Claudio has its own GitHub login, and /webhooks/github must stay reachable for GitHub
+    # (it authenticates every delivery with the repository's HMAC secret).
+    # Live log (SSE) needs long read timeouts and no buffering
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-buffering: 'off'
+    # GitHub webhook payloads of large pull requests can exceed the 1 MB default
+    nginx.ingress.kubernetes.io/proxy-body-size: 25m
+    # TLS via cert-manager (ClusterIssuer exists in the cluster)
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [claudio.nova-hub.app]
+      secretName: claudio-web-tls
+  rules:
+    - host: claudio.nova-hub.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: claudio-web
+                port:
+                  name: http

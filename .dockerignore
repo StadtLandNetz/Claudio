@@ -1,0 +1,16 @@
+**/node_modules
+**/.svelte-kit
+**/build
+.git
+.github
+.vscode
+.claude/settings.local.json
+k8s
+tools
+runs
+.env
+.env.*
+!.env.example
+*.log
+**/.DS_Store
+**/.playwright-mcp

@@ -17,6 +17,7 @@
 
 	const nav = [
 		{ href: '/', label: 'Übersicht', match: (p: string) => p === '/' || p.startsWith('/reviews') },
+		{ href: '/kosten', label: 'Kosten', match: (p: string) => p === '/kosten' },
 		{ href: '/repos', label: 'Repositories', match: (p: string) => p === '/repos' }
 	];
 </script>
@@ -62,6 +63,12 @@
 			</div>
 		</header>
 		<main>
+			{#if data.authExpired}
+				<div class="notice error expired" role="alert">
+					Deine GitHub-Anmeldung ist abgelaufen. Ohne sie kann Claudio deine Rechte nicht prüfen und zeigt nur, was zuletzt bekannt war.
+					<form method="POST" action="/auth/logout"><button class="btn small" type="submit">Neu anmelden</button></form>
+				</div>
+			{/if}
 			{#each (data.waiting ?? []).filter((w) => w.href !== page.url.pathname) as w (w.id)}
 				<a class="waiting" href={w.href}>
 					<span class="pulse" aria-hidden="true"></span>
@@ -173,6 +180,13 @@
 	.owner {
 		color: var(--ink-3);
 		font-weight: 400;
+	}
+	.expired {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		flex-wrap: wrap;
+		margin-bottom: 1rem;
 	}
 	.waiting {
 		display: flex;

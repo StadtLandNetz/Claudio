@@ -20,6 +20,7 @@ import { decrypt, encrypt, sha256 } from "./crypto.js";
 import {
   analyses,
   findings,
+  repoAccess,
   humanInputs,
   humanRequests,
   knowledgeDocs,
@@ -31,6 +32,7 @@ import {
   testRuns,
   testScripts,
   users,
+  type AccessLevel,
   type Analysis,
   type AutoReviewDefaults,
   type Lesson,
@@ -50,23 +52,32 @@ import {
 
 export async function upsertUser(
   db: Db,
-  input: { githubId: number; login: string; name: string | null; avatarUrl: string | null; accessToken: string },
+  input: { githubId: number; login: string; name: string | null; avatarUrl: string | null; accessToken: string; refreshToken?: string; expiresAt?: Date },
 ): Promise<User> {
-  const values = {
-    githubId: input.githubId,
-    login: input.login,
-    name: input.name,
-    avatarUrl: input.avatarUrl,
+  const tokens = {
     accessTokenEnc: encrypt(input.accessToken),
-    lastLoginAt: new Date(),
+    refreshTokenEnc: input.refreshToken ? encrypt(input.refreshToken) : null,
+    tokenExpiresAt: input.expiresAt ?? null,
   };
+  const values = { githubId: input.githubId, login: input.login, name: input.name, avatarUrl: input.avatarUrl, ...tokens, lastLoginAt: new Date() };
   await db
     .insert(users)
     .values(values)
-    .onDuplicateKeyUpdate({ set: { login: values.login, name: values.name, avatarUrl: values.avatarUrl, accessTokenEnc: values.accessTokenEnc, lastLoginAt: values.lastLoginAt } });
+    .onDuplicateKeyUpdate({ set: { login: values.login, name: values.name, avatarUrl: values.avatarUrl, ...tokens, lastLoginAt: values.lastLoginAt } });
   const [user] = await db.select().from(users).where(eq(users.githubId, input.githubId));
   if (!user) throw new Error("user upsert failed");
   return user;
+}
+
+export async function updateUserTokens(db: Db, userId: number, t: { accessToken: string; refreshToken?: string; expiresAt?: Date }): Promise<void> {
+  await db
+    .update(users)
+    .set({
+      accessTokenEnc: encrypt(t.accessToken),
+      ...(t.refreshToken ? { refreshTokenEnc: encrypt(t.refreshToken) } : {}),
+      tokenExpiresAt: t.expiresAt ?? null,
+    })
+    .where(eq(users.id, userId));
 }
 
 export function userAccessToken(user: Pick<User, "accessTokenEnc">): string {
@@ -155,6 +166,23 @@ export async function setWebhook(db: Db, id: number, hook: { webhookId: number; 
 
 export function webhookSecret(repo: Pick<Repo, "webhookSecretEnc">): string | null {
   return repo.webhookSecretEnc ? decrypt(repo.webhookSecretEnc) : null;
+}
+
+/** Sets (or with null removes) the repository's Anthropic API key. */
+export async function setAnthropicKey(db: Db, repoId: number, key: string | null, userId: number): Promise<void> {
+  await db
+    .update(repos)
+    .set(
+      key
+        ? { anthropicKeyEnc: encrypt(key), anthropicKeyHint: key.slice(-4), anthropicKeySetBy: userId, anthropicKeySetAt: new Date() }
+        : { anthropicKeyEnc: null, anthropicKeyHint: null, anthropicKeySetBy: userId, anthropicKeySetAt: new Date() },
+    )
+    .where(eq(repos.id, repoId));
+}
+
+/** The repository's Anthropic API key in clear text, for the worker. Null when none is set. */
+export function repoAnthropicKey(repo: Pick<Repo, "anthropicKeyEnc">): string | null {
+  return repo.anthropicKeyEnc ? decrypt(repo.anthropicKeyEnc) : null;
 }
 
 export async function addLesson(db: Db, repoId: number, lesson: Lesson): Promise<void> {
@@ -268,13 +296,14 @@ export async function createReview(
   return res.insertId;
 }
 
-export async function listReviews(db: Db, opts: { repoId?: number; limit?: number } = {}): Promise<ReviewListItem[]> {
+export async function listReviews(db: Db, opts: { repoId?: number; repoIds?: number[]; limit?: number } = {}): Promise<ReviewListItem[]> {
+  if (opts.repoIds && opts.repoIds.length === 0) return [];
   const rows = await db
     .select({ review: reviews, repoFullName: repos.fullName, startedByLogin: users.login })
     .from(reviews)
     .innerJoin(repos, eq(repos.id, reviews.repoId))
     .innerJoin(users, eq(users.id, reviews.startedBy))
-    .where(opts.repoId ? eq(reviews.repoId, opts.repoId) : undefined)
+    .where(and(opts.repoId ? eq(reviews.repoId, opts.repoId) : undefined, opts.repoIds ? inArray(reviews.repoId, opts.repoIds) : undefined))
     .orderBy(desc(reviews.id))
     .limit(opts.limit ?? 50);
   return rows.map((r) => ({ ...r.review, repoFullName: r.repoFullName, startedByLogin: r.startedByLogin }));
@@ -427,13 +456,20 @@ const analysisSelect = {
   docCount: sql<number>`(select count(*) from ${knowledgeDocs} where ${knowledgeDocs.analysisId} = ${analyses.id})`.mapWith(Number),
 };
 
-export async function listAnalyses(db: Db, opts: { repoId?: number; limit?: number; activeOnly?: boolean } = {}): Promise<AnalysisListItem[]> {
+export async function listAnalyses(db: Db, opts: { repoId?: number; repoIds?: number[]; limit?: number; activeOnly?: boolean } = {}): Promise<AnalysisListItem[]> {
+  if (opts.repoIds && opts.repoIds.length === 0) return [];
   const rows = await db
     .select(analysisSelect)
     .from(analyses)
     .innerJoin(repos, eq(repos.id, analyses.repoId))
     .innerJoin(users, eq(users.id, analyses.startedBy))
-    .where(and(opts.repoId ? eq(analyses.repoId, opts.repoId) : undefined, opts.activeOnly ? inArray(analyses.status, ["queued", "running"]) : undefined))
+    .where(
+      and(
+        opts.repoId ? eq(analyses.repoId, opts.repoId) : undefined,
+        opts.repoIds ? inArray(analyses.repoId, opts.repoIds) : undefined,
+        opts.activeOnly ? inArray(analyses.status, ["queued", "running"]) : undefined,
+      ),
+    )
     .orderBy(desc(analyses.id))
     .limit(opts.limit ?? 50);
   return rows.map((r) => ({ ...r.analysis, repoFullName: r.repoFullName, startedByLogin: r.startedByLogin, docCount: r.docCount }));
@@ -841,4 +877,55 @@ export async function dismissedFindingIds(db: Db, reviewIds: number[]): Promise<
     .where(and(inArray(findings.reviewId, reviewIds), eq(findings.status, "dismissed")));
   for (const r of rows) out.set(r.reviewId, [...(out.get(r.reviewId) ?? []), r.findingId]);
   return out;
+}
+
+// ---------------------------------------------------------------- costs
+
+export type CostRow = { repo: string; month: string; kind: "review" | "analysis" | "test"; runs: number; usd: number };
+
+/**
+ * Model costs per repository, month and kind of run, as reported by the Agent SDK
+ * (list-price estimates, not an invoice). Runs without a reported cost count as 0.
+ */
+export async function costSummary(db: Db, since: Date): Promise<CostRow[]> {
+  const [rows] = (await db.execute(sql`
+    SELECT r.full_name AS repo, DATE_FORMAT(x.created_at, '%Y-%m') AS month, x.kind AS kind,
+           COUNT(*) AS runs, COALESCE(SUM(CAST(x.cost_usd AS DECIMAL(14,4))), 0) AS usd
+    FROM (
+      SELECT repo_id, created_at, cost_usd, 'review' AS kind FROM ${reviews}
+      UNION ALL SELECT repo_id, created_at, cost_usd, 'analysis' AS kind FROM ${analyses}
+      UNION ALL SELECT repo_id, created_at, cost_usd, 'test' AS kind FROM ${testRuns}
+    ) x
+    JOIN ${repos} r ON r.id = x.repo_id
+    WHERE x.created_at >= ${since}
+    GROUP BY r.full_name, month, x.kind
+    ORDER BY month DESC, r.full_name
+  `)) as unknown as [{ repo: string; month: string; kind: CostRow["kind"]; runs: number | string; usd: number | string }[]];
+  return rows.map((r) => ({ repo: r.repo, month: r.month, kind: r.kind, runs: Number(r.runs), usd: Number(r.usd) }));
+}
+
+// ---------------------------------------------------------------- access
+
+export async function cachedAccess(db: Db, userId: number): Promise<Map<number, { level: AccessLevel; checkedAt: Date }>> {
+  const rows = await db.select().from(repoAccess).where(eq(repoAccess.userId, userId));
+  return new Map(rows.map((r) => [r.repoId, { level: r.level, checkedAt: r.checkedAt }]));
+}
+
+export async function storeAccess(db: Db, userId: number, repoId: number, level: AccessLevel): Promise<void> {
+  const checkedAt = new Date();
+  await db.insert(repoAccess).values({ userId, repoId, level, checkedAt }).onDuplicateKeyUpdate({ set: { level, checkedAt } });
+}
+
+/** Forget cached permissions (on login), so they are fetched fresh. */
+export async function clearAccess(db: Db, userId: number): Promise<void> {
+  await db.delete(repoAccess).where(eq(repoAccess.userId, userId));
+}
+
+/** Which repository a run directory belongs to (for serving its files). */
+export async function repoIdOfRun(db: Db, runId: string): Promise<number | null> {
+  for (const table of [reviews, analyses, testRuns] as const) {
+    const [row] = await db.select({ repoId: table.repoId }).from(table).where(eq(table.runId, runId)).limit(1);
+    if (row) return row.repoId;
+  }
+  return null;
 }

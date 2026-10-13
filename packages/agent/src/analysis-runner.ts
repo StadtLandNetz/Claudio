@@ -18,8 +18,8 @@ import {
 } from "@claudio/core";
 import { changedFilesBetween, createGithubClient, getDefaultBranch, type ChangedSince } from "@claudio/github";
 import { ANALYSIS_SYSTEM_APPEND, buildAnalysisPrompt } from "./analysis-prompt.js";
-import { createBrowserGuard, createCaptchaHook } from "./hooks.js";
-import { cloneBranch, describe, envWithout, mapStatus, scrub, writeKnowledgeFiles, type RunnerDeps } from "./runner.js";
+import { createBrowserGuard, createCaptchaHook, createStopHook } from "./hooks.js";
+import { cloneBranch, describe, envWithout, mapStatus, modelEnv, scrub, writeKnowledgeFiles, type RunnerDeps } from "./runner.js";
 import { createClaudioSdkServer } from "./sdk-tools.js";
 
 export type AnalysisDeps = Omit<RunnerDeps, "prContextFile" | "knowledge"> & {
@@ -150,13 +150,13 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     hooks: {
-      PreToolUse: guard.hooks,
+      PreToolUse: [...createStopHook(deps.stopSignal), ...guard.hooks],
       PostToolUse: session.attachment ? [createCaptchaHook(() => session.attachment?.activePage(), Boolean(human))] : [],
     },
     additionalDirectories: [repoDir, knowledgeDir].filter((d): d is string => Boolean(d)),
     extraArgs: session.extraArgs,
     abortController,
-    env: envWithout(process.env, roleEnvVars),
+    env: modelEnv(envWithout(process.env, roleEnvVars), deps.anthropicApiKey),
     stderr: (data) => appendFileSync(join(runDir, "claude-stderr.log"), data),
   };
 
@@ -171,7 +171,7 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
       describe(message, log);
       if (message.type === "result") result = message;
     }
-    status = mapStatus(result);
+    status = deps.stopSignal?.aborted ? "aborted" : mapStatus(result);
     if (result && result.subtype !== "success") errors.push(...result.errors);
   } catch (e) {
     status = abortController.signal.aborted ? "aborted" : "failed";

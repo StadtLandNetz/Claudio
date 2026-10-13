@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ReviewRequestSchema, budgetProfile } from "@claudio/core";
 import { buildReviewPrompt, extractAffectedAreas } from "../src/prompts.js";
 import { createBrowserGuard } from "../src/hooks.js";
+import { modelEnv } from "../src/runner.js";
 
 describe("extractAffectedAreas", () => {
   it("reads the bullet list under the heading", () => {
@@ -68,5 +69,20 @@ describe("review procedure", () => {
     expect(p).toContain("Delegate to ac-verifier");
     expect(p).toContain("Delegate to regression-tester");
     expect(p).toContain("never in parallel");
+  });
+});
+
+describe("model environment", () => {
+  const server = { PATH: "/bin", ANTHROPIC_API_KEY: "sk-ant-server", CLAUDE_CODE_OAUTH_TOKEN: "oauth", ANTHROPIC_AUTH_TOKEN: "t", ANTHROPIC_BASE_URL: "https://proxy" };
+  it("uses only the repository key and drops every other credential", () => {
+    const env = modelEnv(server, "sk-ant-repo");
+    expect(env.ANTHROPIC_API_KEY).toBe("sk-ant-repo");
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(env.PATH).toBe("/bin");
+  });
+  it("leaves the environment alone without a repository key (CLI)", () => {
+    expect(modelEnv(server, undefined)).toBe(server);
   });
 });

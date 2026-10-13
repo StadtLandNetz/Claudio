@@ -1,0 +1,201 @@
+name: Release Image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # Same checks as for pull requests; nothing is built or deployed unless they pass.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    name: Build & push to GHCR
+    needs: ci
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same format as docker/metadata-action's `type=sha,prefix=sha-` below (7-char short sha)
+      - id: tag
+        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            GIT_REF=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "## Image built"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy to Kubernetes
+    needs: image
+    runs-on: ubuntu-latest
+    # One deploy at a time; a newer push waits instead of racing the running rollout
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    environment:
+      name: production
+      url: ${{ steps.origin.outputs.url }}
+    env:
+      NS: claudio
+      TAG: ${{ needs.image.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.28.15 # keep within one minor of the cluster when it gets upgraded
+
+      # Kubeconfig of the namespace-scoped ServiceAccount `github-deployer` (k8s/admin/, tools/create-deploy-kubeconfig.sh)
+      - name: Write kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+        run: |
+          if [ -z "$KUBECONFIG_B64" ]; then
+            echo "::error::Repository secret KUBECONFIG_B64 is not set – run tools/create-deploy-kubeconfig.sh (see docs/DEPLOYMENT.md)."
+            exit 1
+          fi
+          umask 077
+          # exported for kubectl in this step; GITHUB_ENV carries it to the following steps
+          # (the `runner` context is not allowed in job-level env)
+          export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$KUBECONFIG" >> "$GITHUB_ENV"
+          # tolerate wrapped or whitespace-padded secret values
+          if ! printf '%s' "$KUBECONFIG_B64" | tr -d '[:space:]' | base64 -d > "$KUBECONFIG"; then
+            echo "::error::KUBECONFIG_B64 is not valid base64 – re-run tools/create-deploy-kubeconfig.sh"
+            exit 1
+          fi
+          if [ ! -s "$KUBECONFIG" ] || ! grep -q '^apiVersion:' "$KUBECONFIG"; then
+            echo "::error::Decoded kubeconfig is empty or malformed – re-run tools/create-deploy-kubeconfig.sh"
+            exit 1
+          fi
+          kubectl config current-context
+          kubectl -n "$NS" get deployments
+
+      - id: origin
+        name: Read public URL from the ConfigMap
+        run: |
+          echo "url=$(sed -n 's/^ *ORIGIN: *//p' k8s/configmap.yaml)" >> "$GITHUB_OUTPUT"
+
+      # The tag committed in k8s/deployment.yaml only serves manual applies; the deploy always uses this commit's image
+      - name: Set image tag ${{ env.TAG }}
+        run: |
+          sed -i "s#\(image: *ghcr\.io/[^: ]*\):sha-[0-9a-f]*#\1:${TAG}#" k8s/deployment.yaml
+          grep -n 'image:' k8s/deployment.yaml
+
+      # namespace.yaml and the secret are one-time admin steps; the deployer may not touch cluster-scoped resources
+      - name: Apply manifests
+        run: |
+          files=()
+          for f in k8s/*.yaml; do
+            [ "$(basename "$f")" = namespace.yaml ] || files+=(-f "$f")
+          done
+          kubectl apply "${files[@]}"
+
+      # The deployer may not read secrets, so a missing secret key only shows up on the new pods: fail within
+      # seconds on CreateContainerConfigError / a crash-looping init container instead of after the timeout.
+      - id: rollout
+        name: Wait for rollout
+        run: |
+          kubectl -n "$NS" rollout status deploy/claudio --timeout=420s &
+          rollout_wait=$!
+          for _ in $(seq 1 84); do
+            if ! kill -0 "$rollout_wait" 2>/dev/null; then break; fi
+            broken=$(kubectl -n "$NS" get pods -o jsonpath='{range .items[*]}{.metadata.name}{" "}{range .status.initContainerStatuses[*]}{.state.waiting.reason}{" "}{end}{range .status.containerStatuses[*]}{.state.waiting.reason}{" "}{end}{"\n"}{end}' \
+              | grep -E 'CreateContainerConfigError|CrashLoopBackOff|ErrImagePull|ImagePullBackOff' || true)
+            if [ -n "$broken" ]; then
+              echo "::error::New pods cannot start – see Diagnostics (missing secret key, image pull or crashing init container):"
+              echo "$broken"
+              # Show why right here: e.g. the migrate init container's "ALTER command denied"
+              for p in $(echo "$broken" | awk '{print $1}'); do
+                for c in $(kubectl -n "$NS" get pod "$p" -o jsonpath='{.spec.initContainers[*].name} {.spec.containers[*].name}'); do
+                  echo "--- $p [$c] (last 60 lines) ---"
+                  kubectl -n "$NS" logs "$p" -c "$c" --tail=60 2>/dev/null \
+                    || kubectl -n "$NS" logs "$p" -c "$c" --previous --tail=60 2>/dev/null \
+                    || echo "(no log yet)"
+                done
+              done
+              kill "$rollout_wait" 2>/dev/null || true
+              exit 1
+            fi
+            sleep 5
+          done
+          wait "$rollout_wait"
+
+      - name: Diagnostics
+        if: failure() && steps.rollout.outcome == 'failure'
+        run: |
+          kubectl -n "$NS" get pods -o wide
+          echo "--- events ---"
+          kubectl -n "$NS" get events --sort-by=.lastTimestamp | tail -n 40
+          echo "--- pods of the deployment: describe + logs of every (init) container ---"
+          for p in $(kubectl -n "$NS" get pods -l app.kubernetes.io/name=claudio -o name); do
+            echo "== $p =="
+            kubectl -n "$NS" describe "$p" | sed -n '/^Events:/,$p'
+            for name in $(kubectl -n "$NS" get "$p" -o jsonpath='{.spec.initContainers[*].name} {.spec.containers[*].name}'); do
+              echo "--- $p [$name] ---"
+              kubectl -n "$NS" logs "$p" -c "$name" --tail=80 2>&1 || true
+              kubectl -n "$NS" logs "$p" -c "$name" --previous --tail=80 2>&1 || true
+            done
+          done
+
+      - name: Roll back
+        if: failure() && steps.rollout.outcome == 'failure'
+        run: |
+          kubectl -n "$NS" rollout undo deploy/claudio || true
+          kubectl -n "$NS" rollout status deploy/claudio --timeout=420s || true
+
+      - name: Remove kubeconfig
+        if: always()
+        run: rm -f "${KUBECONFIG:-$RUNNER_TEMP/kubeconfig}"
+
+      - name: Summary
+        if: success()
+        run: |
+          {
+            echo "## Deployed ${TAG}"
+            echo "- ${{ steps.origin.outputs.url }}"
+            echo '```'
+            echo "image: ghcr.io/${{ github.repository }}:${TAG} (web + worker)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

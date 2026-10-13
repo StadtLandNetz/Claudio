@@ -1,15 +1,17 @@
 import { error } from '@sveltejs/kit';
 import { describeStep, resolveStepTemplates } from '@claudio/core';
 import { getTestRun, getTestScript } from '@claudio/db';
+import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { runFileUrl } from '#lib/server/run-files.js';
 import type { PageServerLoad } from './$types';
 
 const runTagOf = (runId: string) => runId.split('-').slice(-2).join('');
 
-export const load: PageServerLoad = async ({ params, url }) => {
+export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const script = await getTestScript(db(), Number(params.id));
 	if (!script) error(404, 'Diesen Test gibt es nicht.');
+	await requireRepo(locals.user, script.repoId, 'read');
 	const ids = [Number(url.searchParams.get('a')), Number(url.searchParams.get('b'))];
 	const runs = await Promise.all(ids.map((id) => (Number.isInteger(id) ? getTestRun(db(), id) : undefined)));
 	if (runs.some((r) => !r || r.scriptId !== script.id)) error(404, 'Wähle zwei Läufe dieses Tests aus.');

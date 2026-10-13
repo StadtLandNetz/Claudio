@@ -1,13 +1,15 @@
-import { dismissedFindingIds, listAnalyses, listRepos, listReviews, testResultsByReview } from '@claudio/db';
+import { dismissedFindingIds, listAnalyses, listReviews, testResultsByReview } from '@claudio/db';
+import { visibleRepos } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { summarize } from '#lib/server/summary.js';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async () => {
-	const [reviews, repos, analyses] = await Promise.all([
-		listReviews(db(), { limit: 40 }),
-		listRepos(db()),
-		listAnalyses(db(), { activeOnly: true })
+export const load: PageServerLoad = async ({ locals }) => {
+	const { repos } = await visibleRepos(locals.user!);
+	const repoIds = repos.map((r) => r.id);
+	const [reviews, analyses] = await Promise.all([
+		listReviews(db(), { limit: 40, repoIds }),
+		listAnalyses(db(), { activeOnly: true, repoIds })
 	]);
 	const [dismissed, tests] = await Promise.all([
 		dismissedFindingIds(db(), reviews.map((r) => r.id)),

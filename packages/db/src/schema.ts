@@ -25,6 +25,9 @@ export const users = mysqlTable("users", {
   avatarUrl: varchar("avatar_url", { length: 500 }),
   /** AES-GCM encrypted OAuth access token. */
   accessTokenEnc: text("access_token_enc").notNull(),
+  /** Set when the OAuth App issues expiring tokens: used to renew the access token. */
+  refreshTokenEnc: text("refresh_token_enc"),
+  tokenExpiresAt: datetime("token_expires_at", { mode: "date" }),
   createdAt: createdAt(),
   lastLoginAt: datetime("last_login_at", { mode: "date" }).notNull().$defaultFn(() => new Date()),
 });
@@ -60,6 +63,12 @@ export const repos = mysqlTable("repos", {
   webhookSecretEnc: text("webhook_secret_enc"),
   /** Whose GitHub token automated runs use (the person who installed the webhook). */
   automationUserId: ref("automation_user_id"),
+  /** The repository's own Anthropic API key (encrypted). Runs of this repo use only this key. */
+  anthropicKeyEnc: text("anthropic_key_enc"),
+  /** Last characters of the key, to recognise it without showing it. */
+  anthropicKeyHint: varchar("anthropic_key_hint", { length: 12 }),
+  anthropicKeySetBy: ref("anthropic_key_set_by"),
+  anthropicKeySetAt: datetime("anthropic_key_set_at", { mode: "date" }),
   /** Dismissed findings with a reason; every later review is told about them. */
   lessons: json("lessons").$type<Lesson[]>().notNull().$defaultFn(() => []),
   createdBy: ref("created_by").notNull(),
@@ -233,6 +242,21 @@ export const testRuns = mysqlTable(
     index("test_runs_status_idx").on(t.status),
     index("test_runs_batch_idx").on(t.batchId),
   ],
+);
+
+export const ACCESS_LEVELS = ["none", "read", "write", "admin"] as const;
+export type AccessLevel = (typeof ACCESS_LEVELS)[number];
+
+/** A user's GitHub permission on a repository, cached for a few minutes. */
+export const repoAccess = mysqlTable(
+  "repo_access",
+  {
+    userId: ref("user_id").notNull(),
+    repoId: ref("repo_id").notNull(),
+    level: mysqlEnum("level", ACCESS_LEVELS).notNull(),
+    checkedAt: datetime("checked_at", { mode: "date" }).notNull(),
+  },
+  (t) => [uniqueIndex("repo_access_user_repo_idx").on(t.userId, t.repoId)],
 );
 
 export const RUN_KINDS = ["review", "analysis", "test"] as const;

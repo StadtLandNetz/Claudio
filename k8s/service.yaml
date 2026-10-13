@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: claudio-web
+  namespace: claudio
+spec:
+  selector:
+    app.kubernetes.io/name: claudio
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -1,4 +1,5 @@
 import { query, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
+import { modelEnv } from "./runner.js";
 import { JudgeVerdictSchema, describeStep, isAssertion, resolveStepTemplates, type JudgeVerdict, type Language, type StepResult, type TestScript } from "@claudio/core";
 
 export type JudgeInput = {
@@ -18,6 +19,8 @@ export type JudgeInput = {
   model: string;
   runDir: string;
   abortController?: AbortController;
+  /** The repository's Anthropic API key. */
+  apiKey?: string;
 };
 
 export type JudgeResult = { verdict: JudgeVerdict | null; costUsd: number; error?: string };
@@ -88,6 +91,7 @@ Rules: passed only if every part of the expectation is evidently satisfied in th
         maxTurns: 6,
         maxBudgetUsd: 1,
         abortController: input.abortController,
+        env: modelEnv(process.env, input.apiKey),
       },
     })) {
       if (m.type === "result") result = m;

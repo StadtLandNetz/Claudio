@@ -8,7 +8,7 @@ import {
 	listAnalyses,
 	listRoles,
 	listTestScripts,
-	userAccessToken,
+	freshAccessToken,
 	type AutoReviewDefaults,
 	type Repo
 } from '@claudio/db';
@@ -22,6 +22,7 @@ import {
 	setCommitStatus,
 	type AutomationSettings
 } from '@claudio/github';
+import { NO_KEY_MESSAGE, keyOptional } from './anthropic.js';
 import { db } from './db.js';
 import { DEMO_FIXTURE, DEMO_REPO } from './demo.js';
 import { devFixtures } from './env.js';
@@ -49,7 +50,7 @@ export type EventResult = { action: 'review' | 'analysis' | 'ignored'; reason: s
 async function automationToken(repo: Repo): Promise<{ token: string | null; userId: number }> {
 	const userId = repo.automationUserId ?? repo.createdBy;
 	const user = await getUser(db(), userId);
-	return { token: user ? userAccessToken(user) || null : null, userId };
+	return { token: user ? await freshAccessToken(db(), user) : null, userId };
 }
 
 /** Turns a verified GitHub event into a review or analysis job. */
@@ -61,6 +62,14 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 	const fixture = repo.fullName === DEMO_REPO && devFixtures() ? DEMO_FIXTURE : null;
 	const { token, userId } = await automationToken(repo);
 	const github = token && !fixture ? createGithubClient(token) : null;
+
+	// Every model call of this repo runs on its own key; without one, nothing starts.
+	if (!repo.anthropicKeyEnc && !keyOptional(repo)) {
+		if (github && decision.kind === 'review' && decision.trigger === 'comment') {
+			await postPullRequestComment(github, repo.fullName, decision.prNumber, `Claudio kann diesen PR nicht prüfen: ${NO_KEY_MESSAGE}`).catch(() => undefined);
+		}
+		return { action: 'ignored', reason: 'no Anthropic API key for this repository' };
+	}
 
 	if (decision.kind === 'analysis') {
 		if (!repo.defaultInstanceUrl) return { action: 'ignored', reason: 'no default instance URL for the analysis' };

@@ -20,7 +20,7 @@ import {
   type RunStatus,
 } from "@claudio/core";
 import { createGithubClient, fetchPullRequestContext, postPullRequestComment, type PullRequestContext } from "@claudio/github";
-import { createBrowserGuard, createCaptchaHook } from "./hooks.js";
+import { createBrowserGuard, createCaptchaHook, createStopHook } from "./hooks.js";
 import { SYSTEM_APPEND, buildReviewPrompt, extractAffectedAreas } from "./prompts.js";
 import { createClaudioSdkServer } from "./sdk-tools.js";
 
@@ -43,6 +43,10 @@ export type RunnerDeps = {
   /** Use an existing checkout instead of cloning the PR branch. */
   repoDir?: string;
   abortController?: AbortController;
+  /** The repository's Anthropic API key. When set, the run uses only this key. */
+  anthropicApiKey?: string;
+  /** Soft stop: the agent is told to finish, so the SDK still reports the cost. abortController is the hard fallback. */
+  stopSignal?: AbortSignal;
   onProgress?: (line: string) => void;
   /** Latest knowledge base of the repository (from a repo analysis), handed to the agent as files. */
   knowledge?: KnowledgeBase | null;
@@ -170,13 +174,13 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     hooks: {
-      PreToolUse: guard.hooks,
+      PreToolUse: [...createStopHook(deps.stopSignal), ...guard.hooks],
       PostToolUse: session.attachment ? [createCaptchaHook(() => session.attachment?.activePage(), Boolean(human))] : [],
     },
     additionalDirectories: [repoDir, knowledgeDir].filter((d): d is string => Boolean(d)),
     extraArgs: session.extraArgs,
     abortController,
-    env: envWithout(process.env, roleEnvVars),
+    env: modelEnv(envWithout(process.env, roleEnvVars), deps.anthropicApiKey),
     stderr: (data) => appendFileSync(join(runDir, "claude-stderr.log"), data),
   };
 
@@ -191,7 +195,7 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
       describe(message, log);
       if (message.type === "result") result = message;
     }
-    status = mapStatus(result);
+    status = deps.stopSignal?.aborted ? "aborted" : mapStatus(result);
     if (result && result.subtype !== "success") errors.push(...result.errors);
   } catch (e) {
     status = abortController.signal.aborted ? "aborted" : "failed";
@@ -272,7 +276,7 @@ export function mapStatus(result: SDKResultMessage | undefined): RunStatus {
 
 export function describe(message: SDKMessage, log: (line: string) => void): void {
   if (message.type === "system" && message.subtype === "init") {
-    log(`session ${message.session_id} model=${message.model} mcp=${message.mcp_servers.map((s) => `${s.name}:${s.status}`).join(",")}`);
+    log(`session ${message.session_id} model=${message.model} key=${message.apiKeySource} mcp=${message.mcp_servers.map((s) => `${s.name}:${s.status}`).join(",")}`);
     return;
   }
   if (message.type === "assistant") {
@@ -307,6 +311,21 @@ export async function cloneBranch(repo: string, branch: string, dir: string, tok
 
 export function scrub(text: string, secret?: string): string {
   return secret ? text.split(secret).join("***") : text;
+}
+
+/** Anthropic credentials a model session could pick up from the environment. */
+const ANTHROPIC_CREDENTIALS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"];
+
+/**
+ * Environment for a model session. With a repository key, every other Anthropic
+ * credential is removed so the run cannot fall back to the server's key or login.
+ * Without one (CLI), the environment is used as it is.
+ */
+export function modelEnv(env: Record<string, string | undefined>, apiKey: string | undefined): Record<string, string | undefined> {
+  if (!apiKey) return env;
+  const out = envWithout(env as NodeJS.ProcessEnv, ANTHROPIC_CREDENTIALS);
+  out.ANTHROPIC_API_KEY = apiKey;
+  return out;
 }
 
 export function envWithout(env: NodeJS.ProcessEnv, keys: string[]): Record<string, string | undefined> {
