@@ -1,4 +1,7 @@
-import { bigint, boolean, datetime, index, int, json, mediumtext, mysqlEnum, mysqlTable, text, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { bigint, boolean, customType, datetime, index, int, json, mediumtext, mysqlEnum, mysqlTable, text, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+
+/** Binary column up to 16 MB (screenshots). */
+const mediumblob = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "mediumblob" });
 import type { AutomationSettings } from "@claudio/github";
 import type {
   AnalysisReport,
@@ -242,6 +245,25 @@ export const testRuns = mysqlTable(
     index("test_runs_status_idx").on(t.status),
     index("test_runs_batch_idx").on(t.batchId),
   ],
+);
+
+/**
+ * Files of a run that must outlive the pod (screenshots), stored in the database so the
+ * app keeps no state on disk. Deleted after the retention period (default 14 days).
+ */
+export const runArtifacts = mysqlTable(
+  "run_artifacts",
+  {
+    id: id(),
+    runId: varchar("run_id", { length: 120 }).notNull(),
+    /** Path inside the run directory, as referenced by the report (e.g. evidence/E1-Fahrtenliste.png). */
+    path: varchar("path", { length: 300 }).notNull(),
+    contentType: varchar("content_type", { length: 80 }).notNull(),
+    size: int("size").notNull(),
+    data: mediumblob("data").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("run_artifacts_run_path_idx").on(t.runId, t.path), index("run_artifacts_created_idx").on(t.createdAt)],
 );
 
 export const ACCESS_LEVELS = ["none", "read", "write", "admin"] as const;

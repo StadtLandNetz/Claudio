@@ -81,7 +81,7 @@
 		{#if run.finalShot}
 			<a href={run.finalShot} target="_blank" rel="noopener noreferrer"><img src={run.finalShot} alt="Endzustand des Laufs vom {formatDate(run.createdAt)}" /></a>
 		{:else}
-			<p class="faint">Kein Screenshot.</p>
+			<p class="faint">Kein Screenshot vorhanden (Screenshots werden nach 14 Tagen gelöscht).</p>
 		{/if}
 	{/each}
 </div>

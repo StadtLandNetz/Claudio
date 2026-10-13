@@ -1,6 +1,6 @@
-# Web UI and worker in ONE pod: the worker writes run files (screenshots, traces, live frames) that the web UI
-# serves, so both mount the same ReadWriteOnce volume. Exactly one replica, replaced with Recreate: the volume
-# can only be attached once, and one worker keeps the job queue simple.
+# Web UI and worker in ONE pod: during a run the web UI shows the live frames and the trace the worker writes,
+# so both share the run directory (an emptyDir – nothing on disk has to survive a deploy). Screenshots are stored
+# in the database after each run and deleted after CLAUDIO_ARTIFACT_RETENTION_DAYS. One replica, one worker.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,7 +24,7 @@ spec:
         runAsNonRoot: true
         runAsUser: 1001 # pwuser in the Playwright base image
         runAsGroup: 1001
-        fsGroup: 1001 # makes the runs volume writable
+        fsGroup: 1001 # makes the run directory writable
       # One secret for everything: image pull, database, encryption key, GitHub OAuth (see k8s/examples)
       imagePullSecrets:
         - name: claudio-secrets
@@ -93,8 +93,8 @@ spec:
             requests: { cpu: 500m, memory: 1Gi }
             limits: { memory: 3Gi }
       volumes:
+        # Ephemeral run directories (live frames, traces, checkouts); screenshots are kept in the database
         - name: runs
-          persistentVolumeClaim:
-            claimName: claudio-runs
+          emptyDir: { sizeLimit: 10Gi }
         - name: dshm
           emptyDir: { medium: Memory, sizeLimit: 1Gi }

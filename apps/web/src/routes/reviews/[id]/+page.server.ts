@@ -19,7 +19,7 @@ import { userToken } from '#lib/server/auth.js';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { publicBaseUrl } from '#lib/server/env.js';
-import { runFileUrl } from '#lib/server/run-files.js';
+import { fileAvailability, runFileUrl, withAvailability } from '#lib/server/run-files.js';
 import { renderMarkdown } from '#lib/markdown.js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -51,7 +51,10 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const strictness = requested.success ? requested.data : (report?.request.strictness ?? review.request.strictness);
 	const blocking = report ? new Set(blockingFindings(report, strictness, dismissed).map((f) => f.id)) : new Set<string>();
 
-	const fileUrl = (path: string) => (review.runId ? runFileUrl(review.runId, path) : null);
+	const available = await fileAvailability(review.runId);
+	const evidence = report ? await withAvailability(review.runId, report.evidence) : [];
+	// The trace stays only in the (ephemeral) run directory: offered while it is there.
+	const traceUrl = review.runId && available('trace.zip') ? runFileUrl(review.runId, 'trace.zip') : null;
 
 	return {
 		review: {
@@ -88,12 +91,10 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 						blocking: blocking.has(f.id),
 						rating: ratings.get(f.id) ?? { status: 'proposed' as const, comment: '', by: null, at: null }
 					})),
-					evidence: Object.fromEntries(
-						report.evidence.map((e) => [e.id, { ...e, url: e.path ? fileUrl(e.path) : null }])
-					),
+					evidence: Object.fromEntries(evidence.map((e) => [e.id, e])),
 					cost: report.cost,
 					errors: report.errors,
-					files: { trace: fileUrl('trace.zip') }
+					files: { trace: traceUrl }
 				}
 			: null,
 		events: events.map((e) => ({ seq: e.seq, line: e.line })),

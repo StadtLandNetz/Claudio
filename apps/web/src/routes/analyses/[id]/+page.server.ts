@@ -4,7 +4,7 @@ import { eventsSince, getAnalysis, knowledgeDocsOf, openHumanRequest, requestAna
 import type { AccessLevel } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
-import { runEvidence, runFindings } from '#lib/server/run-files.js';
+import { runEvidenceFromDisk, runFindingsFromDisk, withAvailability } from '#lib/server/run-files.js';
 import { renderMarkdown } from '#lib/markdown.js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -40,8 +40,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			fixture: a.fixture
 		},
 		docs: docs.map((d) => ({ name: d.name, title: KNOWLEDGE_DOCS[d.name].title, html: renderMarkdown(d.content), chars: d.content.length })),
-		evidence: a.runId ? runEvidence(a.runId).filter((e) => e.url && e.kind === 'screenshot') : [],
-		findings: a.runId ? sortBySeverity(runFindings(a.runId)) : [],
+		// Older analyses kept these only in the run directory.
+		evidence: (await withAvailability(a.runId, a.report?.evidence ?? (a.runId ? runEvidenceFromDisk(a.runId) : []))).filter((e) => e.kind === 'screenshot'),
+		findings: sortBySeverity(a.report?.findings ?? (a.runId ? runFindingsFromDisk(a.runId) : [])),
 		events: events.map((e) => ({ seq: e.seq, line: e.line })),
 		human: await openHumanRequest(db(), 'analysis', a.id).then((h) => (h ? { id: h.id, reason: h.reason } : null))
 	};

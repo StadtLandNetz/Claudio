@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BudgetTierSchema, LanguageSchema, RunCostSchema, RunStatusSchema } from "./schemas.js";
+import { BudgetTierSchema, EvidenceSchema, FindingSchema, LanguageSchema, RunCostSchema, RunStatusSchema } from "./schemas.js";
 
 /**
  * The knowledge base Claudio keeps per repository. Each document is Markdown
@@ -70,6 +70,9 @@ export const AnalysisReportSchema = z.object({
   previousCommitSha: z.string().optional(),
   summary: z.string(),
   docs: z.array(KnowledgeDocSchema),
+  /** Bugs noticed along the way and the screenshots taken, kept with the report (the run directory is ephemeral). */
+  findings: z.array(FindingSchema).default([]),
+  evidence: z.array(EvidenceSchema).default([]),
   cost: RunCostSchema,
   sessionId: z.string().optional(),
   errors: z.array(z.string()).default([]),

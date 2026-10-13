@@ -4,7 +4,7 @@ import { eventsSince, getTestRun, openHumanRequest, requestTestRunAbort } from '
 import type { AccessLevel } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
-import { runFileUrl } from '#lib/server/run-files.js';
+import { withAvailability } from '#lib/server/run-files.js';
 import type { Actions, PageServerLoad } from './$types';
 
 async function loadRun(idParam: string, user: App.Locals['user'], min: AccessLevel = 'read') {
@@ -62,7 +62,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 						healed: s.healed,
 						assertion: s.step.action.startsWith('expect_')
 					})),
-					evidence: r.evidence.filter((e) => e.path && e.kind === 'screenshot').map((e) => ({ id: e.id, label: e.label, url: runFileUrl(r.runId, e.path!) })),
+					evidence: (await withAvailability(r.runId, r.evidence.filter((e) => e.path && e.kind === 'screenshot'))).map((e) => ({
+						id: e.id,
+						label: e.label,
+						url: e.url,
+						expired: e.expired
+					})),
 					findings: sortBySeverity(r.findings),
 					cost: r.cost,
 					errors: r.errors

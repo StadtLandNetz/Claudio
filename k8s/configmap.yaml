@@ -14,7 +14,9 @@ data:
   # Runs at the same time. Each run starts a Chromium and a Claude Code session (~0.5–1 GB RAM);
   # raise together with the worker's memory limit.
   CLAUDIO_WORKER_CONCURRENCY: '1'
-  # Run directories (screenshots, traces) older than this are deleted; reports stay in the database
-  CLAUDIO_RUN_RETENTION_DAYS: '60'
+  # Screenshots (stored in the database) older than this are deleted; reports stay
+  CLAUDIO_ARTIFACT_RETENTION_DAYS: '14'
+  # Run directories (traces, checkouts) older than this are deleted; the directory is ephemeral anyway
+  CLAUDIO_RUN_RETENTION_DAYS: '14'
   # How long a run waits for a person to solve a CAPTCHA before giving up
   CLAUDIO_HUMAN_TIMEOUT_MIN: '15'

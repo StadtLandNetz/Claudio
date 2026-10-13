@@ -20,6 +20,7 @@ import { decrypt, encrypt, sha256 } from "./crypto.js";
 import {
   analyses,
   findings,
+  runArtifacts,
   repoAccess,
   humanInputs,
   humanRequests,
@@ -928,4 +929,32 @@ export async function repoIdOfRun(db: Db, runId: string): Promise<number | null>
     if (row) return row.repoId;
   }
   return null;
+}
+
+// ---------------------------------------------------------------- run artifacts (screenshots)
+
+export async function saveArtifact(db: Db, a: { runId: string; path: string; contentType: string; data: Buffer }): Promise<void> {
+  await db
+    .insert(runArtifacts)
+    .values({ ...a, size: a.data.length })
+    .onDuplicateKeyUpdate({ set: { data: a.data, size: a.data.length, contentType: a.contentType } });
+}
+
+export async function getArtifact(db: Db, runId: string, path: string) {
+  const [row] = await db
+    .select({ data: runArtifacts.data, contentType: runArtifacts.contentType })
+    .from(runArtifacts)
+    .where(and(eq(runArtifacts.runId, runId), eq(runArtifacts.path, path)));
+  return row;
+}
+
+/** Which of a run's files are still stored (to tell expired screenshots from present ones). */
+export async function artifactPaths(db: Db, runId: string): Promise<Set<string>> {
+  const rows = await db.select({ path: runArtifacts.path }).from(runArtifacts).where(eq(runArtifacts.runId, runId));
+  return new Set(rows.map((r) => r.path));
+}
+
+export async function deleteArtifactsBefore(db: Db, before: Date): Promise<number> {
+  const [res] = await db.delete(runArtifacts).where(lt(runArtifacts.createdAt, before));
+  return res.affectedRows;
 }

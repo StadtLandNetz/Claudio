@@ -38,6 +38,7 @@ import {
   type ReviewStatus,
   type TestRun,
 } from "@claudio/db";
+import { persistArtifacts, purgeOldArtifacts } from "./artifacts.js";
 import { finalizeReview } from "./finalize.js";
 import { humanBridge } from "./human.js";
 import { purgeOldRuns } from "./retention.js";
@@ -65,7 +66,9 @@ const NO_KEY = "Für dieses Repository ist kein Anthropic-API-Key hinterlegt. Ei
 
 /** Soft-stop handles of the runs in progress, so a shutdown (deploy) can end them cleanly. */
 const runningStops = new Set<AbortController>();
-const retentionDays = Number(process.env.CLAUDIO_RUN_RETENTION_DAYS ?? 60);
+/** Run directories (traces, checkouts) and stored screenshots are deleted after this many days. */
+const retentionDays = Number(process.env.CLAUDIO_RUN_RETENTION_DAYS ?? 14);
+const artifactRetentionDays = Number(process.env.CLAUDIO_ARTIFACT_RETENTION_DAYS ?? 14);
 
 const log = (msg: string) => console.log(`[worker] ${new Date().toISOString()} ${msg}`);
 
@@ -157,6 +160,8 @@ async function prepare(db: Db, job: Job) {
 
 async function execute(db: Db, job: Job): Promise<void> {
   let ctx: Awaited<ReturnType<typeof prepare>> | undefined;
+  // Set once the runner has created the run directory; its screenshots are stored after the run.
+  let run: RunHandle | undefined;
   const finish = (status: ReviewStatus, error: string | null) =>
     job.kind === "review"
       ? finishReview(db, job.row.id, { status, report: null, verdict: null, error })
@@ -175,7 +180,10 @@ async function execute(db: Db, job: Job): Promise<void> {
         reportUrl: publicBaseUrl ? `${publicBaseUrl}/reviews/${job.row.id}` : undefined,
         prContextFile: c.fixture?.prContextFile,
         repoDir: c.fixture?.repoDir,
-        onRunStarted: ({ runId }: RunHandle) => c.after(() => setReviewRunId(db, job.row.id, runId)),
+        onRunStarted: (h: RunHandle) => {
+          run = h;
+          c.after(() => setReviewRunId(db, job.row.id, h.runId));
+        },
       });
       await c.flush();
       await finishReview(db, job.row.id, {
@@ -193,7 +201,10 @@ async function execute(db: Db, job: Job): Promise<void> {
       const report = await runTest(script, job.row.request, {
         ...c.common,
         knowledge: c.knowledge,
-        onRunStarted: ({ runId }: RunHandle) => c.after(() => setTestRunStarted(db, job.row.id, runId, script.steps?.length && !job.row.request.rerecord ? row.stepsVersion : 0)),
+        onRunStarted: (h: RunHandle) => {
+          run = h;
+          c.after(() => setTestRunStarted(db, job.row.id, h.runId, script.steps?.length && !job.row.request.rerecord ? row.stepsVersion : 0));
+        },
       });
       await c.flush();
       await finishTestRun(db, job.row.id, { status: report.status, report, error: report.errors.length ? report.errors.join("\n") : null });
@@ -214,7 +225,10 @@ async function execute(db: Db, job: Job): Promise<void> {
         previous: c.knowledge,
         repoDir: c.fixture?.repoDir,
         commitSha: c.fixture ? "demo" : undefined,
-        onRunStarted: ({ runId }: RunHandle) => c.after(() => setAnalysisRunId(db, job.row.id, runId)),
+        onRunStarted: (h: RunHandle) => {
+          run = h;
+          c.after(() => setAnalysisRunId(db, job.row.id, h.runId));
+        },
       });
       await c.flush();
       await finishAnalysis(db, job.row.id, {
@@ -234,6 +248,7 @@ async function execute(db: Db, job: Job): Promise<void> {
     if (reviewId) await finalizeReview(db, reviewId, publicBaseUrl, log).catch(() => undefined);
   } finally {
     ctx?.stop();
+    if (run) await persistArtifacts(db, run, log).catch((e) => log(`storing screenshots failed: ${(e as Error).message}`));
   }
 }
 
@@ -267,8 +282,12 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => stop("SIGINT"));
   process.on("SIGTERM", () => stop("SIGTERM"));
 
-  await purgeOldRuns(runsRoot, retentionDays, log);
-  const purge = setInterval(() => void purgeOldRuns(runsRoot, retentionDays, log), 6 * 3_600_000);
+  const housekeeping = async () => {
+    await purgeOldRuns(runsRoot, retentionDays, log);
+    await purgeOldArtifacts(db, artifactRetentionDays, log);
+  };
+  await housekeeping();
+  const purge = setInterval(() => void housekeeping(), 6 * 3_600_000);
 
   while (!stopping) {
     if (active.size < concurrency) {

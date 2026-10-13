@@ -16,9 +16,12 @@ pull request ─► ci.yml (same checks, no deploy)
   with the Agent SDK): web UI `node apps/web/build`, worker `tsx apps/worker/src/main.ts`, migrations
   `tsx packages/db/src/migrate.ts`.
 - **One pod** (`k8s/deployment.yaml`) with the containers `web` and `worker` and the init container `migrate`.
-  Unlike automation-runner they share a pod because the worker writes run files (screenshots, traces, live frames)
-  that the web UI serves; both mount the volume `claudio-runs` (`k8s/pvc.yaml`, ReadWriteOnce). One replica,
-  `Recreate` on deploy.
+  Unlike automation-runner they share a pod: during a run the web UI shows the live frames and offers the trace the
+  worker writes into the shared run directory. That directory is an `emptyDir` – **no persistent volume**; nothing
+  on disk has to survive a deploy. One replica, `Recreate` on deploy.
+- **All state in MySQL**, including screenshots: after each run the worker stores the evidence images in
+  `run_artifacts`; they are deleted after `CLAUDIO_ARTIFACT_RETENTION_DAYS` (14). Reports, findings and costs stay.
+  Traces and agent transcripts live only in the run directory and are gone after a deploy.
 - **MySQL** outside the cluster (or `k8s/optional/mysql-statefulset.yaml` for staging).
 - **Ingress** `k8s/ingress.yaml` with TLS via cert-manager. No basic auth: Claudio has its own GitHub login, and
   `/webhooks/github` must be reachable for GitHub (signed per repository).
@@ -64,7 +67,7 @@ still recorded) and end as "aborted"; queued ones wait for the new pod.
 - **Rollback by hand**: `kubectl -n claudio rollout undo deploy/claudio`.
 - **Sizing**: one run = one Chromium + one Claude Code session (~0.5–1 GB). For more parallel runs raise
   `CLAUDIO_WORKER_CONCURRENCY` in the ConfigMap together with the worker's memory limit.
-- **Disk**: run directories older than `CLAUDIO_RUN_RETENTION_DAYS` (60) are deleted by the worker; reports stay
-  in the database. The volume has 20 GiB.
+- **Storage**: screenshots take roughly 0.5–2 MB per review in MySQL for 14 days. The run directory (`emptyDir`,
+  10 GiB limit) is cleared on every deploy and after `CLAUDIO_RUN_RETENTION_DAYS` (14).
 - **Image size**: ~3 GB, mostly the Playwright base image (it also contains Firefox and WebKit). A slimmer base
   with only Chromium is possible later.

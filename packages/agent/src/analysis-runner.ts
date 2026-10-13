@@ -191,6 +191,8 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
     previousCommitSha: previous?.commitSha,
     summary: result && result.subtype === "success" ? result.result : "",
     docs: readKnowledgeFiles(knowledgeDir),
+    findings: store.findings(),
+    evidence: store.evidence(),
     cost: {
       usd: result?.total_cost_usd ?? 0,
       inputTokens: (result?.usage.input_tokens ?? 0) + (result?.usage.cache_read_input_tokens ?? 0) + (result?.usage.cache_creation_input_tokens ?? 0),

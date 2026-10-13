@@ -143,10 +143,17 @@
 					<h2>Screenshots</h2>
 					<div class="shots">
 						{#each r.evidence as ev (ev.id)}
+							{#if ev.url}
 							<a class="shot" href={ev.url} target="_blank" rel="noopener noreferrer">
 								<img src={ev.url} alt={ev.label} loading="lazy" />
 								<span>{ev.label}</span>
 							</a>
+						{:else}
+							<div class="shot-expired" title="Screenshots werden nach 14 Tagen gelöscht">
+								<span>Screenshot gelöscht</span>
+								<span class="faint">{ev.label}</span>
+							</div>
+						{/if}
 						{/each}
 					</div>
 				</section>

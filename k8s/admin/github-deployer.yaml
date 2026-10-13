@@ -3,7 +3,7 @@
 #   kubectl apply -f k8s/admin/github-deployer.yaml
 #   ./tools/create-deploy-kubeconfig.sh      # builds the kubeconfig and stores it as repository secret KUBECONFIG_B64
 #
-# Least privilege: namespace-scoped, may manage the app's Deployment/Service/ConfigMap/Ingress/PVC and read
+# Least privilege: namespace-scoped, may manage the app's Deployment/Service/ConfigMap/Ingress and read
 # pods, events and logs for diagnostics. It can NOT read Secrets or touch the namespace itself.
 # Rotate the token: kubectl -n claudio delete secret github-deployer-token && re-apply this file && re-run the script.
 apiVersion: v1
@@ -36,7 +36,7 @@ rules:
     resources: ['replicasets'] # rollout undo
     verbs: ['get', 'list', 'watch']
   - apiGroups: ['']
-    resources: ['services', 'configmaps', 'persistentvolumeclaims']
+    resources: ['services', 'configmaps']
     verbs: ['get', 'list', 'watch', 'create', 'update', 'patch']
   - apiGroups: ['networking.k8s.io']
     resources: ['ingresses']

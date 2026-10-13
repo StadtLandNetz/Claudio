@@ -344,3 +344,19 @@ table.list tr:last-child td {
 .prose th {
 	background: var(--sunken);
 }
+
+/* A screenshot past its retention period */
+.shot-expired {
+	display: grid;
+	align-content: center;
+	gap: 0.2rem;
+	min-height: 6.5rem;
+	width: 11rem;
+	padding: 0.6rem;
+	border: 1px dashed var(--rule-strong);
+	border-radius: var(--radius-s);
+	background: var(--sunken);
+	color: var(--ink-2);
+	font-size: 0.8125rem;
+	text-align: center;
+}

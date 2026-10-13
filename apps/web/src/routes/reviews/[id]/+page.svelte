@@ -176,6 +176,8 @@
 												{@const ev = report.evidence[eid]}
 												{#if ev?.url}
 													<button type="button" class="linkish" onclick={() => openEvidence(ev.url!, ev.label)}>{eid} {ev.label}</button>
+												{:else if ev?.expired}
+													<span class="faint" title="Screenshots werden nach 14 Tagen gelöscht">{eid} {ev.label} (gelöscht)</span>
 												{/if}
 											{/each}
 										</p>
@@ -234,6 +236,11 @@
 												<img src={ev.url} alt={ev.label} loading="lazy" />
 												<span>{eid} {ev.label}</span>
 											</button>
+										{:else if ev?.expired}
+											<div class="shot-expired" title="Screenshots werden nach 14 Tagen gelöscht">
+												<span>Screenshot gelöscht</span>
+												<span class="faint">{eid} {ev.label}</span>
+											</div>
 										{/if}
 									{/each}
 								</div>
