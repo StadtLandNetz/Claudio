@@ -1,6 +1,6 @@
 node_modules/
 dist/
-runs/
+/runs/
 .env
 .env.*
 !.env.example
