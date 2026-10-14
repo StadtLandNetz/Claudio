@@ -69,6 +69,9 @@ export function buildAnalysisPrompt(input: AnalysisPromptInput): string {
   }
 
   if (config?.notes) sections.push(`# Notes about this application\n\n${config.notes.trim()}`);
+  if (config?.learnings?.length) {
+    sections.push(`# Learned in earlier runs on this repository\n\nHow to operate this application, from earlier runs. Follow these; ignore one only if it is clearly outdated.\n\n${config.learnings.map((l) => `- ${l}`).join("\n")}`);
+  }
   if (request.extraInstructions) sections.push(`# Additional instructions for this run\n\n${request.extraInstructions.trim()}`);
 
   sections.push(`# Procedure
@@ -86,7 +89,7 @@ export function buildAnalysisPrompt(input: AnalysisPromptInput): string {
    - Evidence: the evidence id.
 
 4. Record clear bugs you encounter with report_finding; do not go looking for bugs, that is the reviews' job.
-5. Write notes.md: test data that exists and what you created, quirks, slow or flaky areas, what you could not explore and why.
+5. Write notes.md: test data that exists and what you created, quirks, slow or flaky areas, what you could not explore and why. For each obstacle that cost you attempts (a field without label, a banner, a slow page, a login quirk), also call remember_learning with a concrete instruction for later runs.
 6. Finalise overview.md: purpose, users, stack, domain objects, roles and permissions, login, navigation structure.
 7. Finish with a short summary in ${lang} as your final message: what is covered, what is missing, and anything a reviewer should know.`);
 

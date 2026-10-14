@@ -28,6 +28,8 @@ export type ToolContext = {
   knowledgeDir?: string;
   /** A person who can take over the browser for a moment (CAPTCHA, bot check). Enables request_human_help. */
   human?: HumanBridge;
+  /** Stores a learning about operating the app for later runs on this repository. Enables remember_learning. */
+  onLearning?: (text: string) => void;
 };
 
 /** A tool definition that both the Agent SDK adapter and the stdio MCP server can consume. */
@@ -243,7 +245,28 @@ export function createClaudioTools(ctx: ToolContext): ClaudioTool<any>[] {
   const tools: ClaudioTool<any>[] = [loginAs, captureEvidence, getConsole, getNetwork, reportFinding, recordAc, note, todoAdd, todoNext, todoDone];
   if (ctx.knowledgeDir) tools.push(writeKnowledgeTool(ctx.knowledgeDir));
   if (ctx.human) tools.push(humanHelpTool(ctx.human, ctx.attachment));
+  if (ctx.onLearning) tools.push(rememberLearningTool(ctx.onLearning));
   return tools;
+}
+
+/** At most this many learnings per run, so one confused run cannot flood the prompt of later ones. */
+const MAX_LEARNINGS_PER_RUN = 5;
+
+/** Lets the agent pass on what it found out about operating the app to later runs. */
+export function rememberLearningTool(onLearning: (text: string) => void): ClaudioTool<any> {
+  let count = 0;
+  return def({
+    name: "remember_learning",
+    description:
+      "Save one lesson about operating this application for future runs on this repository, e.g. which target works for a field without a label, a banner or dialog that must be dismissed first, a page that needs extra waiting, a login quirk, or a constraint on test data. Write it as a concrete, reusable instruction (one or two sentences, name the screen). Use it after you overcame an obstacle that cost you attempts. Not for bugs (report_finding) or for this run only (note).",
+    schema: { text: z.string().min(10).max(400) },
+    handler: async ({ text }) => {
+      if (count >= MAX_LEARNINGS_PER_RUN) return `Limit of ${MAX_LEARNINGS_PER_RUN} learnings per run reached; not saved.`;
+      count++;
+      onLearning(text);
+      return "Saved. Later runs on this repository will see it.";
+    },
+  });
 }
 
 /**

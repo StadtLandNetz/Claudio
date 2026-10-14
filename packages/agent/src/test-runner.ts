@@ -59,6 +59,8 @@ export type TestRunnerDeps = {
   liveView?: boolean;
   /** Lets a person take over the browser for CAPTCHAs and bot checks. */
   human?: HumanBridgeFactory;
+  /** Stores what the agent learned about operating the app (remember_learning). */
+  onLearning?: (text: string) => void;
 };
 
 const TEST_SYSTEM_APPEND = `
@@ -72,6 +74,9 @@ Rules for good recordings:
 - Locate rows and cells by the text you entered, not by their full content: {text: "claudio-{{run}}"} rather than a row name that includes ids or dates.
 - Use {{run}} in names of records you create so repeated runs do not collide, and {{date:+N:FORMAT}} for dates (FORMAT as the app expects, e.g. DD.MM.YYYY or YYYY-MM-DD).
 - Do not explore beyond the flow. Never type credentials; use login.
+- Many apps show a caption next to a field that is not wired up as its label, so {label} and {role, name} miss the field. When a fill or select fails, the error lists the visible form fields with placeholder, name, test id and caption: pick a target from that list ({placeholder}, {testId} or css with [name=...]) instead of trying further variants. Avoid ids with numbers; they are usually generated.
+- Cookie and consent banners (e.g. "Ablehnen", "Alle akzeptieren") block clicks: dismiss them first, with "Ablehnen" or the most restrictive option.
+- When you overcame an obstacle that cost you attempts (a field without label, a banner, a slow page, a login quirk), call remember_learning with a concrete instruction, so later runs do it right the first time. Follow the learnings from earlier runs in the prompt.
 - CAPTCHAs and bot checks are for humans: never try to solve one. Call request_human_help; the person solves it in the live view and you continue.
 - When the flow is done, call finish_test, then end with a short summary.
 `.trim();
@@ -145,7 +150,12 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
       log(NO_KEY);
       return;
     }
-    const res = await runTestAgent({ prompt, recorder, healing, ctx, store, runDir, profile, deps, abortController, log, language: request.language, human });
+    // The agent sees every miss and retries with a better target, so a short wait is enough;
+    // replays keep the longer default for slow pages.
+    ctx.actionTimeoutMs = 3_000;
+    const res = await runTestAgent({ prompt, recorder, healing, ctx, store, runDir, profile, deps, abortController, log, language: request.language, human }).finally(() => {
+      ctx.actionTimeoutMs = undefined;
+    });
     agentCost += res.costUsd;
     agentTurns += res.turns;
     if (res.status !== "completed") status = res.status;
@@ -359,7 +369,8 @@ async function runTestAgent(a: {
     driver: "playwright",
     env: a.ctx.env,
     human: a.human,
-  }).filter((t) => ["capture_evidence", "get_console", "get_network", "note", "report_finding", "request_human_help"].includes(t.name));
+    onLearning: a.deps.onLearning,
+  }).filter((t) => ["capture_evidence", "get_console", "get_network", "note", "report_finding", "request_human_help", "remember_learning"].includes(t.name));
   const tools = [...createTestTools(a.ctx, a.recorder, { healing: a.healing }), ...base];
 
   let knowledgeDir: string | null = null;
@@ -426,6 +437,12 @@ async function runTestAgent(a: {
 
 // ---------------------------------------------------------------- prompts
 
+/** What earlier runs learned about operating the app (remember_learning). */
+export function learningsBlock(learnings: string[] | undefined, heading = "##"): string {
+  if (!learnings?.length) return "";
+  return `\n${heading} Learned in earlier runs on this repository\nFollow these; they come from earlier runs that had to find out the hard way. If one is clearly outdated, ignore it.\n${learnings.map((l) => `- ${l}`).join("\n")}\n`;
+}
+
 function scriptBlock(script: TestScript, request: TestRunRequest, deps: TestRunnerDeps): string {
   const roles = Object.entries(deps.config?.roles ?? {});
   return `# Test "${script.name}"
@@ -440,7 +457,7 @@ ${script.expectation.trim()}
 Base URL: ${request.instanceUrl}
 Hosts the test may open: ${script.allowAnyHost ? "any" : [new URL(request.instanceUrl).hostname, ...(deps.config?.extraAllowedHosts ?? []), ...(script.allowedHosts ?? [])].join(", ")}. For other hosts use goto with the full URL.
 Roles for login: ${roles.length ? roles.map(([n, r]) => `${n}${r.description ? ` (${r.description})` : ""}`).join(", ") : "none configured"}${script.roles.length ? `. Use: ${script.roles.join(", ")}` : ""}.
-${deps.config?.notes ? `\n## Notes about the application\n${deps.config.notes.trim()}\n` : ""}
+${deps.config?.notes ? `\n## Notes about the application\n${deps.config.notes.trim()}\n` : ""}${learningsBlock(deps.config?.learnings)}
 Write summaries in ${request.language === "de" ? "German" : "English"}.`;
 }
 

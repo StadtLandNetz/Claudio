@@ -173,5 +173,7 @@ export const RepoConfigSchema = z.object({
   extraAllowedHosts: z.array(z.string()).default([]),
   /** What people told Claudio when they dismissed findings: things that are intended, not bugs. */
   lessons: z.array(z.string()).default([]),
+  /** What earlier runs learned about operating the app (from remember_learning), newest first. */
+  learnings: z.array(z.string()).default([]),
 });
 export type RepoConfig = z.infer<typeof RepoConfigSchema>;

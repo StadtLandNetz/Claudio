@@ -18,6 +18,7 @@ import type { AutomationSettings } from "@claudio/github";
 import type { Db } from "./client.js";
 import { decrypt, encrypt, sha256 } from "./crypto.js";
 import {
+  agentLearnings,
   analyses,
   findings,
   runArtifacts,
@@ -203,7 +204,33 @@ export async function removeLesson(db: Db, repoId: number, match: { reviewId: nu
 
 export async function removeRepo(db: Db, id: number): Promise<void> {
   await db.delete(repoRoles).where(eq(repoRoles.repoId, id));
+  await db.delete(agentLearnings).where(eq(agentLearnings.repoId, id));
   await db.delete(repos).where(eq(repos.id, id));
+}
+
+/** How many learnings go into a run's prompt (newest first). */
+export const LEARNINGS_IN_PROMPT = 40;
+
+/** Stores what an agent learned about operating the app; an identical entry is not added twice. */
+export async function addLearning(db: Db, input: { repoId: number; text: string; runKind: "review" | "analysis" | "test"; runRefId: number }): Promise<boolean> {
+  const text = input.text.replace(/\s+/g, " ").trim().slice(0, 500);
+  if (!text) return false;
+  const [dup] = await db
+    .select({ id: agentLearnings.id })
+    .from(agentLearnings)
+    .where(and(eq(agentLearnings.repoId, input.repoId), eq(agentLearnings.text, text)))
+    .limit(1);
+  if (dup) return false;
+  await db.insert(agentLearnings).values({ ...input, text });
+  return true;
+}
+
+export async function listLearnings(db: Db, repoId: number, limit = 200) {
+  return db.select().from(agentLearnings).where(eq(agentLearnings.repoId, repoId)).orderBy(desc(agentLearnings.id)).limit(limit);
+}
+
+export async function deleteLearning(db: Db, repoId: number, id: number): Promise<void> {
+  await db.delete(agentLearnings).where(and(eq(agentLearnings.id, id), eq(agentLearnings.repoId, repoId)));
 }
 
 export async function listRoles(db: Db, repoId: number) {

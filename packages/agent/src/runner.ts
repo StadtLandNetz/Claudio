@@ -52,6 +52,8 @@ export type RunnerDeps = {
   knowledge?: KnowledgeBase | null;
   /** Lets a person take over the browser for CAPTCHAs and bot checks (web UI). */
   human?: HumanBridgeFactory;
+  /** Stores what the agent learned about operating the app (remember_learning), for later runs. */
+  onLearning?: (text: string) => void;
   /** Write the browser screencast to runDir/live.jpg for the web UI. Default: true. */
   liveView?: boolean;
   /** Link to this review in the web UI, used in the PR comment. */
@@ -129,6 +131,7 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     driver: session.name,
     env: deps.roleEnv ? { ...process.env, ...deps.roleEnv } : undefined,
     human,
+    onLearning: deps.onLearning,
   });
   const claudioServer = createClaudioSdkServer(tools);
 

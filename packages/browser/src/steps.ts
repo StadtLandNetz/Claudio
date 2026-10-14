@@ -66,6 +66,81 @@ export async function testPage(attachment: BrowserAttachment): Promise<Page> {
   return attachment.activePage() ?? (await attachment.context.newPage());
 }
 
+/** Runs in the page: visible form controls with id, name, placeholder, label and the caption before them. */
+const COLLECT_FIELDS = `function (limit) {
+  var clean = function (v) { return (v || "").replace(/\\s+/g, " ").trim().slice(0, 60); };
+  var visible = function (el) {
+    var r = el.getBoundingClientRect(), st = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && st.visibility !== "hidden" && st.display !== "none";
+  };
+  var caption = function (el) {
+    var node = el;
+    for (var depth = 0; depth < 4 && node && node.parentElement; depth++, node = node.parentElement) {
+      var parts = [];
+      var kids = node.parentElement.children;
+      for (var i = 0; i < kids.length; i++) {
+        if (kids[i] === node) break;
+        parts.push(kids[i].innerText || "");
+      }
+      var text = clean(parts.join(" "));
+      if (text) return text.split(" ").slice(-6).join(" ");
+    }
+    return "";
+  };
+  var out = [];
+  var els = document.querySelectorAll("input:not([type=hidden]), textarea, select, [contenteditable=true], [role=combobox], [role=textbox]");
+  for (var j = 0; j < els.length && out.length < limit; j++) {
+    var e = els[j];
+    if (!visible(e)) continue;
+    var labels = e.labels && e.labels.length ? clean(Array.prototype.map.call(e.labels, function (l) { return l.innerText; }).join(" ")) : "";
+    out.push({
+      tag: e.tagName.toLowerCase() + (e.tagName === "INPUT" && e.type ? "[type=" + e.type + "]" : ""),
+      id: clean(e.id),
+      name: clean(e.getAttribute("name")),
+      formControl: clean(e.getAttribute("formcontrolname")),
+      placeholder: clean(e.getAttribute("placeholder")),
+      ariaLabel: clean(e.getAttribute("aria-label")),
+      label: labels,
+      caption: labels ? "" : caption(e),
+      testId: clean(e.getAttribute("data-testid") || e.getAttribute("data-test") || e.getAttribute("data-cy")),
+    });
+  }
+  return out;
+}`;
+
+/**
+ * Visible form fields with everything that can identify them. Given to the agent
+ * when a fill/select step misses, because custom inputs often have a visible
+ * caption that is not wired up as their label, so {label} and {role, name} fail.
+ */
+export async function formFieldHints(page: Page, max = 25): Promise<string> {
+  // Passed as source text: tsx (which runs the worker) would inject helpers like __name into a
+  // function, and those do not exist in the page.
+  const fields = await page
+    .evaluate(`(${COLLECT_FIELDS})(${Number(max)})`)
+    .then((v) => v as Record<string, string>[])
+    .catch(() => [] as Record<string, string>[]);
+  if (!fields.length) return "No visible form fields on the page.";
+  return fields
+    .map((f, i) => {
+      const parts = Object.entries(f)
+        .filter(([k, v]) => v && k !== "tag")
+        .map(([k, v]) => `${k}="${v}"`);
+      // Most stable first; ids with digits are usually generated per render (mat-input-3, :r5:) and skipped.
+      const stableId = f.id && !/\d/.test(f.id) ? f.id : "";
+      const target =
+        f.label || f.ariaLabel ? `{label:"${f.label || f.ariaLabel}"}`
+        : f.placeholder ? `{placeholder:"${f.placeholder}"}`
+        : f.testId ? `{testId:"${f.testId}"}`
+        : f.name ? `{css:"${f.tag.split("[")[0]}[name='${f.name}']"}`
+        : f.formControl ? `{css:"[formcontrolname='${f.formControl}']"}`
+        : stableId ? `{css:"${/^[A-Za-z][\w-]*$/.test(stableId) ? `#${stableId}` : `[id='${stableId}']`}"}`
+        : null;
+      return `${i + 1}. ${f.tag} ${parts.join(" ")}${target ? `  → try ${target}` : ""}`;
+    })
+    .join("\n");
+}
+
 export function locate(page: Page, t: Target): Locator {
   if ("role" in t) return page.getByRole(t.role as Parameters<Page["getByRole"]>[0], { name: t.name, exact: t.exact });
   if ("label" in t) return page.getByLabel(t.label, { exact: t.exact });

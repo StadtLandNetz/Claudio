@@ -17,6 +17,7 @@ export function toRepoConfig(
   repo: Pick<Repo, "fullName" | "notes" | "extraAllowedHosts"> & Partial<Pick<Repo, "lessons">>,
   roles: RepoRole[],
   decryptFn: (value: string) => string = decrypt,
+  learnings: string[] = [],
 ): { config: RepoConfig; roleEnv: Record<string, string> } {
   const roleEnv: Record<string, string> = {};
   const configRoles: Record<string, unknown> = {};
@@ -37,6 +38,7 @@ export function toRepoConfig(
     notes: repo.notes ?? undefined,
     extraAllowedHosts: repo.extraAllowedHosts ?? [],
     lessons: (repo.lessons ?? []).map((l) => l.text),
+    learnings,
     roles: configRoles,
   });
   return { config, roleEnv };

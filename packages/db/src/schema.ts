@@ -266,6 +266,23 @@ export const runArtifacts = mysqlTable(
   (t) => [uniqueIndex("run_artifacts_run_path_idx").on(t.runId, t.path), index("run_artifacts_created_idx").on(t.createdAt)],
 );
 
+/**
+ * What agents learned about operating a repository's app (unlabelled fields,
+ * banners to dismiss, slow pages). Fed into later runs; people can delete entries.
+ */
+export const agentLearnings = mysqlTable(
+  "agent_learnings",
+  {
+    id: id(),
+    repoId: ref("repo_id").notNull(),
+    text: varchar("text", { length: 500 }).notNull(),
+    runKind: mysqlEnum("run_kind", ["review", "analysis", "test"]).notNull(),
+    runRefId: ref("run_ref_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("agent_learnings_repo_idx").on(t.repoId)],
+);
+
 export const ACCESS_LEVELS = ["none", "read", "write", "admin"] as const;
 export type AccessLevel = (typeof ACCESS_LEVELS)[number];
 
@@ -368,3 +385,4 @@ export type Analysis = typeof analyses.$inferSelect;
 export type TestScriptRow = typeof testScripts.$inferSelect;
 export type TestRun = typeof testRuns.$inferSelect;
 export type HumanRequest = typeof humanRequests.$inferSelect;
+export type AgentLearning = typeof agentLearnings.$inferSelect;

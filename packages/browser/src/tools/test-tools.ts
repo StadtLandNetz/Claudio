@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { DeterminismSchema, TestOutcomeSchema, TestStepSchema, describeStep, type Determinism, type StepResult, type TestOutcome, type TestStep } from "@claudio/core";
 import { detectCaptcha } from "../human.js";
-import { ariaSnapshot, executeStep, testPage, type StepContext } from "../steps.js";
+import { ariaSnapshot, executeStep, formFieldHints, testPage, type StepContext } from "../steps.js";
 import { def, type ClaudioTool } from "./definitions.js";
 
 export type TestFinish = { complete: boolean; outcome: TestOutcome; determinism: Determinism; summary: string };
@@ -48,7 +48,14 @@ export function createTestTools(ctx: StepContext, recorder: StepRecorder, opts: 
       const captcha = await detectCaptcha(await testPage(ctx.attachment));
       const hint = captcha ? ` A ${captcha} is on the page: call request_human_help; do not try to solve it yourself.` : "";
       if (out.ok) return `#${r.index} ok: ${describeStep(step)} (${out.durationMs} ms).${hint}`;
-      return `#${r.index} FAILED: ${describeStep(step)}: ${out.error}${hint || (out.assertionFailed ? "" : " Take a snapshot to find the right target, then retry; failed steps are not recorded.")}`;
+      const failed = `#${r.index} FAILED: ${describeStep(step)}: ${out.error}`;
+      if (hint || out.assertionFailed) return failed + hint;
+      // A field that was not found: show what the form actually offers instead of letting the agent guess.
+      if (["fill", "select", "check", "uncheck"].includes(step.action)) {
+        const fields = await formFieldHints(await testPage(ctx.attachment));
+        return `${failed}\n\nThe visible form fields (the caption next to a field is often not its label, so {label} and {role,name} miss it):\n${fields}\n\nPick a target from this list instead of guessing variants. Failed steps are not recorded.`;
+      }
+      return `${failed} Take a snapshot to find the right target, then retry; failed steps are not recorded.`;
     },
   });
 

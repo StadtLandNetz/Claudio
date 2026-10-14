@@ -85,6 +85,11 @@ export function buildReviewPrompt(input: PromptInput): string {
       `# Decisions from earlier reviews\n\nPeople dismissed these findings in earlier reviews of this repository. Treat the described behaviour as intended: do not report it again unless this pull request changes it.\n\n${config.lessons.map((l) => `- ${l}`).join("\n")}`,
     );
   }
+  if (config?.learnings?.length) {
+    sections.push(
+      `# Learned in earlier runs on this repository\n\nHow to operate this application, from earlier runs that had to find out the hard way. Follow these; ignore one only if it is clearly outdated. When you overcome a new obstacle that cost you attempts (a field without label, a banner, a slow page, a login quirk), call remember_learning.\n\n${config.learnings.map((l) => `- ${l}`).join("\n")}`,
+    );
+  }
   if (request.extraInstructions) sections.push(`# Additional instructions for this run\n\n${request.extraInstructions.trim()}`);
 
   sections.push(profile.delegateChecks ? delegatedProcedure(lang) : singleAgentProcedure(lang));

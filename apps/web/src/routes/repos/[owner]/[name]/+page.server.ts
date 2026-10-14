@@ -17,6 +17,9 @@ import {
 	listTestRuns,
 	listTestScripts,
 	removeLesson,
+	deleteLearning,
+	listLearnings,
+	LEARNINGS_IN_PROMPT,
 	removeRepo,
 	repoAnthropicKey,
 	setAnthropicKey,
@@ -178,6 +181,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		environments,
 		localBaseUrl: /^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(base),
 		lessons: repo.lessons ?? [],
+		learningsInPrompt: LEARNINGS_IN_PROMPT,
+		learnings: (await listLearnings(db(), repo.id)).map((l) => {
+			const kind = { review: ['reviews', 'Review'], analysis: ['analyses', 'Analyse'], test: ['test-runs', 'Testlauf'] }[l.runKind];
+			return { id: l.id, text: l.text, at: l.createdAt, source: `${kind[1]} #${l.runRefId}`, href: `/${kind[0]}/${l.runRefId}` };
+		}),
 		tests: tests.map((t) => ({
 			id: t.id,
 			name: t.name,
@@ -418,6 +426,13 @@ export const actions: Actions = {
 		const repo = await loadRepo(params, locals.user, 'admin');
 		await setAnthropicKey(db(), repo.id, null, locals.user!.id);
 		return { saved: 'key-removed' };
+	},
+
+	removeLearning: async ({ params, request, locals }) => {
+		const repo = await loadRepo(params, locals.user, 'write');
+		const f = await request.formData();
+		await deleteLearning(db(), repo.id, Number(f.get('id')));
+		return { saved: 'learning' };
 	},
 
 	removeLesson: async ({ params, request, locals }) => {

@@ -108,6 +108,7 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
     env: deps.roleEnv ? { ...process.env, ...deps.roleEnv } : undefined,
     human,
     knowledgeDir,
+    onLearning: deps.onLearning,
   });
 
   const guard = createBrowserGuard({

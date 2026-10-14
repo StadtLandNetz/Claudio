@@ -593,6 +593,35 @@
 		</div>
 	</section>
 
+	<section class="part" id="erfahrungen">
+		<div class="intro">
+			<h2>Erfahrungen des Agenten</h2>
+			<p class="muted">
+				Hält Claudio selbst fest, wenn ein Lauf ein Hindernis überwinden musste, etwa ein Feld ohne Beschriftung oder ein Cookie-Banner. Die neuesten {data.learningsInPrompt} bekommt jeder spätere Review, Test und jede Analyse mit. Lösch, was nicht stimmt.
+			</p>
+		</div>
+		<div>
+			{#if data.learnings.length}
+				<ul class="lessons sheet">
+					{#each data.learnings as learning (learning.id)}
+						<li>
+							<div>
+								<p>{learning.text}</p>
+								<span class="faint"><a href={learning.href}>{learning.source}</a>, {formatDate(learning.at)}</span>
+							</div>
+							<form method="POST" action="?tab=settings&/removeLearning" use:enhance>
+								<input type="hidden" name="id" value={learning.id} />
+								<button class="btn small" type="submit">Löschen</button>
+							</form>
+						</li>
+					{/each}
+				</ul>
+			{:else}
+				<p class="muted">Noch keine.</p>
+			{/if}
+		</div>
+	</section>
+
 	<section class="part">
 		<div class="intro">
 			<h2>Gelernte Entscheidungen</h2>

@@ -29,6 +29,9 @@ import {
   setReviewRunId,
   setTestRunStarted,
   toRepoConfig,
+  addLearning,
+  listLearnings,
+  LEARNINGS_IN_PROMPT,
   toTestScript,
   freshAccessToken,
   type Analysis,
@@ -115,7 +118,8 @@ async function prepare(db: Db, job: Job) {
   if (!repo) throw new Error(`Repo ${job.row.repoId} existiert nicht mehr.`);
   const user = await getUser(db, job.row.startedBy);
   const githubToken = user ? ((await freshAccessToken(db, user)) ?? undefined) : undefined;
-  const { config, roleEnv } = toRepoConfig(repo, await listRoles(db, repo.id));
+  const learnings = (await listLearnings(db, repo.id, LEARNINGS_IN_PROMPT)).map((l) => l.text);
+  const { config, roleEnv } = toRepoConfig(repo, await listRoles(db, repo.id), undefined, learnings);
   const knowledge = await latestKnowledge(db, repo.id);
   const anthropicApiKey = repoAnthropicKey(repo) ?? undefined;
   const keyOptional = process.env.CLAUDIO_DEV_FIXTURES === "1" && repo.fullName === DEMO_REPO;
@@ -152,6 +156,10 @@ async function prepare(db: Db, job: Job) {
       requireApiKey: !keyOptional,
       onProgress: emit,
       human: humanBridge(db, { kind: job.kind, id: job.row.id, repoId: job.row.repoId }, emit, stop.signal),
+      onLearning: (text: string) => {
+        emit(`Gelernt: ${text}`);
+        void addLearning(db, { repoId: job.row.repoId, text, runKind: job.kind, runRefId: job.row.id }).catch((e) => log(`learning not saved: ${(e as Error).message}`));
+      },
     },
     knowledge,
     fixture,
