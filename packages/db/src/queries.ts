@@ -348,20 +348,34 @@ export async function isAbortRequested(db: Db, id: number): Promise<boolean> {
   return Boolean(row?.abort);
 }
 
-/** Atomically moves the oldest queued review to running. Safe with several workers. */
-export async function claimNextReview(db: Db): Promise<Review | null> {
-  return db.transaction(async (tx) => {
-    const [next] = await tx
-      .select()
-      .from(reviews)
-      .where(eq(reviews.status, "queued"))
-      .orderBy(asc(reviews.id))
-      .limit(1)
-      .for("update", { skipLocked: true });
+/**
+ * Moves the oldest queued job to running. Works without row locks (MySQL 5.7
+ * has no SKIP LOCKED): the conditional update only succeeds for one worker,
+ * a worker that loses the race simply tries the next job.
+ */
+async function claimNext<T extends { id: number }>(
+  db: Db,
+  table: typeof reviews | typeof analyses | typeof testRuns,
+  oldestQueued: () => Promise<T | undefined>,
+): Promise<(T & { status: "running"; startedAt: Date }) | null> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const next = await oldestQueued();
     if (!next) return null;
     const startedAt = new Date();
-    await tx.update(reviews).set({ status: "running", startedAt }).where(eq(reviews.id, next.id));
-    return { ...next, status: "running" as const, startedAt };
+    const [result] = await db
+      .update(table)
+      .set({ status: "running", startedAt })
+      .where(and(eq(table.id, next.id), eq(table.status, "queued")));
+    if (result.affectedRows === 1) return { ...next, status: "running" as const, startedAt };
+  }
+  return null;
+}
+
+/** Atomically moves the oldest queued review to running. Safe with several workers. */
+export async function claimNextReview(db: Db): Promise<Review | null> {
+  return claimNext(db, reviews, async () => {
+    const [next] = await db.select().from(reviews).where(eq(reviews.status, "queued")).orderBy(asc(reviews.id)).limit(1);
+    return next;
   });
 }
 
@@ -487,18 +501,9 @@ export async function getAnalysis(db: Db, id: number): Promise<AnalysisListItem 
 }
 
 export async function claimNextAnalysis(db: Db): Promise<Analysis | null> {
-  return db.transaction(async (tx) => {
-    const [next] = await tx
-      .select()
-      .from(analyses)
-      .where(eq(analyses.status, "queued"))
-      .orderBy(asc(analyses.id))
-      .limit(1)
-      .for("update", { skipLocked: true });
-    if (!next) return null;
-    const startedAt = new Date();
-    await tx.update(analyses).set({ status: "running", startedAt }).where(eq(analyses.id, next.id));
-    return { ...next, status: "running" as const, startedAt };
+  return claimNext(db, analyses, async () => {
+    const [next] = await db.select().from(analyses).where(eq(analyses.status, "queued")).orderBy(asc(analyses.id)).limit(1);
+    return next;
   });
 }
 
@@ -748,18 +753,9 @@ export async function testResultsByReview(db: Db, reviewIds: number[]): Promise<
 }
 
 export async function claimNextTestRun(db: Db): Promise<TestRun | null> {
-  return db.transaction(async (tx) => {
-    const [next] = await tx
-      .select()
-      .from(testRuns)
-      .where(eq(testRuns.status, "queued"))
-      .orderBy(asc(testRuns.id))
-      .limit(1)
-      .for("update", { skipLocked: true });
-    if (!next) return null;
-    const startedAt = new Date();
-    await tx.update(testRuns).set({ status: "running", startedAt }).where(eq(testRuns.id, next.id));
-    return { ...next, status: "running" as const, startedAt };
+  return claimNext(db, testRuns, async () => {
+    const [next] = await db.select().from(testRuns).where(eq(testRuns.status, "queued")).orderBy(asc(testRuns.id)).limit(1);
+    return next;
   });
 }
 
