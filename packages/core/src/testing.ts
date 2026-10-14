@@ -67,10 +67,14 @@ export const TestScriptSchema = z.object({
 });
 export type TestScript = z.infer<typeof TestScriptSchema>;
 
+/** Test runs have one tier more than reviews: "extra" for long or tricky flows. */
+export const TestBudgetTierSchema = z.enum(["quick", "standard", "thorough", "extra"]);
+export type TestBudgetTier = z.infer<typeof TestBudgetTierSchema>;
+
 export const TestRunRequestSchema = z.object({
   repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "repo must be owner/name"),
   instanceUrl: z.string().url(),
-  budget: BudgetTierSchema.default("quick"),
+  budget: TestBudgetTierSchema.default("quick"),
   language: LanguageSchema.default("de"),
   headed: z.boolean().default(false),
   /** Force a fresh recording even when steps exist. */

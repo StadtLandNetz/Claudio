@@ -110,7 +110,11 @@ export const DETERMINISM_HELP: Record<string, string> = {
 };
 
 export const TEST_BUDGET_LABEL: Record<string, string> = {
-	quick: 'Schnell (bis 1 USD)',
-	standard: 'Standard (bis 3 USD)',
-	thorough: 'Gründlich (bis 8 USD)'
+	quick: 'Schnell: Haiku, bis 1 USD',
+	standard: 'Standard: Sonnet, bis 3 USD',
+	thorough: 'Gründlich: Opus, bis 5 USD',
+	extra: 'Extra-Gründlich: Opus mit viel Denkzeit, bis 8 USD'
 };
+
+/** Preselected for manual test runs; tests inside PR reviews always run "quick". */
+export const DEFAULT_TEST_BUDGET = 'standard';

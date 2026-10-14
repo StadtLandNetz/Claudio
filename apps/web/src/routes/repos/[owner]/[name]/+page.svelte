@@ -12,6 +12,7 @@
 		STRICTNESS_LABEL,
 		MODE_LABEL,
 		TEST_BUDGET_LABEL,
+		DEFAULT_TEST_BUDGET,
 		formatDate,
 		formatUsd,
 		isActive
@@ -172,7 +173,7 @@
 					<span>Budget pro Test</span>
 					<select name="budget">
 						{#each Object.entries(TEST_BUDGET_LABEL) as [value, label] (value)}
-							<option {value} selected={value === 'quick'}>{label}</option>
+							<option {value} selected={value === DEFAULT_TEST_BUDGET}>{label}</option>
 						{/each}
 					</select>
 					<small>Gilt nur, wenn ein Test aufgezeichnet, repariert oder bewertet werden muss. Reine Wiedergaben kosten nichts.</small>

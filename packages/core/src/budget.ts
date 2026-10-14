@@ -1,4 +1,5 @@
 import type { BudgetTier } from "./schemas.js";
+import type { TestBudgetTier } from "./testing.js";
 
 export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -90,9 +91,10 @@ export function analysisProfile(tier: BudgetTier): BudgetProfile {
  * Test scripts: one flow per run. Only recording, exploring and healing use the
  * model; a deterministic replay costs nothing.
  */
-export const TEST_TIERS: Record<BudgetTier, BudgetProfile> = {
+export const TEST_TIERS: Record<TestBudgetTier, BudgetProfile> = {
+  // Repairs of small UI changes and simple flows (also the tier of tests that run with PR reviews).
   quick: {
-    orchestratorModel: "claude-sonnet-5-5",
+    orchestratorModel: "claude-haiku-5-5",
     workerModel: "claude-haiku-5-5",
     effort: "medium",
     maxTurns: 50,
@@ -100,9 +102,10 @@ export const TEST_TIERS: Record<BudgetTier, BudgetProfile> = {
     maxBrowserSteps: 60,
     delegateChecks: false,
   },
+  // Default for recordings.
   standard: {
-    orchestratorModel: "claude-opus-5-5",
-    workerModel: "claude-sonnet-5-5",
+    orchestratorModel: "claude-sonnet-5-5",
+    workerModel: "claude-haiku-5-5",
     effort: "high",
     maxTurns: 90,
     maxBudgetUsd: 3,
@@ -110,6 +113,15 @@ export const TEST_TIERS: Record<BudgetTier, BudgetProfile> = {
     delegateChecks: false,
   },
   thorough: {
+    orchestratorModel: "claude-opus-5-5",
+    workerModel: "claude-sonnet-5-5",
+    effort: "high",
+    maxTurns: 120,
+    maxBudgetUsd: 5,
+    maxBrowserSteps: 180,
+    delegateChecks: false,
+  },
+  extra: {
     orchestratorModel: "claude-opus-5-5",
     workerModel: "claude-sonnet-5-5",
     effort: "xhigh",
@@ -120,7 +132,7 @@ export const TEST_TIERS: Record<BudgetTier, BudgetProfile> = {
   },
 };
 
-export function testProfile(tier: BudgetTier): BudgetProfile {
+export function testProfile(tier: TestBudgetTier): BudgetProfile {
   return TEST_TIERS[tier];
 }
 

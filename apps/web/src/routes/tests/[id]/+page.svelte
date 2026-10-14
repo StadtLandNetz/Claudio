@@ -6,6 +6,7 @@
 		DETERMINISM_LABEL,
 		MODE_LABEL,
 		TEST_BUDGET_LABEL,
+		DEFAULT_TEST_BUDGET,
 		formatDate,
 		formatDuration,
 		formatUsd
@@ -141,7 +142,7 @@
 				<span>Budget</span>
 				<select name="budget">
 					{#each Object.entries(TEST_BUDGET_LABEL) as [value, label] (value)}
-						<option {value} selected={value === 'quick'}>{label}</option>
+						<option {value} selected={value === DEFAULT_TEST_BUDGET}>{label}</option>
 					{/each}
 				</select>
 			</label>
