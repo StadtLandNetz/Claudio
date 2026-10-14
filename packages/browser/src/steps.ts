@@ -66,6 +66,8 @@ export async function testPage(attachment: BrowserAttachment): Promise<Page> {
   return attachment.activePage() ?? (await attachment.context.newPage());
 }
 
+type FormField = { tag: string; id: string; name: string; formControl: string; placeholder: string; ariaLabel: string; label: string; caption: string; testId: string };
+
 /** Runs in the page: visible form controls with id, name, placeholder, label and the caption before them. */
 const COLLECT_FIELDS = `function (limit) {
   var clean = function (v) { return (v || "").replace(/\\s+/g, " ").trim().slice(0, 60); };
@@ -118,8 +120,8 @@ export async function formFieldHints(page: Page, max = 25): Promise<string> {
   // function, and those do not exist in the page.
   const fields = await page
     .evaluate(`(${COLLECT_FIELDS})(${Number(max)})`)
-    .then((v) => v as Record<string, string>[])
-    .catch(() => [] as Record<string, string>[]);
+    .then((v) => v as FormField[])
+    .catch(() => [] as FormField[]);
   if (!fields.length) return "No visible form fields on the page.";
   return fields
     .map((f, i) => {
