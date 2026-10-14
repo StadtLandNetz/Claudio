@@ -2,12 +2,14 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { ReviewRequestSchema } from '@claudio/core';
 import { createReview, createTestRuns, listRoles, listTestScripts } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
+import { DEFAULT_AUTOMATION, resolveInstanceUrl } from '#lib/server/automation.js';
 import { keyOptional } from '#lib/server/anthropic.js';
 import { userToken } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
 import { devFixtures } from '#lib/server/env.js';
 import { getPull, githubErrorMessage } from '#lib/server/github.js';
+import { createGithubClient } from '@claudio/github';
 import type { Actions, PageServerLoad } from './$types';
 
 async function context(url: URL, user: App.Locals['user']) {
@@ -20,17 +22,18 @@ async function context(url: URL, user: App.Locals['user']) {
 	if (!repo.anthropicKeyEnc && !keyOptional(repo)) redirect(303, `/repos/${repo.fullName}?tab=settings#anthropic`);
 
 	const fixture = repo.fullName === DEMO_REPO && devFixtures() ? DEMO_FIXTURE : null;
-	let pr: { title: string; headRef: string; url: string } | null = null;
+	let pr: { title: string; headRef: string; headSha: string | null; url: string } | null = null;
 	let prError: string | null = null;
 	if (fixture) {
 		const p = demoPullRequest();
-		if (p.number === prNumber) pr = { title: p.title, headRef: p.headRef, url: p.url };
+		if (p.number === prNumber) pr = { title: p.title, headRef: p.headRef, headSha: null, url: p.url };
 	} else {
 		const token = await userToken(user!);
 		if (!token) prError = 'Ohne GitHub-Anmeldung kann Claudio den Pull Request nicht laden.';
 		else
 			try {
-				pr = await getPull(token, repo.fullName, prNumber);
+				const p = await getPull(token, repo.fullName, prNumber);
+				pr = { title: p.title, headRef: p.headRef, headSha: p.headSha ?? null, url: p.url };
 			} catch (e) {
 				prError = githubErrorMessage(e);
 			}
@@ -38,8 +41,26 @@ async function context(url: URL, user: App.Locals['user']) {
 	return { repo, roles, prNumber, pr, prError, fixture };
 }
 
+/** Pre-fills the instance: the PR's GitHub deployment, the URL template, or the repo's default instance. */
+async function suggestedInstance(ctx: Awaited<ReturnType<typeof context>>, user: App.Locals['user']): Promise<{ url: string; source: string | null; note?: string }> {
+	const { repo, pr, prNumber, fixture } = ctx;
+	const fallback = { url: repo.defaultInstanceUrl ?? '', source: null };
+	if (!pr) return fallback;
+	const token = fixture ? null : await userToken(user!);
+	const settings = repo.automation ?? DEFAULT_AUTOMATION;
+	const resolved = await resolveInstanceUrl(repo, settings, token ? createGithubClient(token) : null, fixture, { prNumber, headSha: pr.headSha, branch: pr.headRef }).catch(() => null);
+	if (!resolved || 'missing' in resolved) return fallback;
+	return {
+		url: resolved.url,
+		source: resolved.source === 'deployment' ? `aus der GitHub-Bereitstellung „${settings.deploymentEnvironment}“` : 'aus der URL-Vorlage des Repositorys',
+		note: 'note' in resolved ? resolved.note : undefined
+	};
+}
+
 export const load: PageServerLoad = async ({ url, locals }) => {
-	const { repo, roles, prNumber, pr, prError } = await context(url, locals.user);
+	const ctx = await context(url, locals.user);
+	const { repo, roles, prNumber, pr, prError } = ctx;
+	const instance = await suggestedInstance(ctx, locals.user);
 	const tests = (await listTestScripts(db(), repo.id)).filter((t) => t.runInReviews);
 	return {
 		reviewTests: tests.map((t) => t.name),
@@ -48,7 +69,9 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		pr,
 		prError,
 		roles: roles.map((r) => ({ name: r.name, description: r.description })),
-		defaultInstanceUrl: repo.defaultInstanceUrl ?? ''
+		defaultInstanceUrl: instance.url,
+		instanceSource: instance.source,
+		instanceNote: instance.note ?? null
 	};
 };
 

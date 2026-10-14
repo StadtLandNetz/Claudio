@@ -20,6 +20,12 @@ export type AutomationSettings = {
   analyzeOnMerge: boolean;
   /** Report the result as a commit status on the PR head. */
   commitStatus: boolean;
+  /**
+   * GitHub environment of the PR review instances (e.g. "Preview"). When set, the
+   * instance URL comes from the PR's deployment in that environment, and automatic
+   * reviews start once that deployment succeeds instead of on the push.
+   */
+  deploymentEnvironment?: string;
 };
 
 export const REVIEW_LABEL = "claudio-review";
@@ -42,6 +48,7 @@ export function renderInstanceUrl(template: string, pr: { number: number; branch
 export type TriggerDecision =
   | { kind: "review"; prNumber: number; headSha: string | null; branch: string | null; title: string | null; trigger: "comment" | "label" | "push"; budget?: "quick" | "standard" | "thorough"; commentId?: number }
   | { kind: "analysis"; branch: string; headSha: string }
+  | { kind: "deployment"; sha: string; environment: string; url: string }
   | { kind: "ignore"; reason: string };
 
 type Payload = Record<string, any>;
@@ -66,6 +73,7 @@ export function decideTrigger(event: string, payload: Payload, settings: Automat
     if (["opened", "reopened", "synchronize", "ready_for_review"].includes(payload.action)) {
       if (!settings.onPush) return { kind: "ignore", reason: "automatic reviews are off" };
       if (pr.draft) return { kind: "ignore", reason: "draft pull request" };
+      if (settings.deploymentEnvironment) return { kind: "ignore", reason: `waiting for the ${settings.deploymentEnvironment} deployment` };
       return { kind: "review", ...base, trigger: "push" };
     }
     return { kind: "ignore", reason: `pull_request.${payload.action} is not a trigger` };
@@ -80,6 +88,19 @@ export function decideTrigger(event: string, payload: Payload, settings: Automat
     if (!m) return { kind: "ignore", reason: "no /claudio review command" };
     const budget = m[1]!.match(/\b(quick|standard|thorough)\b/i)?.[1]?.toLowerCase() as "quick" | "standard" | "thorough" | undefined;
     return { kind: "review", prNumber: payload.issue.number, headSha: null, branch: null, title: payload.issue.title ?? null, trigger: "comment", budget, commentId: payload.comment?.id };
+  }
+
+  if (event === "deployment_status") {
+    const env = settings.deploymentEnvironment;
+    if (!env) return { kind: "ignore", reason: "no deployment environment configured" };
+    if (!settings.onPush) return { kind: "ignore", reason: "automatic reviews are off" };
+    const status = payload.deployment_status;
+    const environment = String(payload.deployment?.environment ?? status?.environment ?? "");
+    if (environment.toLowerCase() !== env.toLowerCase()) return { kind: "ignore", reason: `deployment to ${environment || "?"}, not ${env}` };
+    if (status?.state !== "success") return { kind: "ignore", reason: `deployment ${status?.state ?? "?"}` };
+    const url = status.environment_url || payload.deployment?.payload?.web_url || "";
+    if (!url) return { kind: "ignore", reason: "deployment without environment URL" };
+    return { kind: "deployment", sha: String(payload.deployment?.sha ?? ""), environment, url };
   }
 
   if (event === "push") {

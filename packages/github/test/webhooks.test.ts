@@ -48,4 +48,25 @@ describe("decideTrigger", () => {
     expect(decideTrigger("push", { ref: "refs/heads/feature", after: "f00" }, all, "main").kind).toBe("ignore");
     expect(decideTrigger("push", { ref: "refs/heads/main", after: "f00" }, { ...all, analyzeOnMerge: false }, "main").kind).toBe("ignore");
   });
+
+  describe("deployments", () => {
+    const env: AutomationSettings = { ...all, deploymentEnvironment: "Preview" };
+    const status = (state: string, environment = "Preview", url = "https://devden.feature.nova.test") => ({
+      deployment: { sha: "abc", environment },
+      deployment_status: { state, environment, environment_url: url },
+    });
+    it("waits for the deployment instead of reviewing on push", () => {
+      expect(decideTrigger("pull_request", { action: "synchronize", pull_request: pr() }, env, "main")).toMatchObject({ kind: "ignore", reason: "waiting for the Preview deployment" });
+    });
+    it("reviews once the configured environment deployed successfully", () => {
+      expect(decideTrigger("deployment_status", status("success"), env, "main")).toEqual({ kind: "deployment", sha: "abc", environment: "Preview", url: "https://devden.feature.nova.test" });
+    });
+    it("ignores other environments, unfinished deployments and repos without an environment", () => {
+      expect(decideTrigger("deployment_status", status("success", "production"), env, "main").kind).toBe("ignore");
+      expect(decideTrigger("deployment_status", status("in_progress"), env, "main").kind).toBe("ignore");
+      expect(decideTrigger("deployment_status", status("success", "Preview", ""), env, "main").kind).toBe("ignore");
+      expect(decideTrigger("deployment_status", status("success"), all, "main").kind).toBe("ignore");
+      expect(decideTrigger("deployment_status", status("success"), { ...env, onPush: false }, "main").kind).toBe("ignore");
+    });
+  });
 });

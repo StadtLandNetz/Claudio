@@ -25,7 +25,11 @@
 	<label class="field">
 		<span>Adresse der Instanz</span>
 		<input type="url" name="instanceUrl" required value={data.defaultInstanceUrl} placeholder="https://pr-{data.prNumber}.preview.example.de" />
-		<small>Wo der Branch dieses Pull Requests läuft. Der Browser bleibt auf diesem Host.</small>
+		<small>
+			Wo der Branch dieses Pull Requests läuft. Der Browser bleibt auf diesem Host.
+			{#if data.instanceSource}Vorgeschlagen {data.instanceSource}.{/if}
+			{#if data.instanceNote}{data.instanceNote}{/if}
+		</small>
 	</label>
 
 	<fieldset>

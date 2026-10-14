@@ -344,7 +344,7 @@
 			<dd>
 				{formatDate(review.createdAt)}<br />
 				<span class="faint">
-					{review.trigger === 'comment' ? `per Kommentar /claudio review, im Namen von ${review.startedBy}` : review.trigger === 'label' ? `per Label claudio-review, im Namen von ${review.startedBy}` : review.trigger === 'push' ? `automatisch nach Push, im Namen von ${review.startedBy}` : `von ${review.startedBy}`}
+					{review.trigger === 'comment' ? `per Kommentar /claudio review, im Namen von ${review.startedBy}` : review.trigger === 'label' ? `per Label claudio-review, im Namen von ${review.startedBy}` : review.trigger === 'push' ? `automatisch nach Push, im Namen von ${review.startedBy}` : review.trigger === 'deployment' ? `automatisch nach Bereitstellung der Instanz, im Namen von ${review.startedBy}` : `von ${review.startedBy}`}
 				</span>
 			</dd>
 			{#if review.finishedAt}

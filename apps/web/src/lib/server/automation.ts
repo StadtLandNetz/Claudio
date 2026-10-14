@@ -15,8 +15,10 @@ import {
 import {
 	createGithubClient,
 	decideTrigger,
+	findPreviewDeployment,
 	getPullHead,
 	postPullRequestComment,
+	pullsForCommit,
 	reactToComment,
 	renderInstanceUrl,
 	setCommitStatus,
@@ -33,7 +35,8 @@ export const DEFAULT_AUTOMATION: AutomationSettings = {
 	onLabel: true,
 	onPush: false,
 	analyzeOnMerge: false,
-	commitStatus: true
+	commitStatus: true,
+	deploymentEnvironment: ''
 };
 
 export const DEFAULT_AUTO_REVIEW: AutoReviewDefaults = {
@@ -45,6 +48,8 @@ export const DEFAULT_AUTO_REVIEW: AutoReviewDefaults = {
 };
 
 export type EventResult = { action: 'review' | 'analysis' | 'ignored'; reason: string; id?: number };
+
+type Github = ReturnType<typeof createGithubClient>;
 
 /** Token of the person who set up the automation; automated runs act on their behalf. */
 async function automationToken(repo: Repo): Promise<{ token: string | null; userId: number }> {
@@ -80,6 +85,28 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 		return { action: 'analysis', reason: `push to ${decision.branch}`, id };
 	}
 
+	if (!repo.dataConfirmed) return { action: 'ignored', reason: 'the repository is not cleared for reviews (test data confirmation missing)' };
+
+	// A review instance finished deploying: review the open PR it belongs to.
+	if (decision.kind === 'deployment') {
+		if (!github) return { action: 'ignored', reason: 'no GitHub access to find the pull request' };
+		const pulls = (await pullsForCommit(github, repo.fullName, decision.sha)).filter((p) => !p.draft);
+		if (pulls.length === 0) return { action: 'ignored', reason: 'no open, non-draft pull request with this head commit' };
+		const results = [];
+		for (const p of pulls) {
+			results.push(
+				await queueReview(repo, settings, github, baseUrl, userId, fixture, {
+					prNumber: p.number,
+					headSha: decision.sha,
+					title: p.title,
+					trigger: 'deployment',
+					instanceUrl: decision.url
+				})
+			);
+		}
+		return results.find((r) => r.action === 'review') ?? results[0]!;
+	}
+
 	// Review. Comment events carry no head commit; fetch it.
 	let { headSha, branch, title } = decision;
 	if ((!headSha || !branch) && github) {
@@ -87,18 +114,68 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 		if (!head.open) return { action: 'ignored', reason: 'pull request is closed' };
 		({ sha: headSha, branch, title } = head);
 	}
-	if (!repo.dataConfirmed) return { action: 'ignored', reason: 'the repository is not cleared for reviews (test data confirmation missing)' };
 
-	const template = settings.instanceUrlTemplate || (fixture ? repo.defaultInstanceUrl ?? '' : '');
-	if (!template) {
+	const resolved = await resolveInstanceUrl(repo, settings, github, fixture, { prNumber: decision.prNumber, headSha, branch });
+	if ('missing' in resolved) {
 		if (github && decision.trigger === 'comment') {
-			await postPullRequestComment(github, repo.fullName, decision.prNumber, 'Claudio kann diesen PR nicht prüfen: In den Repo-Einstellungen fehlt die URL-Vorlage für die PR-Instanzen.').catch(() => undefined);
+			await postPullRequestComment(github, repo.fullName, decision.prNumber, `Claudio kann diesen PR nicht prüfen: ${resolved.missing}`).catch(() => undefined);
 		}
-		return { action: 'ignored', reason: 'no instance URL template' };
+		return { action: 'ignored', reason: resolved.reason };
 	}
-	const instanceUrl = renderInstanceUrl(template, { number: decision.prNumber, branch: branch ?? '', sha: headSha ?? '' });
 
-	if (await findActiveReview(db(), repo.id, decision.prNumber, decision.trigger === 'push' ? headSha : null)) {
+	const result = await queueReview(repo, settings, github, baseUrl, userId, fixture, {
+		prNumber: decision.prNumber,
+		headSha,
+		title,
+		trigger: decision.trigger,
+		budget: decision.budget,
+		instanceUrl: resolved.url
+	});
+	if (result.action === 'review' && github && decision.trigger === 'comment' && decision.commentId) {
+		await reactToComment(github, repo.fullName, decision.commentId).catch(() => undefined);
+	}
+	return result;
+}
+
+/**
+ * Where the PR's review instance runs: its GitHub deployment in the configured
+ * environment, else the repo's URL template.
+ */
+export async function resolveInstanceUrl(
+	repo: Repo,
+	settings: AutomationSettings,
+	github: Github | null,
+	fixture: string | null,
+	pr: { prNumber: number; headSha: string | null; branch: string | null }
+): Promise<{ url: string; source: 'deployment' | 'template'; note?: string } | { missing: string; reason: string }> {
+	const env = settings.deploymentEnvironment?.trim();
+	if (env && github && pr.headSha) {
+		const found = await findPreviewDeployment(github, repo.fullName, { sha: pr.headSha, prNumber: pr.prNumber, environment: env }).catch(() => null);
+		if (found) {
+			return {
+				url: found.url,
+				source: 'deployment',
+				note: found.exact ? undefined : `Für den neuesten Commit gibt es noch keine ${env}-Instanz; geprüft wird die von ${found.sha.slice(0, 7)}.`
+			};
+		}
+	}
+	const template = settings.instanceUrlTemplate || (fixture ? (repo.defaultInstanceUrl ?? '') : '');
+	if (template) return { url: renderInstanceUrl(template, { number: pr.prNumber, branch: pr.branch ?? '', sha: pr.headSha ?? '' }), source: 'template' };
+	if (env) return { missing: `Für diesen PR gibt es noch keine erfolgreiche Bereitstellung im Environment „${env}“.`, reason: `no ${env} deployment for this pull request` };
+	return { missing: 'In den Repo-Einstellungen fehlt die URL-Vorlage für die PR-Instanzen.', reason: 'no instance URL template' };
+}
+
+async function queueReview(
+	repo: Repo,
+	settings: AutomationSettings,
+	github: Github | null,
+	baseUrl: string,
+	userId: number,
+	fixture: string | null,
+	input: { prNumber: number; headSha: string | null; title: string | null; trigger: string; budget?: 'quick' | 'standard' | 'thorough'; instanceUrl: string }
+): Promise<EventResult> {
+	const { prNumber, headSha, title, trigger, instanceUrl } = input;
+	if (await findActiveReview(db(), repo.id, prNumber, trigger === 'push' || trigger === 'deployment' ? headSha : null)) {
 		return { action: 'ignored', reason: 'a review of this pull request is already queued or running' };
 	}
 
@@ -106,10 +183,10 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 	const roleNames = (await listRoles(db(), repo.id)).map((r) => r.name);
 	const parsed = ReviewRequestSchema.safeParse({
 		repo: repo.fullName,
-		pr: decision.prNumber,
+		pr: prNumber,
 		instanceUrl,
 		roles: defaults.roles.filter((r) => roleNames.includes(r)),
-		budget: decision.budget ?? defaults.budget,
+		budget: input.budget ?? defaults.budget,
 		strictness: defaults.strictness,
 		postComment: defaults.postComment && !fixture,
 		cloneRepo: !fixture
@@ -118,12 +195,12 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 
 	const id = await createReview(db(), {
 		repoId: repo.id,
-		prNumber: decision.prNumber,
+		prNumber,
 		prTitle: title,
 		request: parsed.data,
 		fixture,
 		startedBy: userId,
-		trigger: decision.trigger,
+		trigger,
 		headSha
 	});
 
@@ -142,11 +219,8 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 	}
 
 	// Visible feedback on GitHub. Failures here must not lose the review.
-	if (github) {
-		if (decision.trigger === 'comment' && decision.commentId) await reactToComment(github, repo.fullName, decision.commentId).catch(() => undefined);
-		if (settings.commitStatus && headSha) {
-			await setCommitStatus(github, repo.fullName, headSha, 'pending', 'Claudio prüft den Pull Request …', `${baseUrl}/reviews/${id}`).catch(() => undefined);
-		}
+	if (github && settings.commitStatus && headSha) {
+		await setCommitStatus(github, repo.fullName, headSha, 'pending', 'Claudio prüft den Pull Request …', `${baseUrl}/reviews/${id}`).catch(() => undefined);
 	}
-	return { action: 'review', reason: `${decision.trigger} on #${decision.prNumber}`, id };
+	return { action: 'review', reason: `${trigger} on #${prNumber}`, id };
 }

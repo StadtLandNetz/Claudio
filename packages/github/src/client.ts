@@ -126,9 +126,9 @@ export async function changedFilesBetween(octokit: Octokit, repoFullName: string
   return { files, totalCommits: data.total_commits, truncated: files.length >= 300 };
 }
 
-export const WEBHOOK_EVENTS = ["pull_request", "issue_comment", "push"];
+export const WEBHOOK_EVENTS = ["pull_request", "issue_comment", "push", "deployment_status"];
 
-/** Creates the repository webhook that sends PR, comment and push events to Claudio. Returns the hook id. */
+/** Creates the repository webhook that sends PR, comment, push and deployment events to Claudio. Returns the hook id. */
 export async function createRepoWebhook(octokit: Octokit, repoFullName: string, url: string, secret: string): Promise<number> {
   const { owner, repo } = parseRepo(repoFullName);
   const { data } = await octokit.rest.repos.createWebhook({
@@ -153,7 +153,13 @@ export async function deleteRepoWebhook(octokit: Octokit, repoFullName: string, 
 export async function getRepoWebhook(octokit: Octokit, repoFullName: string, hookId: number) {
   const { owner, repo } = parseRepo(repoFullName);
   const { data } = await octokit.rest.repos.getWebhook({ owner, repo, hook_id: hookId });
-  return { active: data.active, url: data.config.url ?? "", lastResponse: data.last_response };
+  return { active: data.active, url: data.config.url ?? "", lastResponse: data.last_response, events: data.events };
+}
+
+/** Subscribes an existing webhook to events added in later Claudio versions. */
+export async function addWebhookEvents(octokit: Octokit, repoFullName: string, hookId: number, events: string[] = WEBHOOK_EVENTS): Promise<void> {
+  const { owner, repo } = parseRepo(repoFullName);
+  await octokit.rest.repos.updateWebhook({ owner, repo, hook_id: hookId, add_events: events });
 }
 
 export type CommitState = "pending" | "success" | "failure" | "error";

@@ -455,9 +455,21 @@
 			<form method="POST" action="?tab=settings&/automation" use:enhance={() => ({ update }) => update({ reset: false })} class="sheet fields">
 				{#if formError('automation')}<p class="notice error" role="alert">{formError('automation')}</p>{/if}
 				<label class="field">
+					<span>GitHub-Environment der PR-Instanzen</span>
+					<input type="text" name="deploymentEnvironment" value={data.automation.deploymentEnvironment ?? ''} list="environments" placeholder={data.environments[0] ?? 'Preview'} />
+					<datalist id="environments">
+						{#each data.environments as env (env)}<option value={env}></option>{/each}
+					</datalist>
+					<small>
+						Wenn eure Pipeline jeden PR in ein GitHub-Environment deployt, liest Claudio die Adresse der Instanz dort aus. Automatische Reviews starten dann erst, wenn die
+						Bereitstellung erfolgreich war, nicht schon beim Push. Leer lassen, um nur die URL-Vorlage zu nutzen.
+						{#if data.environments.length}Environments in diesem Repository: {data.environments.join(', ')}.{/if}
+					</small>
+				</label>
+				<label class="field">
 					<span>URL-Vorlage der PR-Instanzen</span>
 					<input type="text" name="instanceUrlTemplate" value={data.automation.instanceUrlTemplate} placeholder="https://pr-{'{pr}'}.preview.example.de" />
-					<small>Platzhalter: {'{pr}'} Nummer, {'{branch_slug}'} Branch als URL-Teil, {'{branch}'}, {'{sha}'}. Ohne Vorlage startet GitHub keine Reviews.</small>
+					<small>Platzhalter: {'{pr}'} Nummer, {'{branch_slug}'} Branch als URL-Teil, {'{branch}'}, {'{sha}'}. Wird genutzt, wenn kein Environment gesetzt ist oder es für den PR keine Bereitstellung gibt. Ohne beides startet GitHub keine Reviews.</small>
 				</label>
 				<fieldset>
 					<legend>Review starten bei</legend>

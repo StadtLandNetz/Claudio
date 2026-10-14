@@ -14,6 +14,7 @@ export type GithubPull = {
 	title: string;
 	author: string | null;
 	headRef: string;
+	headSha?: string;
 	draft: boolean;
 	updatedAt: string;
 	url: string;
@@ -77,6 +78,7 @@ export async function getPull(token: string, fullName: string, number: number): 
 		title: p.title,
 		author: p.user?.login ?? null,
 		headRef: p.head.ref,
+		headSha: p.head.sha,
 		draft: Boolean(p.draft),
 		updatedAt: p.updated_at,
 		url: p.html_url

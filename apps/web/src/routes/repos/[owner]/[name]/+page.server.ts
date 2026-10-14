@@ -32,7 +32,7 @@ import { NO_KEY_MESSAGE, checkAnthropicKey, keyOptional } from '#lib/server/anth
 import { userToken } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
-import { createGithubClient, createRepoWebhook, deleteRepoWebhook, getBranchHead, getRepoWebhook } from '@claudio/github';
+import { WEBHOOK_EVENTS, addWebhookEvents, createGithubClient, createRepoWebhook, deleteRepoWebhook, getBranchHead, getRepoWebhook, listEnvironmentNames } from '@claudio/github';
 import { DEFAULT_AUTOMATION, DEFAULT_AUTO_REVIEW } from '#lib/server/automation.js';
 import { publicBaseUrl } from '#lib/server/env.js';
 import { renderMarkdown } from '#lib/markdown.js';
@@ -105,6 +105,13 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	}
 	const base = publicBaseUrl(url);
 
+	// GitHub environments, suggested for the review instances (settings tab only).
+	let environments: string[] = [];
+	if (url.searchParams.get('tab') === 'settings' && !isDemo && level === 'admin') {
+		const token = await userToken(locals.user!);
+		if (token) environments = await listEnvironmentNames(createGithubClient(token), repo.fullName).catch(() => []);
+	}
+
 	// Anthropic key: status, and other repos (where this user is admin) whose key can be copied over.
 	const keySetBy = repo.anthropicKeySetBy ? await getUser(db(), repo.anthropicKeySetBy) : undefined;
 	let keySources: { fullName: string; hint: string }[] = [];
@@ -168,6 +175,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		autoReview: repo.autoReview ?? DEFAULT_AUTO_REVIEW,
 		webhook,
 		webhookUrl: `${base}/webhooks/github`,
+		environments,
 		localBaseUrl: /^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(base),
 		lessons: repo.lessons ?? [],
 		tests: tests.map((t) => ({
@@ -335,7 +343,8 @@ export const actions: Actions = {
 				onLabel: f.get('onLabel') === 'on',
 				onPush: f.get('onPush') === 'on',
 				analyzeOnMerge: f.get('analyzeOnMerge') === 'on',
-				commitStatus: f.get('commitStatus') === 'on'
+				commitStatus: f.get('commitStatus') === 'on',
+				deploymentEnvironment: text(f.get('deploymentEnvironment'))
 			},
 			{
 				roles: f.getAll('autoRoles').map(String),
@@ -345,6 +354,15 @@ export const actions: Actions = {
 				runTests: f.get('autoTests') === 'on'
 			}
 		);
+		// Webhooks set up before deployments were supported do not send deployment events yet.
+		if (text(f.get('deploymentEnvironment')) && repo.webhookId) {
+			const token = await userToken(locals.user!);
+			const github = token ? createGithubClient(token) : null;
+			const hook = github ? await getRepoWebhook(github, repo.fullName, repo.webhookId).catch(() => null) : null;
+			if (github && hook && !WEBHOOK_EVENTS.every((e) => hook.events.includes(e))) {
+				await addWebhookEvents(github, repo.fullName, repo.webhookId).catch(() => undefined);
+			}
+		}
 		return { saved: 'automation' };
 	},
 
