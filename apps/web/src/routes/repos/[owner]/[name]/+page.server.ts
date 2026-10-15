@@ -304,7 +304,7 @@ export const actions: Actions = {
 			instanceUrl: text(f.get('instanceUrl')),
 			roles: f.getAll('roles').map(String),
 			budget: f.get('budget'),
-			language: 'de',
+			language: locals.locale,
 			extraInstructions: text(f.get('extraInstructions')) || undefined
 		});
 		if (!parsed.success) {
@@ -341,7 +341,7 @@ export const actions: Actions = {
 		const repo = await loadRepo(params, locals.user, 'write');
 		if (!repo.dataConfirmed) return fail(400, { error: t('repo.confirmTestDataFirst'), form: 'runTests' });
 		const f = await request.formData();
-		const parsed = TestRunRequestSchema.safeParse({ repo: repo.fullName, instanceUrl: text(f.get('instanceUrl')), budget: f.get('budget') });
+		const parsed = TestRunRequestSchema.safeParse({ repo: repo.fullName, instanceUrl: text(f.get('instanceUrl')), budget: f.get('budget'), language: locals.locale });
 		if (!parsed.success) return fail(400, { error: t('repo.instanceUrlRequired'), form: 'runTests' });
 		const scripts = await listTestScripts(db(), repo.id);
 		if (scripts.length === 0) return fail(400, { error: t('repo.noTestsYet'), form: 'runTests' });

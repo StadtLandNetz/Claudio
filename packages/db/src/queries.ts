@@ -91,6 +91,10 @@ export async function getUser(db: Db, id: number): Promise<User | undefined> {
   return user;
 }
 
+export async function setUserLocale(db: Db, id: number, locale: string): Promise<void> {
+  await db.update(users).set({ locale }).where(eq(users.id, id));
+}
+
 /** Creates a session and returns the raw cookie value (only its hash is stored). */
 export async function createSession(db: Db, userId: number, ttlDays = 14): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString("base64url");

@@ -65,7 +65,11 @@ const FIXTURES: Record<string, { prContextFile: string; repoDir: string }> = {
 
 /** The offline demo may use the machine's own Claude login on the dev server; every real repo needs its own key. */
 const DEMO_REPO = "vanderlars/dispo-demo";
-const NO_KEY = "Für dieses Repository ist kein Anthropic-API-Key hinterlegt. Ein Admin kann ihn in den Repo-Einstellungen eintragen.";
+/** Becomes the run's error, which also reaches the commit status, so it follows the run's report language. */
+const NO_KEY = {
+  de: "Für dieses Repository ist kein Anthropic-API-Key hinterlegt. Ein Admin kann ihn in den Repo-Einstellungen eintragen.",
+  en: "No Anthropic API key is stored for this repository. An admin can add it in the repository settings.",
+};
 
 /** Soft-stop handles of the runs in progress, so a shutdown (deploy) can end them cleanly. */
 const runningStops = new Set<AbortController>();
@@ -124,7 +128,7 @@ async function prepare(db: Db, job: Job) {
   const anthropicApiKey = repoAnthropicKey(repo) ?? undefined;
   const keyOptional = process.env.CLAUDIO_DEV_FIXTURES === "1" && repo.fullName === DEMO_REPO;
   // Reviews and analyses always need the model; test replays may run without it.
-  if (!anthropicApiKey && !keyOptional && job.kind !== "test") throw new Error(NO_KEY);
+  if (!anthropicApiKey && !keyOptional && job.kind !== "test") throw new Error(NO_KEY[(job.row.request as { language?: string }).language === "en" ? "en" : "de"]);
 
   let fixture: (typeof FIXTURES)[string] | undefined;
   if (job.row.fixture) {

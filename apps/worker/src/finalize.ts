@@ -1,4 +1,4 @@
-import { blockingFindings, renderPrComment, verdict, withTests, type Verdict } from "@claudio/core";
+import { blockingFindings, renderCommitStatus, renderPrComment, verdict, withTests, type Verdict } from "@claudio/core";
 import {
   dismissedFindingIds,
   getRepoById,
@@ -14,7 +14,6 @@ import { createGithubClient, postPullRequestComment, setCommitStatus, type Commi
 const ACTIVE = new Set(["queued", "running"]);
 
 const STATE: Record<Verdict, CommitState> = { approve: "success", request_changes: "failure", inconclusive: "error" };
-const LABEL: Record<Verdict, string> = { approve: "Abnahme empfohlen", request_changes: "Änderungen nötig", inconclusive: "Review unvollständig" };
 
 /**
  * Reports a review back to GitHub once it and its regression tests are done:
@@ -37,10 +36,12 @@ export async function finalizeReview(db: Db, reviewId: number, publicBaseUrl: st
   const url = publicBaseUrl ? `${publicBaseUrl}/reviews/${reviewId}` : undefined;
   const sha = review.headSha ?? review.report?.pr.headSha ?? null;
   const wantsStatus = Boolean(repo.automation?.commitStatus && sha);
+  // Everything posted for a review uses its report language, which was set from the starting person's language.
+  const language = review.request.language;
 
   if (pendingTests > 0) {
     if (wantsStatus) {
-      await setCommitStatus(github, repo.fullName, sha!, "pending", `Review fertig, ${pendingTests} Regressionstest(s) laufen noch`, url).catch((e) => log(`commit status failed: ${(e as Error).message}`));
+      await setCommitStatus(github, repo.fullName, sha!, "pending", renderCommitStatus(language, { kind: "testsRunning", pendingTests }), url).catch((e) => log(`commit status failed: ${(e as Error).message}`));
     }
     return;
   }
@@ -51,14 +52,17 @@ export async function finalizeReview(db: Db, reviewId: number, publicBaseUrl: st
   const v: Verdict = report ? withTests(verdict(report, report.request.strictness, dismissed), results) : "inconclusive";
 
   if (wantsStatus) {
-    const parts = report
-      ? [
-          `${report.acceptanceCriteria.filter((a) => a.status === "passed").length}/${report.acceptanceCriteria.length} Kriterien`,
-          `${blockingFindings(report, report.request.strictness, dismissed).length} blockierend`,
-          ...(tests.length ? [`Tests ${tests.filter((t) => t.outcome === "passed").length}/${tests.length}`] : []),
-        ]
-      : [review.error ?? review.status];
-    await setCommitStatus(github, repo.fullName, sha!, STATE[v], `${LABEL[v]}: ${parts.join(", ")}`, url)
+    const description = report
+      ? renderCommitStatus(language, {
+          kind: "done",
+          verdict: v,
+          acPassed: report.acceptanceCriteria.filter((a) => a.status === "passed").length,
+          acTotal: report.acceptanceCriteria.length,
+          blocking: blockingFindings(report, report.request.strictness, dismissed).length,
+          tests: tests.length ? { passed: tests.filter((t) => t.outcome === "passed").length, total: tests.length } : undefined,
+        })
+      : renderCommitStatus(language, { kind: "failed", verdict: v, reason: review.error ?? review.status });
+    await setCommitStatus(github, repo.fullName, sha!, STATE[v], description, url)
       .then(() => log(`review ${reviewId}: commit status ${STATE[v]}`))
       .catch((e) => log(`commit status failed: ${(e as Error).message}`));
   }

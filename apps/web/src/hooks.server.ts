@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { Handle } from '@sveltejs/kit/hooks';
-import { getSessionUser } from '@claudio/db';
-import { LOCALE_COOKIE, pickLocale, translate } from '#lib/i18n/index.js';
+import { getSessionUser, setUserLocale } from '@claudio/db';
+import { LOCALE_COOKIE, isLocale, pickLocale, translate } from '#lib/i18n/index.js';
 import { SESSION_COOKIE } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 
@@ -9,10 +9,15 @@ import { db } from '#lib/server/db.js';
 const PUBLIC_PATHS = ['/login', '/auth/', '/webhooks/', '/api/health', '/locale'];
 
 export const handle: Handle = async ({ event, resolve }) => {
-	const locale = pickLocale(event.cookies.get(LOCALE_COOKIE), event.request.headers.get('accept-language'));
-	event.locals.locale = locale;
 	const token = event.cookies.get(SESSION_COOKIE);
 	const user = token ? await getSessionUser(db(), token) : null;
+
+	// The cookie (this browser's choice) wins, then the person's stored choice, then the browser language.
+	const cookie = event.cookies.get(LOCALE_COOKIE);
+	const locale = pickLocale(cookie ?? user?.locale ?? undefined, event.request.headers.get('accept-language'));
+	event.locals.locale = locale;
+	// Stored per person, so automated runs post to GitHub in their language too.
+	if (user && user.locale !== locale && (isLocale(cookie) || !user.locale)) await setUserLocale(db(), user.id, locale);
 	event.locals.user = user ? { id: user.id, login: user.login, name: user.name, avatarUrl: user.avatarUrl } : null;
 
 	const path = event.url.pathname;

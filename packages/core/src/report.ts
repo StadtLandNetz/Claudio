@@ -1,4 +1,4 @@
-import type { Finding, ReviewReport, Severity, Strictness, Verbosity } from "./schemas.js";
+import type { Finding, Language, ReviewReport, Severity, Strictness, Verbosity } from "./schemas.js";
 
 export const SEVERITY_RANK: Record<Severity, number> = {
   blocker: 4,
@@ -67,6 +67,14 @@ const L = {
     notes: "Bewertungen im Review",
     confirmedBy: "bestätigt von",
     dismissedBy: "verworfen von",
+    commitStatus: {
+      pending: "Claudio prüft den Pull Request …",
+      testsRunning: "Review fertig, {n} Regressionstest(s) laufen noch",
+      verdict: { approve: "Abnahme empfohlen", request_changes: "Änderungen nötig", inconclusive: "Review unvollständig" },
+      criteria: "Kriterien",
+      blocking: "blockierend",
+      tests: "Tests",
+    },
   },
   en: {
     verdict: { approve: "No blocking findings", request_changes: "Changes requested", inconclusive: "Review incomplete" },
@@ -94,6 +102,14 @@ const L = {
     notes: "Review ratings",
     confirmedBy: "confirmed by",
     dismissedBy: "dismissed by",
+    commitStatus: {
+      pending: "Claudio is reviewing the pull request …",
+      testsRunning: "Review done, {n} regression test(s) still running",
+      verdict: { approve: "Approval recommended", request_changes: "Changes needed", inconclusive: "Review incomplete" },
+      criteria: "criteria",
+      blocking: "blocking",
+      tests: "Tests",
+    },
   },
 } as const;
 
@@ -101,6 +117,34 @@ type Labels = (typeof L)[keyof typeof L];
 
 function labels(report: ReviewReport): Labels {
   return L[report.request.language];
+}
+
+/**
+ * Description of the "Claudio" commit status, in the review's report language
+ * (the language of the person it was started for). GitHub cuts it at 140 characters.
+ */
+export function renderCommitStatus(
+  language: Language,
+  state:
+    | { kind: "pending" }
+    | { kind: "testsRunning"; pendingTests: number }
+    | { kind: "done"; verdict: Verdict; acPassed: number; acTotal: number; blocking: number; tests?: { passed: number; total: number } }
+    | { kind: "failed"; verdict: Verdict; reason: string },
+): string {
+  const t = L[language].commitStatus;
+  switch (state.kind) {
+    case "pending":
+      return t.pending;
+    case "testsRunning":
+      return t.testsRunning.replace("{n}", String(state.pendingTests));
+    case "done": {
+      const parts = [`${state.acPassed}/${state.acTotal} ${t.criteria}`, `${state.blocking} ${t.blocking}`];
+      if (state.tests) parts.push(`${t.tests} ${state.tests.passed}/${state.tests.total}`);
+      return `${t.verdict[state.verdict]}: ${parts.join(", ")}`;
+    }
+    case "failed":
+      return `${t.verdict[state.verdict]}: ${state.reason}`;
+  }
 }
 
 /** Regression tests that ran with the review. */

@@ -103,7 +103,8 @@ export const actions: Actions = {
 			repo: script.repoFullName,
 			instanceUrl: text(f.get('instanceUrl')),
 			budget: f.get('budget'),
-			rerecord: f.get('rerecord') === 'on'
+			rerecord: f.get('rerecord') === 'on',
+			language: locals.locale
 		});
 		if (!parsed.success) return fail(400, { error: t('test.errorInstanceUrl'), form: 'run' });
 		const id = await createTestRun(db(), { scriptId: script.id, repoId: script.repoId, request: parsed.data, startedBy: locals.user!.id });

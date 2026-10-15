@@ -31,6 +31,8 @@ export const users = mysqlTable("users", {
   /** Set when the OAuth App issues expiring tokens: used to renew the access token. */
   refreshTokenEnc: text("refresh_token_enc"),
   tokenExpiresAt: datetime("token_expires_at", { mode: "date" }),
+  /** UI language ("de" | "en"); also the language of what Claudio posts to GitHub on this person's behalf. Null: not chosen yet. */
+  locale: varchar("locale", { length: 5 }),
   createdAt: createdAt(),
   lastLoginAt: datetime("last_login_at", { mode: "date" }).notNull().$defaultFn(() => new Date()),
 });

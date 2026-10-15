@@ -92,6 +92,13 @@
       "when": 1791979961023,
       "tag": "0012_agent_learnings",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1792049399177,
+      "tag": "0013_user_locale",
+      "breakpoints": true
     }
   ]
 }

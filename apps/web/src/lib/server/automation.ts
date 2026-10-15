@@ -1,4 +1,4 @@
-import { AnalysisRequestSchema, ReviewRequestSchema } from '@claudio/core';
+import { AnalysisRequestSchema, ReviewRequestSchema, renderCommitStatus } from '@claudio/core';
 import {
 	createAnalysis,
 	createReview,
@@ -24,7 +24,8 @@ import {
 	setCommitStatus,
 	type AutomationSettings
 } from '@claudio/github';
-import { keyOptional, noKeyMessage } from './anthropic.js';
+import { DEFAULT_LOCALE, isLocale, serverI18n, type Locale } from '#lib/i18n/index.js';
+import { keyOptional } from './anthropic.js';
 import { db } from './db.js';
 import { DEMO_FIXTURE, DEMO_REPO } from './demo.js';
 import { devFixtures } from './env.js';
@@ -52,11 +53,14 @@ export type EventResult = { action: 'review' | 'analysis' | 'ignored'; reason: s
 
 type Github = ReturnType<typeof createGithubClient>;
 
-/** Token of the person who set up the automation; automated runs act on their behalf. */
-async function automationToken(repo: Repo): Promise<{ token: string | null; userId: number }> {
+/**
+ * The person who set up the automation: automated runs act with their token and
+ * post to GitHub in their language.
+ */
+async function automationUser(repo: Repo): Promise<{ token: string | null; userId: number; locale: Locale }> {
 	const userId = repo.automationUserId ?? repo.createdBy;
 	const user = await getUser(db(), userId);
-	return { token: user ? await freshAccessToken(db(), user) : null, userId };
+	return { token: user ? await freshAccessToken(db(), user) : null, userId, locale: isLocale(user?.locale) ? user.locale : DEFAULT_LOCALE };
 }
 
 /** Turns a verified GitHub event into a review or analysis job. */
@@ -66,13 +70,14 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 	if (decision.kind === 'ignore') return { action: 'ignored', reason: decision.reason };
 
 	const fixture = repo.fullName === DEMO_REPO && devFixtures() ? DEMO_FIXTURE : null;
-	const { token, userId } = await automationToken(repo);
+	const { token, userId, locale } = await automationUser(repo);
+	const { t } = serverI18n(locale);
 	const github = token && !fixture ? createGithubClient(token) : null;
 
 	// Every model call of this repo runs on its own key; without one, nothing starts.
 	if (!repo.anthropicKeyEnc && !keyOptional(repo)) {
 		if (github && decision.kind === 'review' && decision.trigger === 'comment') {
-			await postPullRequestComment(github, repo.fullName, decision.prNumber, requestI18n().t('system.cannotReview', { reason: noKeyMessage() })).catch(() => undefined);
+			await postPullRequestComment(github, repo.fullName, decision.prNumber, t('system.cannotReview', { reason: t('system.noKey') })).catch(() => undefined);
 		}
 		return { action: 'ignored', reason: 'no Anthropic API key for this repository' };
 	}
@@ -96,7 +101,7 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 		const results = [];
 		for (const p of pulls) {
 			results.push(
-				await queueReview(repo, settings, github, baseUrl, userId, fixture, {
+				await queueReview(repo, settings, github, baseUrl, userId, locale, fixture, {
 					prNumber: p.number,
 					headSha: decision.sha,
 					title: p.title,
@@ -116,15 +121,15 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 		({ sha: headSha, branch, title } = head);
 	}
 
-	const resolved = await resolveInstanceUrl(repo, settings, github, fixture, { prNumber: decision.prNumber, headSha, branch });
+	const resolved = await resolveInstanceUrl(repo, settings, github, fixture, { prNumber: decision.prNumber, headSha, branch }, locale);
 	if ('missing' in resolved) {
 		if (github && decision.trigger === 'comment') {
-			await postPullRequestComment(github, repo.fullName, decision.prNumber, requestI18n().t('system.cannotReview', { reason: resolved.missing })).catch(() => undefined);
+			await postPullRequestComment(github, repo.fullName, decision.prNumber, t('system.cannotReview', { reason: resolved.missing })).catch(() => undefined);
 		}
 		return { action: 'ignored', reason: resolved.reason };
 	}
 
-	const result = await queueReview(repo, settings, github, baseUrl, userId, fixture, {
+	const result = await queueReview(repo, settings, github, baseUrl, userId, locale, fixture, {
 		prNumber: decision.prNumber,
 		headSha,
 		title,
@@ -147,9 +152,10 @@ export async function resolveInstanceUrl(
 	settings: AutomationSettings,
 	github: Github | null,
 	fixture: string | null,
-	pr: { prNumber: number; headSha: string | null; branch: string | null }
+	pr: { prNumber: number; headSha: string | null; branch: string | null },
+	locale?: Locale
 ): Promise<{ url: string; source: 'deployment' | 'template'; environment?: string; note?: string } | { missing: string; reason: string }> {
-	const { t } = requestI18n();
+	const { t } = locale ? serverI18n(locale) : requestI18n();
 	const env = settings.deploymentEnvironment?.trim();
 	if (env && github && pr.headSha) {
 		const lookup = (environment?: string) =>
@@ -178,6 +184,7 @@ async function queueReview(
 	github: Github | null,
 	baseUrl: string,
 	userId: number,
+	locale: Locale,
 	fixture: string | null,
 	input: { prNumber: number; headSha: string | null; title: string | null; trigger: string; budget?: 'quick' | 'standard' | 'thorough'; instanceUrl: string }
 ): Promise<EventResult> {
@@ -196,6 +203,8 @@ async function queueReview(
 		budget: input.budget ?? defaults.budget,
 		strictness: defaults.strictness,
 		postComment: defaults.postComment && !fixture,
+		// The report, the PR comment and the commit status follow the language of the person the run acts for.
+		language: locale,
 		cloneRepo: !fixture
 	});
 	if (!parsed.success) return { action: 'ignored', reason: `invalid review request: ${parsed.error.issues[0]?.message}` };
@@ -227,7 +236,7 @@ async function queueReview(
 
 	// Visible feedback on GitHub. Failures here must not lose the review.
 	if (github && settings.commitStatus && headSha) {
-		await setCommitStatus(github, repo.fullName, headSha, 'pending', 'Claudio prüft den Pull Request …', `${baseUrl}/reviews/${id}`).catch(() => undefined);
+		await setCommitStatus(github, repo.fullName, headSha, 'pending', renderCommitStatus(locale, { kind: 'pending' }), `${baseUrl}/reviews/${id}`).catch(() => undefined);
 	}
 	return { action: 'review', reason: `${trigger} on #${prNumber}`, id };
 }
