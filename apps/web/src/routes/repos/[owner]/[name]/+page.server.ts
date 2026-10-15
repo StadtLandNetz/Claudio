@@ -35,7 +35,7 @@ import { NO_KEY_MESSAGE, checkAnthropicKey, keyOptional } from '#lib/server/anth
 import { userToken } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
-import { WEBHOOK_EVENTS, addWebhookEvents, createGithubClient, createRepoWebhook, deleteRepoWebhook, getBranchHead, getRepoWebhook, listEnvironmentNames } from '@claudio/github';
+import { WEBHOOK_EVENTS, addWebhookEvents, createGithubClient, createRepoWebhook, deleteRepoWebhook, getBranchHead, getRepoWebhook, listEnvironmentNames, suggestPreviewEnvironment } from '@claudio/github';
 import { DEFAULT_AUTOMATION, DEFAULT_AUTO_REVIEW } from '#lib/server/automation.js';
 import { publicBaseUrl } from '#lib/server/env.js';
 import { renderMarkdown } from '#lib/markdown.js';
@@ -110,9 +110,16 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	// GitHub environments, suggested for the review instances (settings tab only).
 	let environments: string[] = [];
+	let suggestedEnvironment: string | null = null;
 	if (url.searchParams.get('tab') === 'settings' && !isDemo && level === 'admin') {
 		const token = await userToken(locals.user!);
-		if (token) environments = await listEnvironmentNames(createGithubClient(token), repo.fullName).catch(() => []);
+		if (token) {
+			const github = createGithubClient(token);
+			[environments, suggestedEnvironment] = await Promise.all([
+				listEnvironmentNames(github, repo.fullName).catch(() => []),
+				suggestPreviewEnvironment(github, repo.fullName).catch(() => null)
+			]);
+		}
 	}
 
 	// Anthropic key: status, and other repos (where this user is admin) whose key can be copied over.
@@ -179,6 +186,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		webhook,
 		webhookUrl: `${base}/webhooks/github`,
 		environments,
+		suggestedEnvironment,
 		localBaseUrl: /^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(base),
 		lessons: repo.lessons ?? [],
 		learningsInPrompt: LEARNINGS_IN_PROMPT,

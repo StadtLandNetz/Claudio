@@ -52,7 +52,7 @@ async function suggestedInstance(ctx: Awaited<ReturnType<typeof context>>, user:
 	if (!resolved || 'missing' in resolved) return fallback;
 	return {
 		url: resolved.url,
-		source: resolved.source === 'deployment' ? `aus der GitHub-Bereitstellung „${settings.deploymentEnvironment}“` : 'aus der URL-Vorlage des Repositorys',
+		source: resolved.source === 'deployment' ? `aus der GitHub-Bereitstellung „${resolved.environment ?? settings.deploymentEnvironment}“` : 'aus der URL-Vorlage des Repositorys',
 		note: 'note' in resolved ? resolved.note : undefined
 	};
 }

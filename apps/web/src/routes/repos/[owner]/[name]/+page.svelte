@@ -457,14 +457,18 @@
 				{#if formError('automation')}<p class="notice error" role="alert">{formError('automation')}</p>{/if}
 				<label class="field">
 					<span>GitHub-Environment der PR-Instanzen</span>
-					<input type="text" name="deploymentEnvironment" value={data.automation.deploymentEnvironment ?? ''} list="environments" placeholder={data.environments[0] ?? 'Preview'} />
+					<input type="text" name="deploymentEnvironment" value={data.automation.deploymentEnvironment ?? ''} list="environments" placeholder={data.suggestedEnvironment ?? 'Preview'} />
 					<datalist id="environments">
 						{#each data.environments as env (env)}<option value={env}></option>{/each}
 					</datalist>
 					<small>
 						Wenn eure Pipeline jeden PR in ein GitHub-Environment deployt, liest Claudio die Adresse der Instanz dort aus. Automatische Reviews starten dann erst, wenn die
 						Bereitstellung erfolgreich war, nicht schon beim Push. Leer lassen, um nur die URL-Vorlage zu nutzen.
+						{#if data.suggestedEnvironment}<strong>Vorschlag: {data.suggestedEnvironment}</strong>, dort landen die meisten PR-Bereitstellungen.{/if}
 						{#if data.environments.length}Environments in diesem Repository: {data.environments.join(', ')}.{/if}
+						{#if data.suggestedEnvironment && data.automation.deploymentEnvironment && data.automation.deploymentEnvironment.toLowerCase() !== data.suggestedEnvironment.toLowerCase()}
+							<span class="warn">Eingestellt ist „{data.automation.deploymentEnvironment}“, die PR-Bereitstellungen laufen aber nach „{data.suggestedEnvironment}“.</span>
+						{/if}
 					</small>
 				</label>
 				<label class="field">
@@ -992,5 +996,11 @@
 		.part {
 			grid-template-columns: 1fr;
 		}
+	}
+	.warn {
+		display: block;
+		margin-top: 0.3rem;
+		color: var(--major);
+		font-weight: 600;
 	}
 </style>

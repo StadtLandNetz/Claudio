@@ -147,16 +147,21 @@ export async function resolveInstanceUrl(
 	github: Github | null,
 	fixture: string | null,
 	pr: { prNumber: number; headSha: string | null; branch: string | null }
-): Promise<{ url: string; source: 'deployment' | 'template'; note?: string } | { missing: string; reason: string }> {
+): Promise<{ url: string; source: 'deployment' | 'template'; environment?: string; note?: string } | { missing: string; reason: string }> {
 	const env = settings.deploymentEnvironment?.trim();
 	if (env && github && pr.headSha) {
-		const found = await findPreviewDeployment(github, repo.fullName, { sha: pr.headSha, prNumber: pr.prNumber, environment: env }).catch(() => null);
+		const lookup = (environment?: string) =>
+			findPreviewDeployment(github, repo.fullName, { sha: pr.headSha!, prNumber: pr.prNumber, environment }).catch(() => null);
+		// The configured environment first; then any non-production one, in case the setting names the wrong environment.
+		const found = (await lookup(env)) ?? (await lookup());
 		if (found) {
-			return {
-				url: found.url,
-				source: 'deployment',
-				note: found.exact ? undefined : `Für den neuesten Commit gibt es noch keine ${env}-Instanz; geprüft wird die von ${found.sha.slice(0, 7)}.`
-			};
+			const notes = [
+				found.environment.toLowerCase() !== env.toLowerCase()
+					? `Im Environment „${env}“ gibt es für diesen PR keine Bereitstellung; genutzt wird die aus „${found.environment}“. Prüfe die Einstellung in den Repo-Einstellungen.`
+					: null,
+				found.exact ? null : `Für den neuesten Commit gibt es noch keine Instanz; geprüft wird die von ${found.sha.slice(0, 7)}.`
+			].filter(Boolean);
+			return { url: found.url, source: 'deployment', environment: found.environment, note: notes.join(' ') || undefined };
 		}
 	}
 	const template = settings.instanceUrlTemplate || (fixture ? (repo.defaultInstanceUrl ?? '') : '');

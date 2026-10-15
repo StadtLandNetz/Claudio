@@ -68,6 +68,21 @@ export async function pullsForCommit(octokit: Octokit, repoFullName: string, sha
   return data.filter((p) => p.state === "open" && p.head.sha === sha).map((p) => ({ number: p.number, branch: p.head.ref, title: p.title, draft: Boolean(p.draft) }));
 }
 
+/**
+ * The environment the repository's pull request instances are deployed to: the
+ * non-production environment with the most recent deployments (transient ones first).
+ */
+export async function suggestPreviewEnvironment(octokit: Octokit, repoFullName: string): Promise<string | null> {
+  const { owner, repo } = parseRepo(repoFullName);
+  const { data } = await octokit.rest.repos.listDeployments({ owner, repo, per_page: 50 });
+  const score = new Map<string, number>();
+  for (const d of data) {
+    if (d.production_environment) continue;
+    score.set(d.environment, (score.get(d.environment) ?? 0) + (d.transient_environment ? 2 : 1));
+  }
+  return [...score.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
 /** Names of the repository's GitHub environments, for the settings form. */
 export async function listEnvironmentNames(octokit: Octokit, repoFullName: string): Promise<string[]> {
   const { owner, repo } = parseRepo(repoFullName);
