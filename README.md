@@ -1,117 +1,197 @@
 # Claudio
 
-Agentic user review for web apps. Claudio takes over the manual acceptance review of a feature branch: it reads the pull request and its linked GitHub issues, derives the acceptance criteria, logs into a running instance of the branch, verifies the criteria in the browser, checks the areas the diff affects for regressions, judges UX and UI, and writes a report with evidence.
+**An AI reviewer that clicks through your pull requests the way a person would.**
 
-Built on the Claude Agent SDK, Playwright MCP and the Claude in Chrome extension. See `docs/ARCHITECTURE.md` for the full plan.
+Before a feature branch is merged, someone usually has to open the preview, log in, try the new feature, check that nothing around it broke and write down what they found. Claudio does that part for you.
 
-## Status
+Claudio reads the pull request and its linked GitHub issues and works out what the change should do. It then logs into a running instance of the branch and checks every acceptance criterion in a real browser. It also tests the areas the diff touches for regressions and looks at the screens with a UX eye. At the end it writes a report with screenshots as evidence. You decide which findings are real, and Claudio can post a short summary to the PR.
 
-- Phase 0: the `claudio review` CLI runs one PR review end to end with the Playwright driver and writes a Markdown/JSON report.
-- Web UI (first version): GitHub login, add repositories from your GitHub account, configure roles, start reviews, watch them live, read the report with evidence, and confirm or dismiss findings. Reviews run in a separate worker process; state lives in MySQL.
-- Phase 3, PR review: on the standard and thorough budgets the orchestrator delegates to separate subagents, one after the other (they share one browser): `ac-verifier` for the acceptance criteria, `regression-tester` for the affected areas against the app map, `ux-reviewer` for the screenshots. The quick budget keeps one agent. While a review or analysis runs, the web UI shows a live view of the agent's browser (Chromium screencast, no model tokens). After rating the findings, the TL;DR comment can be posted to the PR from the UI, and the report downloaded as Markdown, both honouring the chosen strictness and leaving out dismissed findings. PR comments link to the review in Claudio (`PUBLIC_BASE_URL`).
-- Phase 4, test workflows: per repository, tests described in plain language (flow, expectation, roles). The first run records the flow: an agent performs it exclusively through the `test_step` tool, which Claudio executes itself with Playwright and records, so the stored steps are exactly what ran (role/name locators, `{{run}}` and `{{date:+N:FORMAT}}` templates for unique data). Later runs replay the steps without a model; deterministic tests cost nothing, semi-deterministic ones are judged afterwards, explorative ones run with an agent each time. When a replayed step can no longer be executed, an agent heals the flow from that step, the healed steps become a new version, and a finding records the UI change. An independent judge (structured output) compares the final state with the expectation. Tests run on their own, as a suite against an instance, or with every PR review (a failed regression test turns an approval into "changes requested", also in the PR comment). Runs can be compared step by step.
-- Phase 5, GitHub automation: per repository a webhook (set up from the settings with one click; needs admin rights and a public `PUBLIC_BASE_URL`) starts reviews on a `/claudio review [quick|standard|thorough]` comment, the `claudio-review` label, or automatically on every opened/updated PR, and can update the knowledge base on pushes to the default branch. The PR instance URL comes from a per-repo template (`https://pr-{pr}.preview.example.de`, also `{branch_slug}`, `{branch}`, `{sha}`). Results go back as the commit status "Claudio" (usable as a required check) and as the TL;DR comment, posted after the regression tests so it includes them. Automated runs act with the GitHub token of the person who set up the webhook. Findings dismissed with a reason become lessons that every later review of the repo is told about.
-- Human takeover: Claudio never solves CAPTCHAs or bot checks itself. When one appears (reCAPTCHA, hCaptcha, Cloudflare Turnstile, Google's bot check, "Ich bin kein Roboter" pages), the run pauses: replays wait automatically, agents call `request_human_help`. Every page shows "Claudio wartet auf dich"; on the run page the live view becomes clickable, a person solves the challenge (click, type, keys, scroll are replayed in the run's browser) and presses "Erledigt, weitermachen". If the challenge is still there, Claudio asks again; without an answer within `CLAUDIO_HUMAN_TIMEOUT_MIN` (default 15) the run gives up cleanly. For your own apps, prefer the CAPTCHA providers' test keys on staging and PR instances.
-- Anthropic keys per repository: a repository admin stores the repository's own Anthropic API key (encrypted, checked against Anthropic on save, only the last characters are shown). Every model session of that repository runs on this key alone; other Anthropic credentials in the environment are removed, so a run can neither use a server-wide key nor the machine's Claude login. Without a key, reviews, analyses, recordings and judged test runs do not start (deterministic replays still run). A key can be copied from another repository where the person is admin, and changed or removed later. The offline demo repository is the only exception on the dev server.
-- Permissions follow GitHub: a person sees a repository in Claudio (with its reviews, tests, knowledge, files and costs) only if they can read it on GitHub. Write access is needed to start reviews, analyses and tests, rate findings, post comments and take over the browser; admin access for settings, role credentials, automation and the webhook. Permissions are fetched per user and cached for 15 minutes (fresh after every login). Expiring OAuth tokens are renewed automatically; if GitHub rejects a token, every page asks the person to sign in again.
-- Costs: the "Kosten" page sums model costs per repository, month and kind of run (Agent SDK list-price estimates). Cancelling a run first asks the agent to stop (every further tool call is denied), so the SDK still reports the real cost; only if it does not finish within a minute is the process killed.
-- Phase 2, repository analysis: Claudio reads the code and walks the running app, then writes a knowledge base per repository (overview, modules, routes, app map with the expected behaviour of every screen, notes). Every review receives the latest knowledge base. Updates only re-check what changed since the analysed commit.
+Claudio is built on the [Claude Agent SDK](https://docs.claude.com/en/docs/agent-sdk/overview) and [Playwright](https://playwright.dev).
 
-## Setup
+> The web interface is available in English and German (switch in the sidebar). Reports can be written in either language.
+
+## What Claudio can do
+
+- **Review pull requests.** Claudio collects the PR, the linked issues and the diff. It derives acceptance criteria, verifies each one in the browser and hunts for regressions in the affected areas. It reviews the changed screens for UX and UI problems. Every finding comes with a severity, steps to reproduce and screenshots.
+- **Learn your app.** A repository analysis reads the code and walks through the running app screen by screen. The result is a knowledge base with modules, routes and the expected behaviour of every screen, and every later review starts from it. Updates only re-check what changed since the last analysis.
+- **Run tests written in plain language.** You describe a flow and the expected result in plain language. The first run records the steps; later runs replay them without a model, so they are fast and cost nothing. When the UI changes, Claudio repairs the broken steps and tells you what changed.
+- **Run automatically.** Reviews can start from a `/claudio review` comment, from a label, or from every push to a PR. They can also start as soon as the PR's preview environment is deployed. Claudio picks up the preview URL from GitHub Deployments. Results come back as a PR review that requests changes when something blocks, never as a failed check.
+- **Get better over time.** When you dismiss a finding with a reason, Claudio remembers it for that repository. Test runs can also save practical tips for themselves, such as which button closes the cookie banner.
+- **Ask a human when it should.** Claudio never solves CAPTCHAs or bot checks. When one appears, the run pauses, the live browser view in the UI becomes clickable, and a person solves it.
+- **Show what it costs.** Each repository uses its own Anthropic API key. A cost page breaks spending down per repository, month and kind of run.
+
+## How it works
+
+```
+GitHub (PRs, issues, deployments, webhooks)
+        │
+        ▼
+┌──────────────┐   jobs in MySQL   ┌──────────────────────────────────────────┐
+│   Web UI     │ ────────────────► │  Worker                                  │
+│  (SvelteKit) │ ◄──────────────── │  Claude Agent SDK + headless Chromium    │
+└──────────────┘  live events,     │  → logs into your preview instance       │
+                  reports, images  │  → checks, records evidence, reports     │
+                                   └──────────────────────────────────────────┘
+```
+
+- **The web UI** handles sign-in with GitHub and the repository settings. You start reviews, analyses and tests there, watch them live and rate the findings.
+- **The worker** picks up queued jobs and runs the agents. Each agent gets one browser and a small set of Claudio tools: logging in as a role, taking screenshots, recording findings.
+- **Credentials never reach the model.** Role passwords, GitHub tokens and API keys are encrypted in the database. Role passwords go only to the login tool, which fills in the form itself.
+- **Permissions follow GitHub.** You see a repository in Claudio only if you can read it on GitHub. Starting runs needs write access, and changing settings needs admin access.
+
+The full design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (written in German).
+
+## What you need
+
+- Node.js 22 or newer and [pnpm](https://pnpm.io) 10
+- Docker, for the local MySQL database (MySQL 5.7 and 8 both work)
+- An [Anthropic API key](https://console.anthropic.com) for each repository you want Claudio to review
+- A GitHub OAuth App, so people can sign in. You can skip it for the offline demo.
+- A running instance of the branch you want to review, such as a preview or staging deployment. Use test data only: Claudio clicks, types and creates records there.
+
+## Try it: the offline demo
+
+The repository comes with a small, deliberately buggy dispatch app and a fake pull request. You can see a complete review without a GitHub OAuth App or a deployment of your own.
 
 ```sh
 pnpm install
-cp .env.example .env            # ANTHROPIC_API_KEY, GITHUB_TOKEN, role credentials
-cp claudio.config.example.json claudio.config.json
-```
+pnpm --filter @claudio/browser exec playwright install chromium
 
-`claudio.config.json` describes the target repository: the roles the agent may log in as (credentials are referenced by environment variable name and never reach the model), optional login recipes, and notes about the application.
+cp .env.example .env
+# In .env: set CLAUDIO_SECRET_KEY (openssl rand -base64 32) and CLAUDIO_DEV_FIXTURES=1
 
-Chromium: Playwright's bundled Chromium is used by default. Install it from the package that depends on Playwright: `pnpm --filter @claudio/browser exec playwright install chromium`. Set `CLAUDIO_CHROMIUM_PATH` to use another binary.
-
-## Web UI
-
-```sh
-pnpm db:up                      # MySQL 8 in Docker on port 3310 (docker-compose.yml)
+pnpm db:up          # MySQL in Docker on port 3310
 pnpm db:migrate
-pnpm dev                        # web UI on http://localhost:5173 and the review worker
+pnpm demo-target    # the buggy demo app on http://127.0.0.1:4310 (keep it running)
+pnpm dev            # web UI on http://localhost:5173 plus the worker
 ```
 
-The `.env` needs `DATABASE_URL`, `CLAUDIO_SECRET_KEY` (`openssl rand -base64 32`) and a GitHub OAuth App:
+Open http://localhost:5173 and choose **Sign in to the demo without GitHub**. Under **Repositories**, press **Create demo repository**. Then start a review of its pull request and watch the agent work through the app.
 
-1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App.
-2. Homepage URL `http://localhost:5173`, authorization callback URL `http://localhost:5173/auth/github/callback`.
-3. Put the client ID and a generated client secret into `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+[apps/demo-target/README.md](apps/demo-target/README.md) lists the bugs a good review should find. The demo is the only place where Claudio may use the Claude login of your own machine instead of a repository key, and only on the dev server.
 
-Claudio asks for the scopes `repo read:user read:org`. Your token is stored encrypted and is used to list your repositories and open pull requests, to clone the PR branch, and to post the optional PR comment. Restrict who may sign in with `CLAUDIO_ALLOWED_GITHUB_ORGS` or `CLAUDIO_ALLOWED_GITHUB_USERS`.
+## Set it up for your own repositories
 
-Per repository you configure notes for the agent, the default instance URL, extra allowed hosts and the roles (username, password, optional login recipe). Role credentials are encrypted with `CLAUDIO_SECRET_KEY` and are handed only to the `login_as` tool, never to the model. A review can start only after someone confirms that the instances hold test data only.
+1. **Install and prepare** as in the demo above, but leave `CLAUDIO_DEV_FIXTURES` unset.
 
-The worker (`pnpm worker`) picks up queued reviews, one at a time by default (`CLAUDIO_WORKER_CONCURRENCY`). Web and worker share the database and the `runs/` directory; the web UI serves screenshots and traces from there to signed-in users.
+2. **Create a GitHub OAuth App** under GitHub → Settings → Developer settings → OAuth Apps → New OAuth App:
+   - Homepage URL: `http://localhost:5173`
+   - Authorization callback URL: `http://localhost:5173/auth/github/callback`
 
-Repository analysis: open a repository, tab "Wissen", and start an analysis against a running instance of the main branch (e.g. staging). The `code-scanner` subagent maps the code; the orchestrator walks the app screen by screen and writes the documents with the `write_knowledge` tool. The tab shows when the analysed commit is behind the branch head; "Wissensbasis aktualisieren" then hands the agent the previous documents and the list of changed files. Reviews get the route index and app map inlined in the prompt when they are small (up to about 24,000 characters) and as files otherwise.
+   Put the client ID and a client secret into `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.env`. Claudio asks for the scopes `repo read:user read:org`.
 
-Webhook security: the endpoint `/webhooks/github` is public; every delivery must carry a valid `X-Hub-Signature-256` for the repository's own secret (generated on setup, stored encrypted), otherwise it is rejected with 401. For local development, expose the dev server with a tunnel (e.g. cloudflared) and set `PUBLIC_BASE_URL` to the tunnel address before setting up the webhook.
+3. **Decide who may sign in.** By default every GitHub user can. Limit it with `CLAUDIO_ALLOWED_GITHUB_ORGS` or `CLAUDIO_ALLOWED_GITHUB_USERS` (comma-separated).
 
-Offline demo: with `CLAUDIO_DEV_FIXTURES=1` the dev server offers a login without GitHub and a demo repository that reviews the fixture PR against `apps/demo-target` (start it with `pnpm demo-target`).
+4. **Start it** with `pnpm dev` and sign in with GitHub.
 
-Production: `pnpm --filter @claudio/web build`, then `node apps/web/build` (set `ORIGIN` and `PORT`) next to `pnpm worker`.
+All settings are explained in [.env.example](.env.example). Keep `CLAUDIO_SECRET_KEY` safe: it encrypts everything sensitive in the database, and if you change it, stored credentials can no longer be read.
 
-## Running a review
+## Using Claudio
+
+### 1. Add a repository
+
+Under **Repositories**, pick one of your GitHub repositories. Then open its **Settings** tab:
+
+- **Anthropic API key.** Every model call for this repository runs on this key, and runs do not start without one. Claudio checks the key when you save it and only ever shows its last characters.
+- **Roles.** These are the users Claudio may log in as, for example "admin" or "dispatcher", each with a username, a password and the login page. If your login form is unusual, add a login recipe.
+- **Notes for the agent.** Anything a new tester would need to know, such as "dates use DD.MM.YYYY".
+- **Test data confirmation.** Confirm that your instances contain test data only. Reviews start only after you do.
+
+### 2. Let Claudio learn your app (recommended)
+
+In the **Knowledge** tab, start an analysis against a running instance of your main branch, such as staging. Claudio reads the code, walks through the app and writes a knowledge base. The tab shows when the knowledge base is behind the branch; updating it only looks at what changed.
+
+### 3. Review a pull request
+
+Pick an open PR and press **Start review**. Enter the address of the PR's running instance; if your PR previews are GitHub Deployments, Claudio fills it in for you. Then choose the roles, a budget, how detailed the report should be and how strict the verdict should be.
+
+| Budget | Good for | Cost cap |
+|---|---|---|
+| quick | small changes, one agent does everything | ~2 USD |
+| standard | most PRs; separate agents check criteria, regressions and UX | ~8 USD |
+| thorough | large or risky changes | ~25 USD |
+
+While the review runs, you can watch the agent's browser live and cancel at any time. Afterwards, go through the findings and **confirm** or **dismiss** each one. The verdict updates as you rate them. You can post the summary to the PR or download the report as Markdown.
+
+### 4. Write tests
+
+In the **Tests** tab, describe a flow, the expected result and the role, all in plain language. The first run records the steps. Later runs replay them without a model, either on their own, as a suite, or with every PR review as a regression test.
+
+Each test can be marked as deterministic, semi-deterministic or explorative. Deterministic tests replay exactly and cost nothing. Semi-deterministic runs are replayed and then checked by a model against the expected result. Explorative tests run with an agent every time. Tests have their own budgets, from *Quick* (Haiku, up to 1 USD) to *Extra thorough* (Opus with extended thinking, up to 8 USD).
+
+### 5. Automate it
+
+In the repository settings, Claudio can create a webhook on GitHub for you. This needs admin rights on the repository and a public address in `PUBLIC_BASE_URL`. You can then turn on any of these triggers:
+
+- a PR comment `/claudio review` (optionally `quick`, `standard` or `thorough`)
+- the label `claudio-review`
+- every opened or updated pull request
+- every successful deployment of a PR to your preview environment: set the environment name, for example `Preview`, and Claudio waits for the deployment and uses its URL
+- updating the knowledge base after every push to the default branch
+
+You can also set a URL template such as `https://pr-{pr}.preview.example.com` (the placeholders `{pr}`, `{branch}`, `{branch_slug}` and `{sha}` are available). The commit status **Claudio** turns green once the review is done and names the result in its text. If Claudio finds something blocking, it posts its summary as a review with **Changes requested**. With "Require a pull request before merging" in your branch protection, that request blocks the merge until a later Claudio review withdraws it. Automated runs use the GitHub token of the person who set up the webhook, and they post in that person's language.
+
+To try webhooks locally, expose the dev server through a tunnel (for example `cloudflared`) and set `PUBLIC_BASE_URL` to the tunnel address.
+
+## Command line
+
+You can also run a single review without the web UI. Copy `claudio.config.example.json` to `claudio.config.json` and describe your roles there. Credentials are referenced by environment variable name, so they stay out of the file. Set `ANTHROPIC_API_KEY` and `GITHUB_TOKEN` in `.env`. Then run:
 
 ```sh
 pnpm claudio review \
-  --repo stadtlandnetz/some-app \
+  --repo your-org/your-app \
   --pr 123 \
-  --url https://pr-123.preview.example.de \
-  --role dispatcher \
-  --budget standard \
-  --verbosity normal \
-  --strictness normal \
-  --comment            # optional: post a TL;DR comment to the PR
+  --url https://pr-123.preview.example.com \
+  --role editor \
+  --budget standard
 ```
 
-Options:
-
-| Flag | Values | Default |
+| Option | Values | Default |
 |---|---|---|
-| `--driver` | `playwright` (unattended, headless), `chrome` (live mode, experimental) | `playwright` |
 | `--budget` | `quick`, `standard`, `thorough` | `standard` |
 | `--verbosity` | `tldr`, `normal`, `detailed` | `normal` |
 | `--strictness` | `lenient`, `normal`, `strict` | `normal` |
 | `--lang` | `de`, `en` | `de` |
+| `--comment` | post a summary comment to the PR | off |
 | `--headed` | show the browser window | off |
-| `--no-clone` | skip checking out the PR branch for code analysis | clone |
+| `--no-clone` | skip checking out the branch for code analysis | clone |
 
-Every run writes to `runs/<runId>/`: `report.md` (at the chosen verbosity), `report-detailed.md`, `report.json`, `findings.json`, `acceptance.json`, `evidence/`, `console.json`, `network.json`, `trace.zip` (Playwright trace), `log.jsonl` (agent transcript) and `prompt.md`.
+The results land in `runs/<runId>/`. The folder holds the report as Markdown and JSON, the findings, screenshots, console and network logs, a Playwright trace and the full agent transcript.
 
-## Live mode with Claude in Chrome
+## Running it in production
 
-The live driver lets a person watch and step in. It runs through the Claude Code harness with the Chrome extension and needs a Claude subscription login on the machine. From this repository:
+Build the web UI with `pnpm --filter @claudio/web build`. Then run `node apps/web/build` (with `ORIGIN` and `PORT` set) and `pnpm worker` next to it, against the same database.
 
-```sh
-export CLAUDIO_RUN_DIR=$PWD/runs/live-1 CLAUDIO_INSTANCE_URL=https://pr-123.preview.example.de CLAUDIO_CONFIG=$PWD/claudio.config.json CLAUDIO_DRIVER=chrome
-claude --chrome
-```
+This repository also contains the setup we use ourselves: a Docker image, Kubernetes manifests in `k8s/` and a GitHub Actions pipeline that tests, builds and deploys every push to `main`. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). The host names, organisation and namespace in there are ours; replace them with your own.
 
-The `.mcp.json` in this repository registers the Claudio tool server, and `.claude/agents` and `.claude/skills` hold the same review procedure the unattended driver uses. Whether the Agent SDK can start this mode itself (`--driver chrome`) is still being verified.
+## Security and privacy
 
-## Trying it without a real deployment
-
-`apps/demo-target` is a tiny dispatch app with deliberate bugs plus a fixture PR context. See its README; the review runs fully offline except for the model calls.
-
-## Deployment
-
-Kubernetes, built and deployed by GitHub Actions on every push to `main`; pull requests run the same checks. See `docs/DEPLOYMENT.md` for the setup and operations.
+- **Point Claudio at test instances only.** It creates, changes and deletes data the way a tester would.
+- **Know what is sent where.** Page content, screenshots and code from the PR go to Anthropic's API as part of a run. Passwords and tokens are not sent.
+- **Keep the encryption key safe.** Tokens, role credentials, webhook secrets and API keys are stored encrypted with `CLAUDIO_SECRET_KEY`.
+- **Webhooks are verified.** The public endpoint `/webhooks/github` accepts only deliveries signed with the repository's own secret.
+- **The agent stays on your app.** By default it may only open the instance under review. You can allow more hosts per repository or per test.
 
 ## Development
 
 ```sh
 pnpm typecheck
-pnpm test                                   # unit tests
-CLAUDIO_INTEGRATION=1 pnpm test             # also the Playwright driver integration test (needs Chromium)
+pnpm test                          # unit tests
+CLAUDIO_INTEGRATION=1 pnpm test    # also the browser integration tests (needs Chromium)
 ```
 
-Packages: `core` (schemas, budget tiers, report rendering), `github` (PR and issue context), `browser` (drivers, capture, login, Claudio tools), `agent` (Agent SDK runner, prompts, hooks), `db` (Drizzle schema, migrations, queries, credential encryption), `apps/cli`, `apps/web` (SvelteKit UI), `apps/worker` (review runner).
+| Part | What it contains |
+|---|---|
+| `packages/core` | schemas, budget tiers, report rendering |
+| `packages/github` | pull requests, issues, deployments, webhooks |
+| `packages/browser` | Playwright driver, login, evidence capture, Claudio tools |
+| `packages/agent` | Agent SDK runners and prompts for reviews, analyses and tests |
+| `packages/db` | Drizzle schema, migrations, queries, encryption |
+| `apps/web` | the SvelteKit web UI |
+| `apps/worker` | the job runner |
+| `apps/cli` | the command line |
+| `apps/demo-target` | the buggy demo app |
 
-After changing `packages/db/src/schema.ts`, run `pnpm db:generate` and commit the new migration.
+The agent and skill definitions in `.claude/` are shared by the SDK runs and by Claude Code. After changing `packages/db/src/schema.ts`, run `pnpm db:generate` and commit the new migration.
+
+Bug reports and pull requests are welcome.
