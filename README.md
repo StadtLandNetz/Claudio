@@ -8,6 +8,8 @@ Claudio reads the pull request and its linked GitHub issues and works out what t
 
 Claudio is built on the [Claude Agent SDK](https://docs.claude.com/en/docs/agent-sdk/overview) and [Playwright](https://playwright.dev).
 
+![A finished review: changes needed, with the summary and the run details](docs/images/review-verdict.png)
+
 > The web interface is available in English and German (switch in the sidebar). Reports can be written in either language.
 
 ## What Claudio can do
@@ -19,6 +21,8 @@ Claudio is built on the [Claude Agent SDK](https://docs.claude.com/en/docs/agent
 - **Get better over time.** When you dismiss a finding with a reason, Claudio remembers it for that repository. Test runs can also save practical tips for themselves, such as which button closes the cookie banner.
 - **Ask a human when it should.** Claudio never solves CAPTCHAs or bot checks. When one appears, the run pauses, the live browser view in the UI becomes clickable, and a person solves it.
 - **Show what it costs.** Each repository uses its own Anthropic API key. A cost page breaks spending down per repository, month and kind of run.
+
+![A run paused at a bot check: the live browser view is clickable so a person can solve it](docs/images/human-takeover.png)
 
 ## How it works
 
@@ -101,6 +105,8 @@ Under **Repositories**, pick one of your GitHub repositories. Then open its **Se
 
 In the **Knowledge** tab, start an analysis against a running instance of your main branch, such as staging. Claudio reads the code, walks through the app and writes a knowledge base. The tab shows when the knowledge base is behind the branch; updating it only looks at what changed.
 
+![The Knowledge tab with the overview of an analysed app](docs/images/knowledge.png)
+
 ### 3. Review a pull request
 
 Pick an open PR and press **Start review**. Enter the address of the PR's running instance; if your PR previews are GitHub Deployments, Claudio fills it in for you. Then choose the roles, a budget, how detailed the report should be and how strict the verdict should be.
@@ -113,9 +119,13 @@ Pick an open PR and press **Start review**. Enter the address of the PR's runnin
 
 While the review runs, you can watch the agent's browser live and cancel at any time. Afterwards, go through the findings and **confirm** or **dismiss** each one. The verdict updates as you rate them. You can post the summary to the PR or download the report as Markdown.
 
+<img src="docs/images/finding.png" alt="A blocking finding with steps to reproduce, expected and observed behaviour, screenshots and the confirm and dismiss buttons" width="640">
+
 ### 4. Write tests
 
 In the **Tests** tab, describe a flow, the expected result and the role, all in plain language. The first run records the steps. Later runs replay them without a model, either on their own, as a suite, or with every PR review as a regression test.
+
+![A test run replaying 80 recorded steps without a model, with the live browser view](docs/images/test-run.png)
 
 Each test can be marked as deterministic, semi-deterministic or explorative. Deterministic tests replay exactly and cost nothing. Semi-deterministic runs are replayed and then checked by a model against the expected result. Explorative tests run with an agent every time. Tests have their own budgets, from *Quick* (Haiku, up to 1 USD) to *Extra thorough* (Opus with extended thinking, up to 8 USD).
 

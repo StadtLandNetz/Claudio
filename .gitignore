@@ -10,3 +10,6 @@ claudio.config.local.json
 
 .scratch/
 .playwright-mcp/
+
+# Raw screenshots for the promo video
+docs/promo-video/
