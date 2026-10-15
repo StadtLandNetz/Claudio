@@ -9,3 +9,4 @@ dist/
 claudio.config.local.json
 
 .scratch/
+.playwright-mcp/
