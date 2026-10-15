@@ -64,6 +64,9 @@ const L = {
     tests: "Regressionstests",
     testsPassed: "bestanden",
     testsFailed: "Fehlgeschlagen",
+    notes: "Bewertungen im Review",
+    confirmedBy: "bestätigt von",
+    dismissedBy: "verworfen von",
   },
   en: {
     verdict: { approve: "No blocking findings", request_changes: "Changes requested", inconclusive: "Review incomplete" },
@@ -88,6 +91,9 @@ const L = {
     tests: "Regression tests",
     testsPassed: "passed",
     testsFailed: "Failed",
+    notes: "Review ratings",
+    confirmedBy: "confirmed by",
+    dismissedBy: "dismissed by",
   },
 } as const;
 
@@ -100,8 +106,19 @@ function labels(report: ReviewReport): Labels {
 /** Regression tests that ran with the review. */
 export type ReviewTestResult = { name: string; outcome: "passed" | "failed" | "inconclusive" | null };
 
-/** How a person adjusted a finished report: strictness and findings they dismissed, plus the review's regression tests. */
-export type RenderOptions = { strictness?: Strictness; dismissedIds?: readonly string[]; tests?: readonly ReviewTestResult[] };
+/** A person's rating of a finding, with the reason they gave. */
+export type FindingNote = { findingId: string; status: "confirmed" | "dismissed"; comment: string | null; by: string | null };
+
+/**
+ * How a person adjusted a finished report: strictness and findings they dismissed, plus the review's regression tests.
+ * `notes` adds the ratings with their reasons to the PR comment.
+ */
+export type RenderOptions = {
+  strictness?: Strictness;
+  dismissedIds?: readonly string[];
+  tests?: readonly ReviewTestResult[];
+  notes?: readonly FindingNote[];
+};
 
 /** A failed regression test turns an approval into "changes requested". */
 export function withTests(v: Verdict, tests: readonly ReviewTestResult[] = []): Verdict {
@@ -246,6 +263,19 @@ export function renderPrComment(report: ReviewReport, reportUrl?: string, opts: 
   if (report.summary.trim()) {
     lines.push("");
     lines.push(firstParagraph(report.summary));
+  }
+  const notes = new Map((opts.notes ?? []).map((n) => [n.findingId, n]));
+  const rated = sortBySeverity(report.findings.filter((f) => notes.has(f.id)));
+  if (rated.length > 0) {
+    lines.push("");
+    lines.push(`**${t.notes}**`);
+    rated.forEach((f) => {
+      const n = notes.get(f.id)!;
+      const label = `[${t.severity[f.severity]}] ${f.title}`;
+      const by = n.by ? ` @${n.by}` : "";
+      lines.push(n.status === "confirmed" ? `- ✅ **${label}** — ${t.confirmedBy}${by}` : `- ❌ ~~${label}~~ — ${t.dismissedBy}${by}`);
+      n.comment?.trim().split("\n").forEach((l) => lines.push(`  > ${l}`));
+    });
   }
   if (reportUrl) {
     lines.push("");

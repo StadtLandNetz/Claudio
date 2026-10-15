@@ -1,5 +1,5 @@
 import { error, fail } from '@sveltejs/kit';
-import { StrictnessSchema, blockingFindings, renderPrComment, sortBySeverity, verdict, withTests, type ReviewTestResult } from '@claudio/core';
+import { StrictnessSchema, blockingFindings, renderPrComment, sortBySeverity, verdict, withTests, type FindingNote, type ReviewTestResult } from '@claudio/core';
 import {
 	addLesson,
 	eventsSince,
@@ -36,6 +36,10 @@ async function loadReview(idParam: string, locals: App.Locals, min: AccessLevel 
 
 const dismissedOf = (rows: Awaited<ReturnType<typeof listFindings>>) =>
 	rows.filter((r) => r.finding.status === 'dismissed').map((r) => r.finding.findingId);
+const notesOf = (rows: Awaited<ReturnType<typeof listFindings>>): FindingNote[] =>
+	rows.flatMap((r) =>
+		r.finding.status === 'proposed' ? [] : [{ findingId: r.finding.findingId, status: r.finding.status, comment: r.finding.comment, by: r.ratedByLogin }]
+	);
 
 export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const review = await loadReview(params.id, locals, 'read');
@@ -49,6 +53,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 	const ratings = new Map(rows.map((r) => [r.finding.findingId, { status: r.finding.status, comment: r.finding.comment ?? '', by: r.ratedByLogin, at: r.finding.ratedAt }]));
 	const dismissed = dismissedOf(rows);
+	const notes = notesOf(rows);
 	const requested = StrictnessSchema.safeParse(url.searchParams.get('strictness'));
 	const strictness = requested.success ? requested.data : (report?.request.strictness ?? review.request.strictness);
 	const blocking = report ? new Set(blockingFindings(report, strictness, dismissed).map((f) => f.id)) : new Set<string>();
@@ -80,6 +85,11 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		commentPreview: report
 			? renderMarkdown(renderPrComment(report, `${publicBaseUrl(url)}/reviews/${review.id}`, { strictness, dismissedIds: dismissed, tests }))
 			: null,
+		commentPreviewWithNotes:
+			report && notes.length
+				? renderMarkdown(renderPrComment(report, `${publicBaseUrl(url)}/reviews/${review.id}`, { strictness, dismissedIds: dismissed, tests, notes }))
+				: null,
+		noteCount: notes.length,
 		strictness,
 		report: report
 			? {
@@ -134,11 +144,14 @@ export const actions: Actions = {
 		if (review.fixture) return fail(400, { error: t('review.demoNoComment'), form: 'comment' });
 		const token = await userToken(locals.user!);
 		if (!token) return fail(400, { error: t('review.commentNeedsGithub'), form: 'comment' });
-		const requested = StrictnessSchema.safeParse((await request.formData()).get('strictness'));
+		const f = await request.formData();
+		const requested = StrictnessSchema.safeParse(f.get('strictness'));
 		const strictness = requested.success ? requested.data : review.report.request.strictness;
-		const dismissed = dismissedOf(await listFindings(db(), review.id));
+		const rows = await listFindings(db(), review.id);
+		const dismissed = dismissedOf(rows);
+		const notes = f.get('includeNotes') ? notesOf(rows) : [];
 		const tests = (await listTestRuns(db(), { reviewId: review.id }, 100)).map((t) => ({ name: t.scriptName, outcome: t.outcome }));
-		const body = renderPrComment(review.report, `${publicBaseUrl(url)}/reviews/${review.id}`, { strictness, dismissedIds: dismissed, tests });
+		const body = renderPrComment(review.report, `${publicBaseUrl(url)}/reviews/${review.id}`, { strictness, dismissedIds: dismissed, tests, notes });
 		try {
 			const commentUrl = await postPullRequestComment(createGithubClient(token), review.repoFullName, review.prNumber, body);
 			await setReviewCommentUrl(db(), review.id, commentUrl);

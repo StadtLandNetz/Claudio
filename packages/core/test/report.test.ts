@@ -91,3 +91,24 @@ describe("regression tests in the verdict", () => {
     expect(c).toContain("Regressionstests: 1/2 bestanden. Fehlgeschlagen: Fahrt anlegen.");
   });
 });
+
+describe("ratings in the PR comment", () => {
+  const notes = [
+    { findingId: "F1", status: "confirmed" as const, comment: null, by: "anna" },
+    { findingId: "F2", status: "dismissed" as const, comment: "Abwesende sind nicht verplanbar.\nDaher gewollt.", by: "janik" },
+  ];
+  it("leaves the comment unchanged without notes", () => {
+    expect(renderPrComment(report(), undefined, { notes: [] })).toBe(renderPrComment(report()));
+  });
+  it("lists rated findings with rater and quoted reason", () => {
+    const c = renderPrComment(report(), undefined, { dismissedIds: ["F2"], notes });
+    expect(c).toContain("**Bewertungen im Review**");
+    expect(c).toContain("- ✅ **[Minor] Button zu klein** — bestätigt von @anna");
+    expect(c).toContain("- ❌ ~~[Major] Speichern schlägt fehl~~ — verworfen von @janik");
+    expect(c).toContain("  > Abwesende sind nicht verplanbar.\n  > Daher gewollt.");
+  });
+  it("uses English labels for English reports", () => {
+    const en = report({ request: { ...report().request, language: "en" } });
+    expect(renderPrComment(en, undefined, { notes })).toContain("**Review ratings**");
+  });
+});

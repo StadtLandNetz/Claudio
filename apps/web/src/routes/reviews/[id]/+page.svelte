@@ -25,6 +25,15 @@
 
 	// ---- findings
 	let showDismissed = $state(true);
+	// Findings whose saved reason is open for editing; the others show it as a comment.
+	let editing = $state(new Set<string>());
+	function stopEditing(id: string) {
+		const next = new Set(editing);
+		next.delete(id);
+		editing = next;
+	}
+	let includeNotes = $state(true);
+	const preview = $derived(includeNotes && data.commentPreviewWithNotes ? data.commentPreviewWithNotes : data.commentPreview);
 	const counts = $derived.by(() => {
 		const f = report?.findings ?? [];
 		return {
@@ -237,12 +246,36 @@
 								</div>
 							{/if}
 
-							<form method="POST" action="?/rate" class="rate" use:enhance={() => ({ update }) => update({ reset: false })}>
+							{#if f.rating.comment && f.rating.status !== 'proposed' && !editing.has(f.id)}
+								<div class="note {f.rating.status}">
+									<p class="note-head">
+										<strong>{f.rating.by ?? i.t('review.unknownUser')}</strong>
+										<span>{f.rating.status === 'confirmed' ? i.t('review.hasConfirmed') : i.t('review.hasDismissed')}</span>
+										{#if f.rating.at}<span class="faint">· {i.formatDate(f.rating.at)}</span>{/if}
+									</p>
+									<p class="note-body">{f.rating.comment}</p>
+								</div>
+							{/if}
+
+							<form
+								method="POST"
+								action="?/rate"
+								class="rate"
+								use:enhance={() =>
+									async ({ result, update }) => {
+										await update({ reset: false });
+										if (result.type === 'success') stopEditing(f.id);
+									}}
+							>
 								<input type="hidden" name="findingId" value={f.id} />
-								<label class="comment">
-									<span class="visually-hidden">{i.t('review.commentOn', { id: f.id })}</span>
-									<input type="text" name="comment" value={f.rating.comment} placeholder={i.t('review.reasonPlaceholder')} />
-								</label>
+								{#if f.rating.comment && !editing.has(f.id)}
+									<input type="hidden" name="comment" value={f.rating.comment} />
+								{:else}
+									<label class="comment">
+										<span class="visually-hidden">{i.t('review.commentOn', { id: f.id })}</span>
+										<textarea name="comment" rows="2" value={f.rating.comment} placeholder={i.t('review.reasonPlaceholder')}></textarea>
+									</label>
+								{/if}
 								<div class="rate-buttons" role="group" aria-label={i.t('review.rating')}>
 									<button class="btn small" class:on={f.rating.status === 'confirmed'} name="status" value="confirmed" aria-pressed={f.rating.status === 'confirmed'}>
 										{i.t('review.confirm')}
@@ -253,8 +286,11 @@
 									{#if f.rating.status !== 'proposed'}
 										<button class="btn small" name="status" value="proposed">{i.t('review.reset')}</button>
 									{/if}
+									{#if f.rating.comment && !editing.has(f.id)}
+										<button type="button" class="btn small" onclick={() => (editing = new Set(editing).add(f.id))}>{i.t('review.editReason')}</button>
+									{/if}
 								</div>
-								{#if f.rating.by}
+								{#if f.rating.by && !(f.rating.comment && f.rating.status !== 'proposed')}
 									<p class="faint rated">
 										{i.t(f.rating.status === 'confirmed' ? 'review.confirmedBy' : f.rating.status === 'dismissed' ? 'review.dismissedBy' : 'review.resetBy', { user: f.rating.by })}{f.rating.at ? `, ${i.formatDate(f.rating.at)}` : ''}
 									</p>
@@ -278,10 +314,16 @@
 					{#if commentError}<p class="notice error" role="alert">{commentError}</p>{/if}
 					<details class="sheet preview">
 						<summary>{i.t('review.preview')}</summary>
-						<div class="prose">{@html data.commentPreview}</div>
+						<div class="prose">{@html preview}</div>
 					</details>
 					<form method="POST" action="?/comment" use:enhance={() => { posting = true; return async ({ update }) => { await update({ reset: false }); posting = false; }; }}>
 						<input type="hidden" name="strictness" value={data.strictness} />
+						{#if data.noteCount > 0}
+							<label class="check small">
+								<input type="checkbox" name="includeNotes" value="1" bind:checked={includeNotes} />
+								<span>{i.t('review.includeNotes', { n: data.noteCount })}</span>
+							</label>
+						{/if}
 						<button class="btn {commentUrl ? '' : 'primary'}" type="submit" disabled={posting}>
 							{posting ? i.t('review.posting') : commentUrl ? i.t('review.repost') : i.t('review.post')}
 						</button>
@@ -553,7 +595,7 @@
 	.finding.blocking {
 		border-left: 4px solid var(--block);
 	}
-	.finding.dismissed {
+	.finding.dismissed > :not(.note, .rate) {
 		opacity: 0.6;
 	}
 	.finding.dismissed h3 {
@@ -647,9 +689,44 @@
 		flex: 1;
 		min-width: 12rem;
 	}
-	.comment input {
+	.comment textarea {
+		width: 100%;
 		padding: 0.35rem 0.55rem;
+		font: inherit;
 		font-size: 0.875rem;
+		resize: vertical;
+		field-sizing: content;
+		min-height: 2.4rem;
+		max-height: 12rem;
+	}
+	.note {
+		display: grid;
+		gap: 0.25rem;
+		padding: 0.6rem 0.85rem;
+		border-left: 3px solid var(--ink-3);
+		border-radius: var(--radius-s);
+		background: var(--sunken);
+		font-size: 0.9375rem;
+	}
+	.note.confirmed {
+		border-left-color: var(--pass);
+	}
+	.note p {
+		margin: 0;
+	}
+	.note-head {
+		display: flex;
+		gap: 0.4rem;
+		flex-wrap: wrap;
+		font-size: 0.875rem;
+		color: var(--ink-2);
+	}
+	.note-head strong {
+		color: var(--ink);
+	}
+	.note-body {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 	}
 	.rate-buttons {
 		display: flex;
@@ -669,6 +746,9 @@
 	}
 	.comment form {
 		justify-self: start;
+		display: grid;
+		gap: 0.6rem;
+		justify-items: start;
 	}
 	.preview summary {
 		padding: 0.6rem 1rem;

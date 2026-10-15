@@ -71,12 +71,16 @@ export const de = {
 	screenshotDeleted: 'Screenshot gelöscht',
 
 	// reviews/[id]: rating findings
+	unknownUser: 'Unbekannt',
+	hasConfirmed: 'hat bestätigt',
+	hasDismissed: 'hat verworfen',
 	commentOn: 'Kommentar zu {id}',
 	reasonPlaceholder: 'Begründung (beim Verwerfen merkt sich Claudio sie)',
 	rating: 'Bewertung',
 	confirm: 'Bestätigen',
 	dismiss: 'Verwerfen',
 	reset: 'Zurücksetzen',
+	editReason: 'Begründung bearbeiten',
 	confirmedBy: 'Bestätigt von {user}',
 	dismissedBy: 'Verworfen von {user}',
 	resetBy: 'Zurückgesetzt von {user}',
@@ -88,6 +92,7 @@ export const de = {
 	commentHelp:
 		'Bewerte die Findings zuerst. Der Kommentar übernimmt die Strenge von oben und zählt verworfene Findings nicht mit. Auf Wunsch stehen deine Bewertungen mit Begründung darunter.',
 	preview: 'Vorschau',
+	includeNotes: 'Bewertungen und Begründungen mitschicken ({n})',
 	posting: 'Wird gepostet …',
 	repost: 'Aktualisierte Kurzfassung erneut posten',
 	post: 'Kurzfassung in den PR posten',
@@ -201,12 +206,16 @@ export const en: Translation<typeof de> = {
 	screenshotDeleted: 'Screenshot deleted',
 
 	// reviews/[id]: rating findings
+	unknownUser: 'Unknown',
+	hasConfirmed: 'confirmed',
+	hasDismissed: 'dismissed',
 	commentOn: 'Comment on {id}',
 	reasonPlaceholder: 'Reason (Claudio remembers it when you dismiss)',
 	rating: 'Rating',
 	confirm: 'Confirm',
 	dismiss: 'Dismiss',
 	reset: 'Reset',
+	editReason: 'Edit reason',
 	confirmedBy: 'Confirmed by {user}',
 	dismissedBy: 'Dismissed by {user}',
 	resetBy: 'Reset by {user}',
@@ -218,6 +227,7 @@ export const en: Translation<typeof de> = {
 	commentHelp:
 		'Rate the findings first. The comment uses the strictness from above and does not count dismissed findings. If you like, your ratings and reasons are added below.',
 	preview: 'Preview',
+	includeNotes: 'Include ratings and reasons ({n})',
 	posting: 'Posting …',
 	repost: 'Post updated summary again',
 	post: 'Post summary to the PR',
