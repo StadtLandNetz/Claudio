@@ -1,19 +1,12 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
-	import {
-		DETERMINISM_HELP,
-		DETERMINISM_LABEL,
-		MODE_LABEL,
-		TEST_BUDGET_LABEL,
-		DEFAULT_TEST_BUDGET,
-		formatDate,
-		formatDuration,
-		formatUsd
-	} from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
+	import { DEFAULT_TEST_BUDGET } from '#lib/labels.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
+	const i = i18n();
 	const s = $derived(data.script);
 	let starting = $state(false);
 	let compare = $state<number[]>([]);
@@ -24,38 +17,38 @@
 	}
 </script>
 
-<svelte:head><title>{s.name} · Tests · Claudio</title></svelte:head>
+<svelte:head><title>{i.t('test.pageTitle', { name: s.name })}</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{s.repo}?tab=tests">Alle Tests</a></p>
+<p class="crumb"><a href="/repos/{s.repo}?tab=tests">{i.t('test.allTests')}</a></p>
 <h1>{s.name}</h1>
 <p class="kind">
 	{#if s.determinism}
-		<strong>{DETERMINISM_LABEL[s.determinism]}.</strong> <span class="muted">{DETERMINISM_HELP[s.determinism]}</span>
+		<strong>{i.labels.determinism[s.determinism]}.</strong> <span class="muted">{i.labels.determinismHelp[s.determinism]}</span>
 	{:else}
-		<span class="muted">Noch nicht aufgezeichnet. Der erste Lauf zeichnet den Ablauf mit einem Agenten auf.</span>
+		<span class="muted">{i.t('test.notRecordedYet')}</span>
 	{/if}
-	{#if s.runInReviews}<span class="tag">läuft bei PR-Reviews mit</span>{/if}
-	{#if s.allowAnyHost}<span class="tag">darf beliebige Websites öffnen</span>{:else if s.allowedHosts.length}<span class="tag">darf auch {s.allowedHosts.join(', ')} öffnen</span>{/if}
+	{#if s.runInReviews}<span class="tag">{i.t('test.tagRunInReviews')}</span>{/if}
+	{#if s.allowAnyHost}<span class="tag">{i.t('test.tagAnyHost')}</span>{:else if s.allowedHosts.length}<span class="tag">{i.t('test.tagAllowedHosts', { hosts: s.allowedHosts.join(', ') })}</span>{/if}
 </p>
 
 {#if data.isNew}
-	<p class="notice ok">Test angelegt. Starte den ersten Lauf, damit Claudio den Ablauf aufzeichnet.</p>
+	<p class="notice ok">{i.t('test.created')}</p>
 {/if}
 
 <div class="layout">
 	<div class="main">
 		<section class="block">
-			<h2>Ablauf</h2>
+			<h2>{i.t('test.flow')}</h2>
 			<p class="pre">{s.description}</p>
-			<h3>Erwartetes Ergebnis</h3>
+			<h3>{i.t('test.expectedResult')}</h3>
 			<p class="pre">{s.expectation}</p>
 		</section>
 
 		<section class="block">
 			<div class="row">
-				<h2>Aufgezeichnete Schritte</h2>
+				<h2>{i.t('test.recordedSteps')}</h2>
 				{#if s.steps.length}
-					<span class="faint">Version {s.stepsVersion}, {formatDate(s.stepsUpdatedAt)}</span>
+					<span class="faint">{i.t('test.stepsVersion', { version: s.stepsVersion, date: i.formatDate(s.stepsUpdatedAt) })}</span>
 				{/if}
 			</div>
 			{#if s.steps.length}
@@ -65,17 +58,17 @@
 					{/each}
 				</ol>
 				<form method="POST" action="?/reset" use:enhance>
-					<button class="btn small" type="submit">Aufzeichnung verwerfen</button>
-					<span class="faint">Der nächste Lauf zeichnet dann neu auf.</span>
+					<button class="btn small" type="submit">{i.t('test.discardRecording')}</button>
+					<span class="faint">{i.t('test.discardRecordingHint')}</span>
 				</form>
 			{:else}
-				<p class="muted">Noch keine. Sie entstehen beim ersten Lauf.</p>
+				<p class="muted">{i.t('test.noStepsYet')}</p>
 			{/if}
 		</section>
 
 		<section class="block">
 			<div class="row">
-				<h2>Läufe</h2>
+				<h2>{i.t('test.runs')}</h2>
 				{#if data.runs.length > 1}
 					<a
 						class="btn small"
@@ -83,7 +76,7 @@
 						aria-disabled={compare.length !== 2}
 						href={compare.length === 2 ? `/tests/${s.id}/compare?a=${Math.min(...compare)}&b=${Math.max(...compare)}` : undefined}
 					>
-						Ausgewählte vergleichen
+						{i.t('test.compareSelected')}
 					</a>
 				{/if}
 			</div>
@@ -92,12 +85,12 @@
 					<table class="list">
 						<thead>
 							<tr>
-								<th><span class="visually-hidden">Vergleichen</span></th>
-								<th>Gestartet</th>
-								<th>Ergebnis</th>
-								<th>Art</th>
-								<th class="num">Dauer</th>
-								<th class="num">Kosten</th>
+								<th><span class="visually-hidden">{i.t('test.colCompare')}</span></th>
+								<th>{i.t('test.colStarted')}</th>
+								<th>{i.t('test.colResult')}</th>
+								<th>{i.t('test.colKind')}</th>
+								<th class="num">{i.t('test.colDuration')}</th>
+								<th class="num">{i.t('test.colCost')}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -106,42 +99,42 @@
 									<td>
 										<input
 											type="checkbox"
-											aria-label="Lauf vom {formatDate(run.createdAt)} vergleichen"
+											aria-label={i.t('test.compareRunLabel', { date: i.formatDate(run.createdAt) })}
 											checked={compare.includes(run.id)}
 											onchange={(e) => toggleCompare(run.id, e.currentTarget.checked)}
 										/>
 									</td>
 									<td>
-										<a href="/test-runs/{run.id}">{formatDate(run.createdAt)}</a>
-										<span class="faint">{run.reviewId ? `im Review #${run.reviewId}` : `von ${run.startedBy}`}</span>
+										<a href="/test-runs/{run.id}">{i.formatDate(run.createdAt)}</a>
+										<span class="faint">{run.reviewId ? i.t('test.inReview', { id: run.reviewId }) : i.t('test.byUser', { login: run.startedBy ?? '' })}</span>
 									</td>
 									<td><OutcomeBadge status={run.status} outcome={run.outcome} healed={run.healed} /></td>
-									<td>{run.mode ? MODE_LABEL[run.mode] : '–'}{run.mode === 'replay' && run.stepsVersion ? ` v${run.stepsVersion}` : ''}</td>
-									<td class="num">{run.durationMs !== null ? formatDuration(run.durationMs) : '–'}</td>
-									<td class="num">{formatUsd(run.costUsd)}</td>
+									<td>{run.mode ? i.labels.mode[run.mode] : '–'}{run.mode === 'replay' && run.stepsVersion ? ` v${run.stepsVersion}` : ''}</td>
+									<td class="num">{run.durationMs !== null ? i.formatDuration(run.durationMs) : '–'}</td>
+									<td class="num">{i.formatUsd(run.costUsd)}</td>
 								</tr>
 							{/each}
 						</tbody>
 					</table>
 				</div>
 			{:else}
-				<p class="muted">Noch keine Läufe.</p>
+				<p class="muted">{i.t('test.noRunsYet')}</p>
 			{/if}
 		</section>
 	</div>
 
 	<aside class="side">
 		<form method="POST" action="?/run" class="sheet run" onsubmit={() => (starting = true)}>
-			<h2>Test ausführen</h2>
+			<h2>{i.t('test.runTest')}</h2>
 			{#if formError('run')}<p class="notice error" role="alert">{formError('run')}</p>{/if}
 			<label class="field">
-				<span>Adresse der Instanz</span>
+				<span>{i.t('test.instanceUrl')}</span>
 				<input type="url" name="instanceUrl" required value={data.defaultInstanceUrl} placeholder="https://staging.example.de" />
 			</label>
 			<label class="field">
-				<span>Budget</span>
+				<span>{i.t('test.budget')}</span>
 				<select name="budget">
-					{#each Object.entries(TEST_BUDGET_LABEL) as [value, label] (value)}
+					{#each Object.entries(i.labels.testBudget) as [value, label] (value)}
 						<option {value} selected={value === DEFAULT_TEST_BUDGET}>{label}</option>
 					{/each}
 				</select>
@@ -149,25 +142,25 @@
 			{#if s.steps.length}
 				<label class="check">
 					<input type="checkbox" name="rerecord" />
-					<span>Neu aufzeichnen statt abspielen</span>
+					<span>{i.t('test.rerecord')}</span>
 				</label>
 			{/if}
 			<button class="btn primary" type="submit" disabled={starting}>
-				{starting ? 'Wird eingereiht …' : s.steps.length ? 'Ausführen' : 'Ersten Lauf starten'}
+				{starting ? i.t('test.queueing') : s.steps.length ? i.t('test.run') : i.t('test.startFirstRun')}
 			</button>
 		</form>
 	</aside>
 </div>
 
 <details class="sheet edit" open={!!formError('update')}>
-	<summary><strong>Test bearbeiten</strong></summary>
+	<summary><strong>{i.t('test.editTest')}</strong></summary>
 	<form method="POST" action="?/update" class="fields" use:enhance={() => ({ update }) => update({ reset: false })}>
 		{#if formError('update')}<p class="notice error" role="alert">{formError('update')}</p>{/if}
-		<label class="field"><span>Name</span><input type="text" name="name" value={s.name} required /></label>
-		<label class="field"><span>Ablauf</span><textarea name="description" rows="3" required>{s.description}</textarea></label>
-		<label class="field"><span>Erwartetes Ergebnis</span><textarea name="expectation" rows="2" required>{s.expectation}</textarea></label>
+		<label class="field"><span>{i.t('test.name')}</span><input type="text" name="name" value={s.name} required /></label>
+		<label class="field"><span>{i.t('test.flow')}</span><textarea name="description" rows="3" required>{s.description}</textarea></label>
+		<label class="field"><span>{i.t('test.expectedResult')}</span><textarea name="expectation" rows="2" required>{s.expectation}</textarea></label>
 		<fieldset>
-			<legend>Rollen</legend>
+			<legend>{i.t('test.roles')}</legend>
 			<div class="options">
 				{#each data.roles as role (role)}
 					<label class="check"><input type="checkbox" name="roles" value={role} checked={s.roles.includes(role)} /> <span>{role}</span></label>
@@ -175,35 +168,35 @@
 			</div>
 		</fieldset>
 		<label class="field">
-			<span>Art des Tests</span>
+			<span>{i.t('test.testKind')}</span>
 			<select name="determinism">
-				<option value="" selected={!s.determinism}>Beim ersten Lauf vorschlagen lassen</option>
-				{#each Object.entries(DETERMINISM_LABEL) as [value, label] (value)}
+				<option value="" selected={!s.determinism}>{i.t('test.suggestOnFirstRun')}</option>
+				{#each Object.entries(i.labels.determinism) as [value, label] (value)}
 					<option {value} selected={s.determinism === value}>{label}</option>
 				{/each}
 			</select>
-			<small>Ändert sich der Ablauf grundlegend, verwirf zusätzlich die Aufzeichnung.</small>
+			<small>{i.t('test.testKindHint')}</small>
 		</label>
 		<fieldset>
-			<legend>Andere Websites</legend>
+			<legend>{i.t('test.otherWebsites')}</legend>
 			<label class="field">
-				<span>Weitere erlaubte Hosts</span>
+				<span>{i.t('test.allowedHosts')}</span>
 				<input type="text" name="allowedHosts" value={s.allowedHosts.join(', ')} placeholder="google.com, login.example.de" />
-				<small>Standardmäßig bleibt der Test auf der Instanz. Hier eingetragene Hosts darf er zusätzlich öffnen; mehrere mit Komma trennen, Subdomains sind mit erlaubt.</small>
+				<small>{i.t('test.allowedHostsHint')}</small>
 			</label>
 			<label class="check">
 				<input type="checkbox" name="allowAnyHost" checked={s.allowAnyHost} />
-				<span>Beliebige Websites erlauben <span class="faint">Nur für Tests, die bewusst im offenen Web arbeiten. Große Suchmaschinen zeigen automatisierten Browsern oft ein Captcha.</span></span>
+				<span>{i.t('test.allowAnyHost')} <span class="faint">{i.t('test.allowAnyHostHint')}</span></span>
 			</label>
 		</fieldset>
 		<label class="check">
 			<input type="checkbox" name="runInReviews" checked={s.runInReviews} />
-			<span>Bei jedem PR-Review als Regressionstest mitlaufen lassen</span>
+			<span>{i.t('test.runInReviews')}</span>
 		</label>
-		<div class="actions"><button class="btn primary" type="submit">Speichern</button></div>
+		<div class="actions"><button class="btn primary" type="submit">{i.t('test.save')}</button></div>
 	</form>
-	<form method="POST" action="?/delete" class="danger" onsubmit={(e) => { if (!confirm('Test und alle Läufe löschen?')) e.preventDefault(); }}>
-		<button class="btn danger small" type="submit">Test löschen</button>
+	<form method="POST" action="?/delete" class="danger" onsubmit={(e) => { if (!confirm(i.t('test.confirmDelete'))) e.preventDefault(); }}>
+		<button class="btn danger small" type="submit">{i.t('test.deleteTest')}</button>
 	</form>
 </details>
 

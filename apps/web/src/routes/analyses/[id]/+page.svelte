@@ -7,10 +7,12 @@
 	import LiveView from '#lib/components/LiveView.svelte';
 	import Severity from '#lib/components/Severity.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
-	import { ANALYSIS_BUDGET_LABEL, CATEGORY_LABEL, formatDate, formatDuration, formatUsd, isActive } from '#lib/labels.js';
+	import { isActive } from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+	const i = i18n();
 
 	let liveStatus = $state<string | null>(null);
 	const a = $derived({ ...data.analysis, status: liveStatus ?? data.analysis.status });
@@ -18,24 +20,24 @@
 	const isUpdate = $derived(Boolean(a.previousCommitSha));
 </script>
 
-<svelte:head><title>Analyse {a.repo} · Claudio</title></svelte:head>
+<svelte:head><title>{i.t('analysis.pageTitle', { repo: a.repo })}</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{a.repo}?tab=knowledge">Wissen</a></p>
+<p class="crumb"><a href="/repos/{a.repo}?tab=knowledge">{i.t('analysis.crumbKnowledge')}</a></p>
 <div class="title">
 	<div>
-		<h1>{isUpdate ? 'Wissensbasis aktualisieren' : 'Repository analysieren'}</h1>
+		<h1>{isUpdate ? i.t('analysis.titleUpdate') : i.t('analysis.titleAnalyse')}</h1>
 		<p class="muted">
 			{#if a.commitSha}
-				Commit <code>{a.commitSha.slice(0, 7)}</code>{a.branch ? ` auf ${a.branch}` : ''}{#if isUpdate}, aufbauend auf <code>{a.previousCommitSha?.slice(0, 7)}</code>{/if}
+				{i.t('analysis.commit')} <code>{a.commitSha.slice(0, 7)}</code>{a.branch ? i.t('analysis.onBranch', { branch: a.branch }) : ''}{#if isUpdate}{i.t('analysis.buildingOn')} <code>{a.previousCommitSha?.slice(0, 7)}</code>{/if}
 			{:else}
-				Instanz {a.instanceUrl}
+				{i.t('analysis.instance', { url: a.instanceUrl })}
 			{/if}
 		</p>
 	</div>
 	{#if active}
 		<form method="POST" action="?/abort" use:enhance>
 			<button class="btn danger" type="submit" disabled={a.abortRequested}>
-				{a.abortRequested ? 'Wird abgebrochen …' : 'Analyse abbrechen'}
+				{a.abortRequested ? i.t('analysis.aborting') : i.t('analysis.abort')}
 			</button>
 		</form>
 	{/if}
@@ -46,8 +48,8 @@
 		{#if active}
 			<p class="notice">
 				{a.status === 'queued'
-					? 'Wartet auf den Worker. Läuft kein Worker, starte ihn mit pnpm worker.'
-					: 'Claudio liest den Code und geht die App Bildschirm für Bildschirm durch. Die Dokumente erscheinen, sobald die Analyse fertig ist.'}
+					? i.t('analysis.queuedNotice')
+					: i.t('analysis.runningNotice')}
 			</p>
 		{/if}
 
@@ -69,31 +71,31 @@
 
 		{#if a.summaryHtml}
 			<section class="block">
-				<h2>Zusammenfassung</h2>
+				<h2>{i.t('analysis.summary')}</h2>
 				<div class="prose">{@html a.summaryHtml}</div>
 			</section>
 		{/if}
 
 		{#if data.docs.length}
 			<section class="block">
-				<h2>Wissensbasis aus diesem Lauf</h2>
+				<h2>{i.t('analysis.docsFromRun')}</h2>
 				<KnowledgeView docs={data.docs} />
 			</section>
 		{:else if !active}
-			<p class="notice error">Diese Analyse hat keine Dokumente geschrieben.</p>
+			<p class="notice error">{i.t('analysis.noDocs')}</p>
 		{/if}
 
 		{#if data.findings.length}
 			<section class="block">
-				<h2>Nebenbei gefundene Fehler</h2>
-				<p class="muted">Bei der Analyse aufgefallen. Sie sind kein Ergebnis eines Reviews und blockieren nichts.</p>
+				<h2>{i.t('analysis.findings')}</h2>
+				<p class="muted">{i.t('analysis.findingsHint')}</p>
 				<ul class="findings sheet">
 					{#each data.findings as f (f.id)}
 						<li>
 							<Severity severity={f.severity} />
 							<div>
 								<strong>{f.title}</strong>
-								<span class="faint">{CATEGORY_LABEL[f.category] ?? f.category}{f.url ? `, ${f.url}` : ''}</span>
+								<span class="faint">{i.labels.category[f.category] ?? f.category}{f.url ? `, ${f.url}` : ''}</span>
 								<p>{f.description}</p>
 							</div>
 						</li>
@@ -104,7 +106,7 @@
 
 		{#if data.evidence.length}
 			<section class="block">
-				<h2>Screenshots</h2>
+				<h2>{i.t('analysis.screenshots')}</h2>
 				<div class="shots">
 					{#each data.evidence as ev (ev.id)}
 						{#if ev.url}
@@ -113,8 +115,8 @@
 								<span>{ev.id} {ev.label}</span>
 							</a>
 						{:else}
-							<div class="shot-expired" title="Screenshots werden nach 14 Tagen gelöscht">
-								<span>Screenshot gelöscht</span>
+							<div class="shot-expired" title={i.t('analysis.screenshotExpiredTitle')}>
+								<span>{i.t('analysis.screenshotDeleted')}</span>
 								<span class="faint">{ev.id} {ev.label}</span>
 							</div>
 						{/if}
@@ -125,9 +127,9 @@
 
 		{#if a.errors.length}
 			<section class="block">
-				<h2>Probleme während des Runs</h2>
+				<h2>{i.t('analysis.runProblems')}</h2>
 				<ul class="errors">
-					{#each a.errors as err, i (i)}<li>{err}</li>{/each}
+					{#each a.errors as err, n (n)}<li>{err}</li>{/each}
 				</ul>
 			</section>
 		{/if}
@@ -135,30 +137,30 @@
 
 	<aside class="meta">
 		<dl>
-			<dt>Status</dt>
+			<dt>{i.t('analysis.metaStatus')}</dt>
 			<dd><StatusBadge status={a.status} /></dd>
-			<dt>Instanz</dt>
+			<dt>{i.t('analysis.metaInstance')}</dt>
 			<dd class="break">{a.instanceUrl}</dd>
-			<dt>Rollen</dt>
-			<dd>{a.request.roles.join(', ') || 'alle konfigurierten'}</dd>
-			<dt>Budget</dt>
-			<dd>{ANALYSIS_BUDGET_LABEL[a.request.budget]}</dd>
+			<dt>{i.t('analysis.metaRoles')}</dt>
+			<dd>{a.request.roles.join(', ') || i.t('analysis.allRoles')}</dd>
+			<dt>{i.t('analysis.metaBudget')}</dt>
+			<dd>{i.labels.analysisBudget[a.request.budget]}</dd>
 			{#if a.cost}
-				<dt>Kosten</dt>
+				<dt>{i.t('analysis.metaCost')}</dt>
 				<dd>
-					{formatUsd(a.cost.usd)}<br />
-					<span class="faint">{a.cost.turns} Züge, {a.cost.browserSteps} Browser-Schritte, {formatDuration(a.cost.durationMs)}</span>
+					{i.formatUsd(a.cost.usd)}<br />
+					<span class="faint">{i.t('analysis.costDetail', { turns: a.cost.turns, steps: a.cost.browserSteps, duration: i.formatDuration(a.cost.durationMs) })}</span>
 				</dd>
 			{/if}
-			<dt>Gestartet</dt>
-			<dd>{formatDate(a.createdAt)}<br /><span class="faint">von {a.startedBy}</span></dd>
+			<dt>{i.t('analysis.metaStarted')}</dt>
+			<dd>{i.formatDate(a.createdAt)}<br /><span class="faint">{i.t('analysis.startedBy', { login: a.startedBy })}</span></dd>
 			{#if a.finishedAt}
-				<dt>Beendet</dt>
-				<dd>{formatDate(a.finishedAt)}</dd>
+				<dt>{i.t('analysis.metaFinished')}</dt>
+				<dd>{i.formatDate(a.finishedAt)}</dd>
 			{/if}
 			{#if a.fixture}
-				<dt>Quelle</dt>
-				<dd>Demo-Checkout statt GitHub</dd>
+				<dt>{i.t('analysis.metaSource')}</dt>
+				<dd>{i.t('analysis.sourceFixture')}</dd>
 			{/if}
 		</dl>
 	</aside>

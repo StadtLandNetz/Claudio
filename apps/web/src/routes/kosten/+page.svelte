@@ -1,30 +1,31 @@
 <script lang="ts">
-	import { formatUsd } from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
-	const monthName = (m: string) => new Intl.DateTimeFormat('de-DE', { month: 'long', year: 'numeric' }).format(new Date(`${m}-01T12:00:00`));
-	const cell = (c: { runs: number; usd: number }) => (c.runs ? formatUsd(c.usd) : '–');
+	const i = i18n();
+	const monthName = (m: string) => new Intl.DateTimeFormat(i.locale === 'en' ? 'en-GB' : 'de-DE', { month: 'long', year: 'numeric' }).format(new Date(`${m}-01T12:00:00`));
+	const cell = (c: { runs: number; usd: number }) => (c.runs ? i.formatUsd(c.usd) : '–');
 </script>
 
-<svelte:head><title>Kosten · Claudio</title></svelte:head>
+<svelte:head><title>{i.t('common.costsTitle')}</title></svelte:head>
 
-<h1>Kosten</h1>
+<h1>{i.t('common.costs')}</h1>
 <p class="muted lead">
-	Modellkosten der letzten zwölf Monate, wie das Agent SDK sie meldet: Schätzungen zum Listenpreis, keine Rechnung. Reine Testwiedergaben ohne Modell kosten nichts.
+	{i.t('common.costsIntro')}
 </p>
 
 {#if data.months.length === 0}
-	<p class="muted">Noch keine Läufe.</p>
+	<p class="muted">{i.t('common.noRuns')}</p>
 {:else}
-	<p class="year">Zwölf Monate gesamt: <strong>{formatUsd(data.yearTotal)}</strong></p>
+	<p class="year">{i.t('common.yearTotal')} <strong>{i.formatUsd(data.yearTotal)}</strong></p>
 	{#each data.months as m (m.month)}
 		<section class="month">
-			<h2>{monthName(m.month)} <span class="sum">{formatUsd(m.total)}</span> <span class="faint">{m.runs} Läufe</span></h2>
+			<h2>{monthName(m.month)} <span class="sum">{i.formatUsd(m.total)}</span> <span class="faint">{i.t('common.runCount', { n: m.runs })}</span></h2>
 			<div class="sheet table">
 				<table class="list">
 					<thead>
-						<tr><th>Repository</th><th class="num">Reviews</th><th class="num">Analysen</th><th class="num">Tests</th><th class="num">Summe</th></tr>
+						<tr><th>{i.t('common.colRepository')}</th><th class="num">{i.t('common.colReviews')}</th><th class="num">{i.t('common.colAnalyses')}</th><th class="num">{i.t('common.colTests')}</th><th class="num">{i.t('common.colTotal')}</th></tr>
 					</thead>
 					<tbody>
 						{#each m.repos as r (r.repo)}
@@ -33,7 +34,7 @@
 								<td class="num">{cell(r.review)}<span class="runs">{r.review.runs || ''}</span></td>
 								<td class="num">{cell(r.analysis)}<span class="runs">{r.analysis.runs || ''}</span></td>
 								<td class="num">{cell(r.test)}<span class="runs">{r.test.runs || ''}</span></td>
-								<td class="num"><strong>{formatUsd(r.total)}</strong></td>
+								<td class="num"><strong>{i.formatUsd(r.total)}</strong></td>
 							</tr>
 						{/each}
 					</tbody>
@@ -41,7 +42,7 @@
 			</div>
 		</section>
 	{/each}
-	<p class="faint">Die kleine Zahl neben einem Betrag ist die Anzahl der Läufe.</p>
+	<p class="faint">{i.t('common.runsHint')}</p>
 {/if}
 
 <style>

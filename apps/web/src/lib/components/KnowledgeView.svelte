@@ -1,14 +1,18 @@
 <script lang="ts">
+	import { i18n } from '#lib/i18n/index.js';
+
 	type Doc = { name: string; title: string; html: string; chars: number };
 
 	let { docs }: { docs: Doc[] } = $props();
+	const i = i18n();
 	let current = $state<string | null>(null);
 	const shown = $derived(docs.find((d) => d.name === current) ?? docs[0]);
+	const title = (doc: Doc) => i.labels.knowledgeDoc[doc.name] ?? doc.title;
 </script>
 
 {#if shown}
 	<div class="kv">
-		<div class="doc-tabs" role="tablist" aria-label="Dokumente">
+		<div class="doc-tabs" role="tablist" aria-label={i.t('analysis.documents')}>
 			{#each docs as doc (doc.name)}
 				<button
 					type="button"
@@ -17,11 +21,11 @@
 					class:on={doc.name === shown.name}
 					onclick={() => (current = doc.name)}
 				>
-					{doc.title}
+					{title(doc)}
 				</button>
 			{/each}
 		</div>
-		<div class="sheet prose doc" role="tabpanel" aria-label={shown.title}>
+		<div class="sheet prose doc" role="tabpanel" aria-label={title(shown)}>
 			{@html shown.html}
 		</div>
 	</div>

@@ -6,21 +6,12 @@
 	import LiveView from '#lib/components/LiveView.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import Severity from '#lib/components/Severity.svelte';
-	import {
-		CATEGORY_LABEL,
-		DETERMINISM_LABEL,
-		MODE_LABEL,
-		OUTCOME_LABEL,
-		STATUS_LABEL,
-		TEST_BUDGET_LABEL,
-		formatDate,
-		formatDuration,
-		formatUsd,
-		isActive
-	} from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
+	import { isActive } from '#lib/labels.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+	const i = i18n();
 	let liveStatus = $state<string | null>(null);
 	const run = $derived({ ...data.run, status: liveStatus ?? data.run.status });
 	const r = $derived(data.report);
@@ -28,30 +19,30 @@
 	const tone = $derived(run.outcome === 'passed' ? 'approve' : run.outcome === 'failed' ? 'request_changes' : 'inconclusive');
 </script>
 
-<svelte:head><title>{run.scriptName} · Testlauf · Claudio</title></svelte:head>
+<svelte:head><title>{i.t('test.runPageTitle', { name: run.scriptName })}</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{run.repo}?tab=tests">Tests</a> / <a href="/tests/{run.scriptId}">{run.scriptName}</a></p>
+<p class="crumb"><a href="/repos/{run.repo}?tab=tests">{i.t('test.tests')}</a> / <a href="/tests/{run.scriptId}">{run.scriptName}</a></p>
 <div class="title">
-	<h1>Testlauf: {run.scriptName}</h1>
+	<h1>{i.t('test.runHeading', { name: run.scriptName })}</h1>
 	{#if active}
 		<form method="POST" action="?/abort" use:enhance>
-			<button class="btn danger" type="submit" disabled={run.abortRequested}>{run.abortRequested ? 'Wird abgebrochen …' : 'Abbrechen'}</button>
+			<button class="btn danger" type="submit" disabled={run.abortRequested}>{run.abortRequested ? i.t('test.aborting') : i.t('test.abort')}</button>
 		</form>
 	{/if}
 </div>
 
 {#if r && !active}
-	<section class="stamp {tone}" aria-label="Ergebnis">
-		<p class="word">{run.outcome ? OUTCOME_LABEL[run.outcome] : STATUS_LABEL[run.status]}</p>
+	<section class="stamp {tone}" aria-label={i.t('test.result')}>
+		<p class="word">{run.outcome ? i.labels.outcome[run.outcome] : i.labels.status[run.status]}</p>
 		<p class="why">
-			{MODE_LABEL[r.mode]}{r.mode === 'replay' && run.stepsVersion ? ` von Version ${run.stepsVersion}` : ''},
-			{r.steps.filter((s) => s.ok).length} von {r.steps.length} Schritten ausgeführt, {formatDuration(r.cost.durationMs)},
-			{r.cost.usd > 0 ? formatUsd(r.cost.usd) : 'ohne Modell'}.
+			{i.labels.mode[r.mode]}{r.mode === 'replay' && run.stepsVersion ? i.t('test.fromVersion', { version: run.stepsVersion }) : ''},
+			{i.t('test.stepsRun', { ok: r.steps.filter((s) => s.ok).length, total: r.steps.length })}, {i.formatDuration(r.cost.durationMs)},
+			{r.cost.usd > 0 ? i.formatUsd(r.cost.usd) : i.t('test.withoutModel')}.
 		</p>
 		{#if r.summary}<p class="sum">{r.summary}</p>{/if}
 	</section>
 {:else if !active}
-	<p class="notice error">{run.error ?? 'Dieser Lauf hat kein Ergebnis erzeugt.'}</p>
+	<p class="notice error">{run.error ?? i.t('test.noResult')}</p>
 {/if}
 
 <div class="layout">
@@ -74,21 +65,21 @@
 		{#if r}
 			{#if r.healedAt !== null}
 				<p class="notice">
-					Schritt {r.healedAt + 1} ließ sich nicht mehr ausführen. Claudio hat den Ablauf ab dort repariert{r.savedSteps ? ' und als neue Version gespeichert' : ''}. Prüfe unten das Finding: Ein umbenanntes oder verschobenes Element kann gewollt sein oder eine Regression.
+					{i.t('test.healedNotice', { step: r.healedAt + 1, saved: r.savedSteps })}
 				</p>
 			{:else if r.mode === 'record' && r.savedSteps}
 				<p class="notice ok">
-					{r.savedSteps} Schritte aufgezeichnet{r.determinismProposal ? `, eingestuft als ${DETERMINISM_LABEL[r.determinismProposal].toLowerCase()}` : ''}. Folgeläufe spielen sie ohne Modell ab.
+					{i.t('test.recordedNotice', { n: r.savedSteps, kind: r.determinismProposal ? i.labels.determinism[r.determinismProposal]!.toLowerCase() : '' })}
 				</p>
 			{/if}
 
 			{#if r.judge}
 				<section class="block">
-					<h2>Bewertung durch den Prüf-Agenten</h2>
+					<h2>{i.t('test.judgeHeading')}</h2>
 					<div class="sheet judge">
 						<p>
-							<strong>{r.judge.passed ? 'Erwartung erfüllt' : 'Erwartung nicht erfüllt'}</strong>
-							<span class="faint">Konfidenz {Math.round(r.judge.confidence * 100)} %</span>
+							<strong>{r.judge.passed ? i.t('test.expectationMet') : i.t('test.expectationNotMet')}</strong>
+							<span class="faint">{i.t('test.confidence', { percent: Math.round(r.judge.confidence * 100) })}</span>
 						</p>
 						{#if r.judge.deviations.length}
 							<ul>
@@ -101,14 +92,14 @@
 			{/if}
 
 			<section class="block">
-				<h2>Schritte</h2>
+				<h2>{i.t('test.steps')}</h2>
 				<ol class="steps sheet">
 					{#each r.steps as step (step.index)}
 						<li class:fail={!step.ok} class:assert={step.assertion}>
-							<span class="mark" aria-label={step.ok ? 'ausgeführt' : 'fehlgeschlagen'}>{step.ok ? '✓' : '✗'}</span>
+							<span class="mark" aria-label={step.ok ? i.t('test.stepOk') : i.t('test.stepFailed')}>{step.ok ? '✓' : '✗'}</span>
 							<span class="txt">
 								{step.text}
-								{#if step.healed}<span class="tag">repariert</span>{/if}
+								{#if step.healed}<span class="tag">{i.t('test.healed')}</span>{/if}
 								{#if step.error}<span class="err">{step.error}</span>{/if}
 							</span>
 							<span class="ms faint">{step.durationMs} ms</span>
@@ -116,20 +107,20 @@
 					{/each}
 				</ol>
 				{#if r.mode === 'record'}
-					<p class="faint">Beim Aufzeichnen verworfene Versuche (✗) werden nicht gespeichert.</p>
+					<p class="faint">{i.t('test.discardedAttempts')}</p>
 				{/if}
 			</section>
 
 			{#if r.findings.length}
 				<section class="block">
-					<h2>Findings</h2>
+					<h2>{i.t('test.findings')}</h2>
 					<ul class="findings sheet">
 						{#each r.findings as f (f.id)}
 							<li>
 								<Severity severity={f.severity} />
 								<div>
 									<strong>{f.title}</strong>
-									<span class="faint">{CATEGORY_LABEL[f.category] ?? f.category}</span>
+									<span class="faint">{i.labels.category[f.category] ?? f.category}</span>
 									<p>{f.description}</p>
 								</div>
 							</li>
@@ -140,7 +131,7 @@
 
 			{#if r.evidence.length}
 				<section class="block">
-					<h2>Screenshots</h2>
+					<h2>{i.t('test.screenshots')}</h2>
 					<div class="shots">
 						{#each r.evidence as ev (ev.id)}
 							{#if ev.url}
@@ -149,8 +140,8 @@
 								<span>{ev.label}</span>
 							</a>
 						{:else}
-							<div class="shot-expired" title="Screenshots werden nach 14 Tagen gelöscht">
-								<span>Screenshot gelöscht</span>
+							<div class="shot-expired" title={i.t('test.screenshotsExpire')}>
+								<span>{i.t('test.screenshotDeleted')}</span>
 								<span class="faint">{ev.label}</span>
 							</div>
 						{/if}
@@ -161,7 +152,7 @@
 
 			{#if r.errors.length}
 				<section class="block">
-					<h2>Probleme während des Laufs</h2>
+					<h2>{i.t('test.runProblems')}</h2>
 					<ul class="errors">{#each r.errors as e, i (i)}<li>{e}</li>{/each}</ul>
 				</section>
 			{/if}
@@ -170,20 +161,20 @@
 
 	<aside class="meta">
 		<dl>
-			<dt>Status</dt>
+			<dt>{i.t('test.status')}</dt>
 			<dd><OutcomeBadge status={run.status} outcome={run.outcome} healed={run.healed} /></dd>
-			<dt>Instanz</dt>
+			<dt>{i.t('test.instance')}</dt>
 			<dd class="break">{run.instanceUrl}</dd>
-			<dt>Budget</dt>
-			<dd>{TEST_BUDGET_LABEL[run.budget]}</dd>
+			<dt>{i.t('test.budget')}</dt>
+			<dd>{i.labels.testBudget[run.budget]}</dd>
 			{#if run.reviewId}
-				<dt>Teil von</dt>
-				<dd><a href="/reviews/{run.reviewId}">Review #{run.reviewId}</a></dd>
+				<dt>{i.t('test.partOf')}</dt>
+				<dd><a href="/reviews/{run.reviewId}">{i.t('test.reviewNumber', { id: run.reviewId })}</a></dd>
 			{/if}
-			<dt>Gestartet</dt>
-			<dd>{formatDate(run.createdAt)}<br /><span class="faint">von {run.startedBy}</span></dd>
+			<dt>{i.t('test.colStarted')}</dt>
+			<dd>{i.formatDate(run.createdAt)}<br /><span class="faint">{i.t('test.byUser', { login: run.startedBy ?? '' })}</span></dd>
 			{#if r?.finalUrl}
-				<dt>Endseite</dt>
+				<dt>{i.t('test.finalPage')}</dt>
 				<dd class="break">{r.finalUrl}</dd>
 			{/if}
 		</dl>

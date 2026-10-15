@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { formatDate } from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
+	const i = i18n();
 	let query = $state('');
 
 	const filtered = $derived.by(() => {
@@ -12,49 +13,49 @@
 	});
 </script>
 
-<svelte:head><title>Repositories · Claudio</title></svelte:head>
+<svelte:head><title>{i.t('common.reposTitle')}</title></svelte:head>
 
-<h1>Repositories</h1>
-<p class="muted lead">Claudio prüft Pull Requests der Repositories, die hier eingerichtet sind.</p>
+<h1>{i.t('common.repositories')}</h1>
+<p class="muted lead">{i.t('common.reposIntro')}</p>
 
 {#if form?.error}
 	<p class="notice error" role="alert">{form.error}</p>
 {/if}
 
 <section class="block">
-	<h2>Eingerichtet</h2>
+	<h2>{i.t('common.reposSetUp')}</h2>
 	{#if data.repos.length > 0}
 		<ul class="repos sheet">
 			{#each data.repos as repo (repo.fullName)}
 				<li>
 					<a href="/repos/{repo.fullName}">{repo.fullName}</a>
 					<span class="faint">
-						{repo.lastReview ? `Letzter Review ${formatDate(repo.lastReview)}` : 'Noch kein Review'}
+						{repo.lastReview ? i.t('common.lastReview', { date: i.formatDate(repo.lastReview) }) : i.t('common.noReviewYet')}
 					</span>
 					{#if !repo.dataConfirmed}
-						<a class="setup" href="/repos/{repo.fullName}?tab=settings">Einrichtung abschließen</a>
+						<a class="setup" href="/repos/{repo.fullName}?tab=settings">{i.t('common.finishSetup')}</a>
 					{/if}
 				</li>
 			{/each}
 		</ul>
 	{:else}
-		<p class="muted">Noch keins. Wähle unten ein Repository aus deinem GitHub-Konto.</p>
+		<p class="muted">{i.t('common.noReposYet')}</p>
 	{/if}
 	{#if data.demoAvailable}
 		<form method="POST" action="?/demo" class="demo">
-			<button class="btn" type="submit">Demo-Repository anlegen</button>
-			<span class="faint">Die Dispo-Demo aus <code>apps/demo-target</code> mit fertigem Beispiel-PR, ganz ohne GitHub.</span>
+			<button class="btn" type="submit">{i.t('common.createDemo')}</button>
+			<span class="faint">{i.t('common.demoHintBefore')} <code>apps/demo-target</code> {i.t('common.demoHintAfter')}</span>
 		</form>
 	{/if}
 </section>
 
 <section class="block" id="hinzufuegen">
 	<div class="gh-head">
-		<h2>Aus GitHub hinzufügen</h2>
+		<h2>{i.t('common.addFromGithub')}</h2>
 		{#if data.github.length > 0}
 			<label class="search">
-				<span class="visually-hidden">Repositories durchsuchen</span>
-				<input type="search" placeholder="Repository suchen" bind:value={query} />
+				<span class="visually-hidden">{i.t('common.searchRepos')}</span>
+				<input type="search" placeholder={i.t('common.searchPlaceholder')} bind:value={query} />
 			</label>
 		{/if}
 	</div>
@@ -62,43 +63,43 @@
 	{#if data.githubError}
 		<p class="notice">{data.githubError}</p>
 	{:else if filtered.length === 0}
-		<p class="muted">Kein Repository passt zu „{query}“.</p>
+		<p class="muted">{i.t('common.noRepoMatches', { query })}</p>
 	{:else}
 		<ul class="gh sheet">
 			{#each filtered as repo (repo.fullName)}
 				<li>
 					<div class="name">
 						<strong>{repo.fullName}</strong>
-						{#if repo.isPrivate}<span class="tag">privat</span>{/if}
+						{#if repo.isPrivate}<span class="tag">{i.t('common.private')}</span>{/if}
 						{#if repo.description}<p class="faint">{repo.description}</p>{/if}
 					</div>
 					{#if repo.added}
-						<a class="btn small" href="/repos/{repo.fullName}">Öffnen</a>
+						<a class="btn small" href="/repos/{repo.fullName}">{i.t('common.open')}</a>
 					{:else}
 						<form method="POST" action="?/add">
 							<input type="hidden" name="fullName" value={repo.fullName} />
-							<button class="btn small primary" type="submit">Hinzufügen</button>
+							<button class="btn small primary" type="submit">{i.t('common.add')}</button>
 						</form>
 					{/if}
 				</li>
 			{/each}
 		</ul>
 		{#if data.github.length > filtered.length && !query}
-			<p class="faint more">Die {filtered.length} zuletzt geänderten von {data.github.length} Repositories. Suche, um weitere zu finden.</p>
+			<p class="faint more">{i.t('common.moreRepos', { shown: filtered.length, total: data.github.length })}</p>
 		{/if}
 	{/if}
 
 	{#if data.hasToken}
 		<form method="POST" action="?/add" class="by-name sheet">
 			<label class="field">
-				<span>Repository nicht in der Liste?</span>
-				<input type="text" name="fullName" required placeholder="besitzer/name oder https://github.com/besitzer/name" />
+				<span>{i.t('common.repoNotListed')}</span>
+				<input type="text" name="fullName" required placeholder={i.t('common.repoNamePlaceholder')} />
 				<small>
-					Repositories von Organisationen erscheinen erst, wenn die Organisation Claudio freigegeben hat.
-					{#if data.grantUrl}<a href={data.grantUrl} target="_blank" rel="noopener noreferrer">Freigabe bei GitHub verwalten</a>{/if}
+					{i.t('common.orgReposHint')}
+					{#if data.grantUrl}<a href={data.grantUrl} target="_blank" rel="noopener noreferrer">{i.t('common.manageGrant')}</a>{/if}
 				</small>
 			</label>
-			<button class="btn primary" type="submit">Hinzufügen</button>
+			<button class="btn primary" type="submit">{i.t('common.add')}</button>
 		</form>
 	{/if}
 </section>

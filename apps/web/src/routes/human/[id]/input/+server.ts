@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { addHumanInput, getHumanRequest } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
+import { serverI18n } from '#lib/i18n/index.js';
 import type { RequestHandler } from './$types';
 
 const InputSchema = z.discriminatedUnion('type', [
@@ -14,12 +15,13 @@ const InputSchema = z.discriminatedUnion('type', [
 
 /** One click or keystroke from the live view; the worker replays it in the run's browser. */
 export const POST: RequestHandler = async ({ params, request, locals }) => {
+	const { t } = serverI18n(locals.locale);
 	const req = await getHumanRequest(db(), Number(params.id));
-	if (!req) error(404, 'Unbekannte Anfrage.');
+	if (!req) error(404, t('common.unknownRequest'));
 	await requireRepo(locals.user, req.repoId, 'write');
-	if (req.status !== 'open') error(409, 'Die Anfrage ist bereits erledigt.');
+	if (req.status !== 'open') error(409, t('common.requestClosed'));
 	const parsed = InputSchema.safeParse(await request.json().catch(() => null));
-	if (!parsed.success) error(400, 'Ungültige Eingabe.');
+	if (!parsed.success) error(400, t('common.invalidInput'));
 	await addHumanInput(db(), req.id, parsed.data, locals.user!.id);
 	return json({ ok: true });
 };

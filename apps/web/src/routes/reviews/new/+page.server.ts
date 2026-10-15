@@ -10,13 +10,14 @@ import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
 import { devFixtures } from '#lib/server/env.js';
 import { getPull, githubErrorMessage } from '#lib/server/github.js';
 import { createGithubClient } from '@claudio/github';
+import { serverI18n, type I18n } from '#lib/i18n/index.js';
 import type { Actions, PageServerLoad } from './$types';
 
-async function context(url: URL, user: App.Locals['user']) {
+async function context(url: URL, user: App.Locals['user'], t: I18n['t']) {
 	const fullName = url.searchParams.get('repo') ?? '';
 	const prNumber = Number(url.searchParams.get('pr'));
 	const { repo } = await requireRepo(user, fullName, 'write');
-	if (!Number.isInteger(prNumber) || prNumber <= 0) error(400, 'Pull-Request-Nummer fehlt.');
+	if (!Number.isInteger(prNumber) || prNumber <= 0) error(400, t('review.prNumberMissing'));
 	const roles = await listRoles(db(), repo.id);
 	if (!repo.dataConfirmed || roles.length === 0) redirect(303, `/repos/${repo.fullName}?tab=settings`);
 	if (!repo.anthropicKeyEnc && !keyOptional(repo)) redirect(303, `/repos/${repo.fullName}?tab=settings#anthropic`);
@@ -29,7 +30,7 @@ async function context(url: URL, user: App.Locals['user']) {
 		if (p.number === prNumber) pr = { title: p.title, headRef: p.headRef, headSha: null, url: p.url };
 	} else {
 		const token = await userToken(user!);
-		if (!token) prError = 'Ohne GitHub-Anmeldung kann Claudio den Pull Request nicht laden.';
+		if (!token) prError = t('review.prNeedsGithub');
 		else
 			try {
 				const p = await getPull(token, repo.fullName, prNumber);
@@ -42,7 +43,7 @@ async function context(url: URL, user: App.Locals['user']) {
 }
 
 /** Pre-fills the instance: the PR's GitHub deployment, the URL template, or the repo's default instance. */
-async function suggestedInstance(ctx: Awaited<ReturnType<typeof context>>, user: App.Locals['user']): Promise<{ url: string; source: string | null; note?: string }> {
+async function suggestedInstance(ctx: Awaited<ReturnType<typeof context>>, user: App.Locals['user'], t: I18n['t']): Promise<{ url: string; source: string | null; note?: string }> {
 	const { repo, pr, prNumber, fixture } = ctx;
 	const fallback = { url: repo.defaultInstanceUrl ?? '', source: null };
 	if (!pr) return fallback;
@@ -52,15 +53,16 @@ async function suggestedInstance(ctx: Awaited<ReturnType<typeof context>>, user:
 	if (!resolved || 'missing' in resolved) return fallback;
 	return {
 		url: resolved.url,
-		source: resolved.source === 'deployment' ? `aus der GitHub-Bereitstellung „${resolved.environment ?? settings.deploymentEnvironment}“` : 'aus der URL-Vorlage des Repositorys',
+		source: resolved.source === 'deployment' ? t('review.sourceDeployment', { env: resolved.environment ?? settings.deploymentEnvironment ?? '' }) : t('review.sourceTemplate'),
 		note: 'note' in resolved ? resolved.note : undefined
 	};
 }
 
 export const load: PageServerLoad = async ({ url, locals }) => {
-	const ctx = await context(url, locals.user);
+	const { t } = serverI18n(locals.locale);
+	const ctx = await context(url, locals.user, t);
 	const { repo, roles, prNumber, pr, prError } = ctx;
-	const instance = await suggestedInstance(ctx, locals.user);
+	const instance = await suggestedInstance(ctx, locals.user, t);
 	const tests = (await listTestScripts(db(), repo.id)).filter((t) => t.runInReviews);
 	return {
 		reviewTests: tests.map((t) => t.name),
@@ -77,8 +79,9 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 export const actions: Actions = {
 	default: async ({ url, request, locals }) => {
-		const { repo, prNumber, pr, fixture } = await context(url, locals.user);
-		if (!pr) return fail(400, { error: 'Der Pull Request konnte nicht geladen werden.' });
+		const { t } = serverI18n(locals.locale);
+		const { repo, prNumber, pr, fixture } = await context(url, locals.user, t);
+		if (!pr) return fail(400, { error: t('review.prLoadFailed') });
 		const f = await request.formData();
 		const parsed = ReviewRequestSchema.safeParse({
 			repo: repo.fullName,
@@ -96,7 +99,7 @@ export const actions: Actions = {
 		});
 		if (!parsed.success) {
 			const issue = parsed.error.issues[0];
-			const message = issue?.path[0] === 'instanceUrl' ? 'Gib die vollständige Adresse der Instanz an, z. B. https://pr-17.preview.example.de.' : (issue?.message ?? 'Eingaben prüfen.');
+			const message = issue?.path[0] === 'instanceUrl' ? t('review.instanceUrlInvalid') : (issue?.message ?? t('review.checkInput'));
 			return fail(400, { error: message });
 		}
 		const id = await createReview(db(), {

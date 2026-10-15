@@ -7,21 +7,12 @@
 	import { invalidateAll } from '$app/navigation';
 	import Severity from '#lib/components/Severity.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
-	import {
-		AC_LABEL,
-		BUDGET_LABEL,
-		CATEGORY_LABEL,
-		STATUS_LABEL,
-		STRICTNESS_LABEL,
-		VERDICT_LABEL,
-		formatDate,
-		formatDuration,
-		formatUsd,
-		isActive
-	} from '#lib/labels.js';
+	import { isActive } from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
+	const i = i18n();
 	let posting = $state(false);
 	const commentUrl = $derived((form && 'commented' in form ? form.commented : null) ?? data.review.commentUrl);
 	const commentError = $derived(form && 'error' in form && form.form === 'comment' ? form.error : null);
@@ -63,13 +54,13 @@
 
 <svelte:head><title>#{review.prNumber} {review.prTitle ?? ''} · Claudio</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{review.repo}?tab=reviews">Alle Reviews</a></p>
+<p class="crumb"><a href="/repos/{review.repo}?tab=reviews">{i.t('review.allReviews')}</a></p>
 <div class="title">
 	<h1>#{review.prNumber} {review.prTitle ?? ''}</h1>
 	{#if active}
 		<form method="POST" action="?/abort" use:enhance>
 			<button class="btn danger" type="submit" disabled={review.abortRequested}>
-				{review.abortRequested ? 'Wird abgebrochen …' : 'Review abbrechen'}
+				{review.abortRequested ? i.t('review.aborting') : i.t('review.abort')}
 			</button>
 		</form>
 	{/if}
@@ -77,25 +68,25 @@
 
 {#if report}
 	<!-- The verdict: the one loud element on the page. -->
-	<section class="stamp {report.verdict}" aria-label="Urteil">
+	<section class="stamp {report.verdict}" aria-label={i.t('review.verdict')}>
 		<div class="verdict">
-			<p class="word">{VERDICT_LABEL[report.verdict]}</p>
+			<p class="word">{i.labels.verdict[report.verdict]}</p>
 			<p class="why">
-				{acPassed} von {report.acceptanceCriteria.length} Akzeptanzkriterien erfüllt,
-				{counts.blocking === 0 ? 'kein blockierendes Finding' : counts.blocking === 1 ? 'ein blockierendes Finding' : `${counts.blocking} blockierende Findings`}{#if data.tests.length},
-					{testsActive ? `Regressionstests laufen (${testsPassed} von ${data.tests.length} bestanden)` : `${testsPassed} von ${data.tests.length} Regressionstests bestanden`}{/if}{#if review.status !== 'completed'}, Run: {STATUS_LABEL[review.status]}{/if}.
+				{i.t('review.whyAc', { passed: acPassed, total: report.acceptanceCriteria.length })}
+				{i.t('review.whyBlocking', { n: counts.blocking })}{#if data.tests.length},
+					{testsActive ? i.t('review.whyTestsRunning', { passed: testsPassed, total: data.tests.length }) : i.t('review.whyTestsDone', { passed: testsPassed, total: data.tests.length })}{/if}{#if review.status !== 'completed'}, {i.t('review.whyRun', { status: i.labels.status[review.status] ?? review.status })}{/if}.
 			</p>
 		</div>
 		<form class="strict" method="GET">
 			<label>
-				<span>Strenge</span>
+				<span>{i.t('review.strictness')}</span>
 				<select name="strictness" onchange={(e) => e.currentTarget.form?.requestSubmit()}>
-					{#each Object.entries(STRICTNESS_LABEL) as [value, label] (value)}
+					{#each Object.entries(i.labels.strictness) as [value, label] (value)}
 						<option {value} selected={value === data.strictness}>{label}</option>
 					{/each}
 				</select>
 			</label>
-			<noscript><button class="btn small" type="submit">Anwenden</button></noscript>
+			<noscript><button class="btn small" type="submit">{i.t('review.apply')}</button></noscript>
 		</form>
 	</section>
 {:else}
@@ -103,11 +94,11 @@
 		<StatusBadge status={review.status} />
 		<p class="muted">
 			{#if review.status === 'queued'}
-				Wartet auf den Worker. Läuft kein Worker, starte ihn mit <code>pnpm worker</code>.
+				{i.t('review.queuedHelp')} <code>pnpm worker</code>.
 			{:else if review.status === 'running'}
-				Claudio prüft gerade {review.instanceUrl}.
+				{i.t('review.runningHelp', { url: review.instanceUrl })}
 			{:else}
-				Dieser Review hat keinen Bericht erzeugt.
+				{i.t('review.noReportGenerated')}
 			{/if}
 		</p>
 	</section>
@@ -138,14 +129,14 @@
 		{#if report}
 			{#if report.summaryHtml}
 				<section class="block">
-					<h2>Zusammenfassung</h2>
+					<h2>{i.t('review.summary')}</h2>
 					<div class="prose">{@html report.summaryHtml}</div>
 				</section>
 			{/if}
 
 			{#if data.tests.length}
 				<section class="block">
-					<h2>Regressionstests</h2>
+					<h2>{i.t('review.regressionTests')}</h2>
 					<ul class="tests sheet">
 						{#each data.tests as t (t.id)}
 							<li>
@@ -161,12 +152,12 @@
 			{/if}
 
 			<section class="block">
-				<h2>Akzeptanzkriterien</h2>
+				<h2>{i.t('review.acceptanceCriteria')}</h2>
 				{#if report.acceptanceCriteria.length}
 					<ul class="ac sheet">
-						{#each report.acceptanceCriteria as ac, i (i)}
+						{#each report.acceptanceCriteria as ac, idx (idx)}
 							<li class={ac.status}>
-								<span class="ac-status">{AC_LABEL[ac.status]}</span>
+								<span class="ac-status">{i.labels.ac[ac.status]}</span>
 								<div>
 									<p class="criterion">{ac.criterion}</p>
 									{#if ac.notes}<p class="faint">{ac.notes}</p>{/if}
@@ -177,7 +168,7 @@
 												{#if ev?.url}
 													<button type="button" class="linkish" onclick={() => openEvidence(ev.url!, ev.label)}>{eid} {ev.label}</button>
 												{:else if ev?.expired}
-													<span class="faint" title="Screenshots werden nach 14 Tagen gelöscht">{eid} {ev.label} (gelöscht)</span>
+													<span class="faint" title={i.t('review.screenshotsExpire')}>{eid} {ev.label} {i.t('review.deleted')}</span>
 												{/if}
 											{/each}
 										</p>
@@ -187,43 +178,43 @@
 						{/each}
 					</ul>
 				{:else}
-					<p class="muted">Claudio hat keine Akzeptanzkriterien bewertet.</p>
+					<p class="muted">{i.t('review.noAcRated')}</p>
 				{/if}
 			</section>
 
 			<section class="block">
 				<div class="block-head">
-					<h2>Findings</h2>
+					<h2>{i.t('review.findings')}</h2>
 					{#if counts.dismissed > 0}
 						<label class="check small">
 							<input type="checkbox" bind:checked={showDismissed} />
-							<span>Verworfene zeigen ({counts.dismissed})</span>
+							<span>{i.t('review.showDismissed', { n: counts.dismissed })}</span>
 						</label>
 					{/if}
 				</div>
 				{#if report.findings.length === 0}
-					<p class="muted">Keine Findings.</p>
+					<p class="muted">{i.t('review.noFindings')}</p>
 				{/if}
 				{#each report.findings as f (f.id)}
 					{#if showDismissed || f.rating.status !== 'dismissed'}
 						<article class="finding sheet {f.rating.status}" class:blocking={f.blocking}>
 							<header>
 								<Severity severity={f.severity} />
-								<span class="cat">{CATEGORY_LABEL[f.category] ?? f.category}</span>
-								{#if f.blocking}<span class="blk">blockiert die Abnahme</span>{/if}
+								<span class="cat">{i.labels.category[f.category] ?? f.category}</span>
+								{#if f.blocking}<span class="blk">{i.t('review.blocksApproval')}</span>{/if}
 								<span class="fid faint">{f.id}</span>
 							</header>
 							<h3>{f.title}</h3>
 							<p class="desc">{f.description}</p>
 							{#if f.steps.length}
 								<ol class="steps">
-									{#each f.steps as step, i (i)}<li>{step}</li>{/each}
+									{#each f.steps as step, idx (idx)}<li>{step}</li>{/each}
 								</ol>
 							{/if}
 							{#if f.expected || f.actual}
 								<dl class="ea">
-									{#if f.expected}<dt>Erwartet</dt><dd>{f.expected}</dd>{/if}
-									{#if f.actual}<dt>Beobachtet</dt><dd>{f.actual}</dd>{/if}
+									{#if f.expected}<dt>{i.t('review.expected')}</dt><dd>{f.expected}</dd>{/if}
+									{#if f.actual}<dt>{i.t('review.observed')}</dt><dd>{f.actual}</dd>{/if}
 								</dl>
 							{/if}
 							{#if f.url}<p class="faint url">{f.url}</p>{/if}
@@ -237,8 +228,8 @@
 												<span>{eid} {ev.label}</span>
 											</button>
 										{:else if ev?.expired}
-											<div class="shot-expired" title="Screenshots werden nach 14 Tagen gelöscht">
-												<span>Screenshot gelöscht</span>
+											<div class="shot-expired" title={i.t('review.screenshotsExpire')}>
+												<span>{i.t('review.screenshotDeleted')}</span>
 												<span class="faint">{eid} {ev.label}</span>
 											</div>
 										{/if}
@@ -249,23 +240,23 @@
 							<form method="POST" action="?/rate" class="rate" use:enhance={() => ({ update }) => update({ reset: false })}>
 								<input type="hidden" name="findingId" value={f.id} />
 								<label class="comment">
-									<span class="visually-hidden">Kommentar zu {f.id}</span>
-									<input type="text" name="comment" value={f.rating.comment} placeholder="Begründung (beim Verwerfen merkt sich Claudio sie)" />
+									<span class="visually-hidden">{i.t('review.commentOn', { id: f.id })}</span>
+									<input type="text" name="comment" value={f.rating.comment} placeholder={i.t('review.reasonPlaceholder')} />
 								</label>
-								<div class="rate-buttons" role="group" aria-label="Bewertung">
+								<div class="rate-buttons" role="group" aria-label={i.t('review.rating')}>
 									<button class="btn small" class:on={f.rating.status === 'confirmed'} name="status" value="confirmed" aria-pressed={f.rating.status === 'confirmed'}>
-										Bestätigen
+										{i.t('review.confirm')}
 									</button>
 									<button class="btn small" class:on-dismiss={f.rating.status === 'dismissed'} name="status" value="dismissed" aria-pressed={f.rating.status === 'dismissed'}>
-										Verwerfen
+										{i.t('review.dismiss')}
 									</button>
 									{#if f.rating.status !== 'proposed'}
-										<button class="btn small" name="status" value="proposed">Zurücksetzen</button>
+										<button class="btn small" name="status" value="proposed">{i.t('review.reset')}</button>
 									{/if}
 								</div>
 								{#if f.rating.by}
 									<p class="faint rated">
-										{f.rating.status === 'confirmed' ? 'Bestätigt' : f.rating.status === 'dismissed' ? 'Verworfen' : 'Zurückgesetzt'} von {f.rating.by}{f.rating.at ? `, ${formatDate(f.rating.at)}` : ''}
+										{i.t(f.rating.status === 'confirmed' ? 'review.confirmedBy' : f.rating.status === 'dismissed' ? 'review.dismissedBy' : 'review.resetBy', { user: f.rating.by })}{f.rating.at ? `, ${i.formatDate(f.rating.at)}` : ''}
 									</p>
 								{/if}
 							</form>
@@ -276,23 +267,23 @@
 
 			{#if !review.fixture && review.status !== 'queued' && review.status !== 'running'}
 				<section class="block comment">
-					<h2>Kommentar im Pull Request</h2>
+					<h2>{i.t('review.prComment')}</h2>
 					{#if commentUrl}
-						<p class="notice ok">Kurzfassung gepostet. <a href={commentUrl} target="_blank" rel="noopener noreferrer">Kommentar auf GitHub öffnen</a></p>
+						<p class="notice ok">{i.t('review.commentPosted')} <a href={commentUrl} target="_blank" rel="noopener noreferrer">{i.t('review.openComment')}</a></p>
 					{:else}
 						<p class="muted">
-							Bewerte die Findings zuerst. Der Kommentar übernimmt die Strenge von oben und lässt verworfene Findings weg.
+							{i.t('review.commentHelp')}
 						</p>
 					{/if}
 					{#if commentError}<p class="notice error" role="alert">{commentError}</p>{/if}
 					<details class="sheet preview">
-						<summary>Vorschau</summary>
+						<summary>{i.t('review.preview')}</summary>
 						<div class="prose">{@html data.commentPreview}</div>
 					</details>
 					<form method="POST" action="?/comment" use:enhance={() => { posting = true; return async ({ update }) => { await update({ reset: false }); posting = false; }; }}>
 						<input type="hidden" name="strictness" value={data.strictness} />
 						<button class="btn {commentUrl ? '' : 'primary'}" type="submit" disabled={posting}>
-							{posting ? 'Wird gepostet …' : commentUrl ? 'Aktualisierte Kurzfassung erneut posten' : 'Kurzfassung in den PR posten'}
+							{posting ? i.t('review.posting') : commentUrl ? i.t('review.repost') : i.t('review.post')}
 						</button>
 					</form>
 				</section>
@@ -300,9 +291,9 @@
 
 			{#if report.errors.length}
 				<section class="block">
-					<h2>Probleme während des Runs</h2>
+					<h2>{i.t('review.runProblems')}</h2>
 					<ul class="errors">
-						{#each report.errors as err, i (i)}<li>{err}</li>{/each}
+						{#each report.errors as err, idx (idx)}<li>{err}</li>{/each}
 					</ul>
 				</section>
 			{/if}
@@ -311,13 +302,13 @@
 
 	<aside class="meta">
 		<dl>
-			<dt>Status</dt>
+			<dt>{i.t('review.status')}</dt>
 			<dd><StatusBadge status={review.status} verdict={report?.verdict ?? null} /></dd>
 			{#if report}
-				<dt>Pull Request</dt>
-				<dd><a href={report.pr.url} target="_blank" rel="noopener noreferrer">#{report.pr.number}</a> {report.pr.headRef} nach {report.pr.baseRef}</dd>
+				<dt>{i.t('review.pullRequest')}</dt>
+				<dd><a href={report.pr.url} target="_blank" rel="noopener noreferrer">#{report.pr.number}</a> {i.t('review.refs', { head: report.pr.headRef, base: report.pr.baseRef })}</dd>
 				{#if report.issues.length}
-					<dt>Tickets</dt>
+					<dt>{i.t('review.tickets')}</dt>
 					<dd>
 						{#each report.issues as issue (issue.number)}
 							<a href={issue.url} target="_blank" rel="noopener noreferrer">#{issue.number} {issue.title}</a><br />
@@ -325,48 +316,48 @@
 					</dd>
 				{/if}
 			{/if}
-			<dt>Instanz</dt>
+			<dt>{i.t('review.instance')}</dt>
 			<dd class="break">{review.instanceUrl}</dd>
-			<dt>Rollen</dt>
-			<dd>{review.request.roles.join(', ') || 'keine'}</dd>
-			<dt>Budget</dt>
-			<dd>{BUDGET_LABEL[review.request.budget]}</dd>
+			<dt>{i.t('review.roles')}</dt>
+			<dd>{review.request.roles.join(', ') || i.t('review.noRoles')}</dd>
+			<dt>{i.t('review.budget')}</dt>
+			<dd>{i.labels.budget[review.request.budget]}</dd>
 			{#if report}
-				<dt>Kosten</dt>
+				<dt>{i.t('review.costs')}</dt>
 				<dd>
-					{formatUsd(report.cost.usd)}<br />
+					{i.formatUsd(report.cost.usd)}<br />
 					<span class="faint">
-						{report.cost.turns} Züge, {report.cost.browserSteps} Browser-Schritte, {formatDuration(report.cost.durationMs)}
+						{i.t('review.costDetail', { turns: report.cost.turns, steps: report.cost.browserSteps, duration: i.formatDuration(report.cost.durationMs) })}
 					</span>
 				</dd>
 			{/if}
-			<dt>Gestartet</dt>
+			<dt>{i.t('review.started')}</dt>
 			<dd>
-				{formatDate(review.createdAt)}<br />
+				{i.formatDate(review.createdAt)}<br />
 				<span class="faint">
-					{review.trigger === 'comment' ? `per Kommentar /claudio review, im Namen von ${review.startedBy}` : review.trigger === 'label' ? `per Label claudio-review, im Namen von ${review.startedBy}` : review.trigger === 'push' ? `automatisch nach Push, im Namen von ${review.startedBy}` : review.trigger === 'deployment' ? `automatisch nach Bereitstellung der Instanz, im Namen von ${review.startedBy}` : `von ${review.startedBy}`}
+					{i.t(review.trigger === 'comment' ? 'review.byComment' : review.trigger === 'label' ? 'review.byLabel' : review.trigger === 'push' ? 'review.byPush' : review.trigger === 'deployment' ? 'review.byDeployment' : 'review.byUser', { user: review.startedBy })}
 				</span>
 			</dd>
 			{#if review.finishedAt}
-				<dt>Beendet</dt>
-				<dd>{formatDate(review.finishedAt)}</dd>
+				<dt>{i.t('review.finished')}</dt>
+				<dd>{i.formatDate(review.finishedAt)}</dd>
 			{/if}
 			{#if commentUrl}
-				<dt>PR-Kommentar</dt>
-				<dd><a href={commentUrl} target="_blank" rel="noopener noreferrer">auf GitHub</a></dd>
+				<dt>{i.t('review.prCommentMeta')}</dt>
+				<dd><a href={commentUrl} target="_blank" rel="noopener noreferrer">{i.t('review.onGithub')}</a></dd>
 			{/if}
 			{#if review.fixture}
-				<dt>Quelle</dt>
-				<dd>Demo-Fixture statt GitHub</dd>
+				<dt>{i.t('review.source')}</dt>
+				<dd>{i.t('review.demoSource')}</dd>
 			{/if}
 		</dl>
 		{#if report}
 			<div class="downloads">
-				<span class="faint">Bericht herunterladen</span>
-				<a href="/reviews/{review.id}/report.md?verbosity=tldr&strictness={data.strictness}">Kurzfassung (Markdown)</a>
-				<a href="/reviews/{review.id}/report.md?verbosity=normal&strictness={data.strictness}">Normal (Markdown)</a>
-				<a href="/reviews/{review.id}/report.md?verbosity=detailed&strictness={data.strictness}">Ausführlich (Markdown)</a>
-				{#if report.files.trace}<a href={report.files.trace}>Playwright-Trace</a>{/if}
+				<span class="faint">{i.t('review.downloadReport')}</span>
+				<a href="/reviews/{review.id}/report.md?verbosity=tldr&strictness={data.strictness}">{i.t('review.downloadTldr')}</a>
+				<a href="/reviews/{review.id}/report.md?verbosity=normal&strictness={data.strictness}">{i.t('review.downloadNormal')}</a>
+				<a href="/reviews/{review.id}/report.md?verbosity=detailed&strictness={data.strictness}">{i.t('review.downloadDetailed')}</a>
+				{#if report.files.trace}<a href={report.files.trace}>{i.t('review.trace')}</a>{/if}
 			</div>
 		{/if}
 	</aside>
@@ -378,8 +369,8 @@
 			<img src={lightbox.url} alt={lightbox.label} />
 			<figcaption>
 				{lightbox.label}
-				<a href={lightbox.url} target="_blank" rel="noopener noreferrer">In neuem Tab öffnen</a>
-				<button class="btn small" type="button" onclick={() => dialog?.close()}>Schließen</button>
+				<a href={lightbox.url} target="_blank" rel="noopener noreferrer">{i.t('review.openInNewTab')}</a>
+				<button class="btn small" type="button" onclick={() => dialog?.close()}>{i.t('review.close')}</button>
 			</figcaption>
 		</figure>
 	{/if}

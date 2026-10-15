@@ -3,13 +3,14 @@ import { StrictnessSchema, VerbositySchema, renderMarkdown } from '@claudio/core
 import { getReview, listFindings } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
+import { serverI18n } from '#lib/i18n/index.js';
 import type { RequestHandler } from './$types';
 
 /** The report as Markdown, with the strictness and verbosity chosen in the UI and without dismissed findings. */
 export const GET: RequestHandler = async ({ params, url, locals }) => {
 	const id = Number(params.id);
 	const review = Number.isInteger(id) ? await getReview(db(), id) : undefined;
-	if (!review?.report) error(404, 'Für diesen Review gibt es keinen Bericht.');
+	if (!review?.report) error(404, serverI18n(locals.locale).t('review.reportNotFound'));
 	await requireRepo(locals.user, review.repoId, 'read');
 	const strictness = StrictnessSchema.catch(review.report.request.strictness).parse(url.searchParams.get('strictness'));
 	const verbosity = VerbositySchema.catch(review.report.request.verbosity).parse(url.searchParams.get('verbosity'));

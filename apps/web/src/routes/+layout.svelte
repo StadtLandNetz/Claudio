@@ -2,9 +2,12 @@
 	import '../app.css';
 	import favicon from '#lib/assets/favicon.svg';
 	import { page } from '$app/state';
+	import LocaleSwitch from '#lib/components/LocaleSwitch.svelte';
+	import { provideI18n } from '#lib/i18n/index.js';
 	import type { LayoutProps } from './$types';
 
 	let { children, data }: LayoutProps = $props();
+	const i = provideI18n(() => data.locale);
 	const repos = $derived(data.repos ?? []);
 
 	// The repository the current page belongs to, whatever kind of page it is.
@@ -16,10 +19,10 @@
 	});
 
 	const nav = [
-		{ href: '/', label: 'Übersicht', match: (p: string) => p === '/' || p.startsWith('/reviews') },
-		{ href: '/kosten', label: 'Kosten', match: (p: string) => p === '/kosten' },
-		{ href: '/repos', label: 'Repositories', match: (p: string) => p === '/repos' }
-	];
+		{ href: '/', label: 'common.navOverview', match: (p: string) => p === '/' || p.startsWith('/reviews') },
+		{ href: '/kosten', label: 'common.navCosts', match: (p: string) => p === '/kosten' },
+		{ href: '/repos', label: 'common.navRepos', match: (p: string) => p === '/repos' }
+	] as const;
 </script>
 
 <svelte:head>
@@ -30,17 +33,17 @@
 {#if data.user}
 	<div class="shell">
 		<header class="side">
-			<a class="mark" href="/" aria-label="Claudio, zur Übersicht">
+			<a class="mark" href="/" aria-label={i.t('common.homeLabel')}>
 				<img src={favicon} alt="" width="26" height="26" />
 				<span>Claudio</span>
 			</a>
-			<nav aria-label="Hauptnavigation">
+			<nav aria-label={i.t('common.mainNav')}>
 				{#each nav as item (item.href)}
-					<a href={item.href} aria-current={item.match(page.url.pathname) ? 'page' : undefined}>{item.label}</a>
+					<a href={item.href} aria-current={item.match(page.url.pathname) ? 'page' : undefined}>{i.t(item.label)}</a>
 				{/each}
 			</nav>
 			{#if repos.length}
-				<ul class="repo-list" aria-label="Eingerichtete Repositories">
+				<ul class="repo-list" aria-label={i.t('common.setUpRepos')}>
 					{#each repos as repo (repo.fullName)}
 						{@const [owner, name] = repo.fullName.split('/')}
 						<li>
@@ -51,29 +54,30 @@
 					{/each}
 				</ul>
 			{/if}
-			<a class="btn add" href="/repos#hinzufuegen">Repository hinzufügen</a>
+			<a class="btn add" href="/repos#hinzufuegen">{i.t('common.addRepo')}</a>
+			<div class="prefs"><LocaleSwitch /></div>
 			<div class="me">
 				{#if data.user.avatarUrl}
 					<img src={data.user.avatarUrl} alt="" width="28" height="28" />
 				{/if}
 				<span class="who" title={data.user.name ?? data.user.login}>{data.user.login}</span>
 				<form method="POST" action="/auth/logout">
-					<button class="logout" type="submit">Abmelden</button>
+					<button class="logout" type="submit">{i.t('common.signOut')}</button>
 				</form>
 			</div>
 		</header>
 		<main>
 			{#if data.authExpired}
 				<div class="notice error expired" role="alert">
-					Deine GitHub-Anmeldung ist abgelaufen. Ohne sie kann Claudio deine Rechte nicht prüfen und zeigt nur, was zuletzt bekannt war.
-					<form method="POST" action="/auth/logout"><button class="btn small" type="submit">Neu anmelden</button></form>
+					{i.t('common.authExpired')}
+					<form method="POST" action="/auth/logout"><button class="btn small" type="submit">{i.t('common.signInAgain')}</button></form>
 				</div>
 			{/if}
 			{#each (data.waiting ?? []).filter((w) => w.href !== page.url.pathname) as w (w.id)}
 				<a class="waiting" href={w.href}>
 					<span class="pulse" aria-hidden="true"></span>
-					<span><strong>Claudio wartet auf dich:</strong> {w.reason} <span class="faint">({w.repo})</span></span>
-					<span class="go">Öffnen</span>
+					<span><strong>{i.t('common.waitingForYou')}</strong> {w.reason} <span class="faint">({w.repo})</span></span>
+					<span class="go">{i.t('common.open')}</span>
 				</a>
 			{/each}
 			{#if currentRepo}
@@ -84,7 +88,7 @@
 				<div class="repobar">
 					{#if !onRepoPage}<a class="repo-name" href="/repos/{currentRepo}">{currentRepo}</a>{/if}
 					{#if info?.onGithub}
-						<a class="btn small" href="https://github.com/{currentRepo}" target="_blank" rel="noopener noreferrer">Auf GitHub</a>
+						<a class="btn small" href="https://github.com/{currentRepo}" target="_blank" rel="noopener noreferrer">{i.t('common.onGithub')}</a>
 					{/if}
 				</div>
 				{/if}
@@ -236,8 +240,12 @@
 		color: var(--petrol);
 		text-decoration: underline;
 	}
-	.me {
+	.prefs {
 		margin-top: auto;
+		padding: 0 0.5rem;
+	}
+	.me {
+		margin-top: -0.75rem;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
@@ -307,8 +315,12 @@
 			flex-wrap: wrap;
 			gap: 0.25rem;
 		}
-		.me {
+		.prefs {
 			margin: 0 0 0 auto;
+			padding: 0;
+		}
+		.me {
+			margin: 0;
 		}
 		.who {
 			display: none;

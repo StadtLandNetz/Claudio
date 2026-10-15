@@ -5,6 +5,7 @@ import { userToken, type SessionUser } from './auth.js';
 import { db } from './db.js';
 import { DEMO_REPO } from './demo.js';
 import { devFixtures } from './env.js';
+import { requestI18n } from './i18n.js';
 
 /** GitHub permissions are cached this long; changes on GitHub show up after that at the latest. */
 const TTL_MS = 15 * 60_000;
@@ -76,23 +77,19 @@ export async function visibleRepos(user: SessionUser): Promise<{ repos: Repo[]; 
 	return { repos: all.filter((r) => atLeast(levels.get(r.id) ?? 'none', 'read')), levels, authExpired: Boolean(levels.authExpired) };
 }
 
-const NEED: Record<AccessLevel, string> = {
-	none: '',
-	read: 'Lesezugriff',
-	write: 'Schreibrechte',
-	admin: 'Admin-Rechte'
-};
+const NEED = { none: 'system.needNone', read: 'system.needRead', write: 'system.needWrite', admin: 'system.needAdmin' } as const;
 
 /**
  * Loads a repository and checks the user's level. Without read access the
  * repository does not exist for them (404); with too little access, 403.
  */
 export async function requireRepo(user: SessionUser | null, ref: number | string, min: AccessLevel = 'read'): Promise<{ repo: Repo; level: AccessLevel }> {
-	if (!user) error(401, 'Nicht angemeldet');
+	const { t } = requestI18n();
+	if (!user) error(401, t('system.notSignedIn'));
 	const repo = typeof ref === 'number' ? await getRepoById(db(), ref) : await getRepo(db(), ref);
-	if (!repo) error(404, 'Nicht gefunden.');
+	if (!repo) error(404, t('system.notFound'));
 	const level = await accessTo(user, repo);
-	if (!atLeast(level, 'read')) error(404, 'Nicht gefunden.');
-	if (!atLeast(level, min)) error(403, `Dafür brauchst du ${NEED[min]} am Repository ${repo.fullName} auf GitHub.`);
+	if (!atLeast(level, 'read')) error(404, t('system.notFound'));
+	if (!atLeast(level, min)) error(403, t('system.needAccess', { need: t(NEED[min]), repo: repo.fullName }));
 	return { repo, level };
 }

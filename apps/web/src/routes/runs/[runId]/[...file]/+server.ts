@@ -5,6 +5,7 @@ import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { runsRoot } from '#lib/server/env.js';
 import { contentType, resolveRunFile } from '#lib/server/files.js';
+import { serverI18n } from '#lib/i18n/index.js';
 import type { RequestHandler } from './$types';
 
 /**
@@ -12,11 +13,12 @@ import type { RequestHandler } from './$types';
  * everything else, and screenshots of a run still in progress, from the run directory.
  */
 export const GET: RequestHandler = async ({ params, locals }) => {
+	const { t } = serverI18n(locals.locale);
 	const path = resolveRunFile(runsRoot, params.runId, params.file);
-	if (!path) error(404, 'Datei nicht gefunden');
+	if (!path) error(404, t('common.fileNotFound'));
 	// Files belong to a run, the run to a repository: same access rule as the run's page.
 	const repoId = await repoIdOfRun(db(), params.runId);
-	if (repoId === null) error(404, 'Datei nicht gefunden');
+	if (repoId === null) error(404, t('common.fileNotFound'));
 	await requireRepo(locals.user, repoId, 'read');
 
 	const stored = await getArtifact(db(), params.runId, params.file);
@@ -29,7 +31,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 		try {
 			body = await readFile(path);
 		} catch {
-			error(404, 'Datei nicht gefunden (Screenshots werden nach 14 Tagen gelöscht)');
+			error(404, t('common.fileExpired'));
 		}
 		type = contentType(path);
 	}

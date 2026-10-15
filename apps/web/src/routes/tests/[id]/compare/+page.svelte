@@ -1,17 +1,18 @@
 <script lang="ts">
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
-	import { MODE_LABEL, formatDate, formatDuration, formatUsd } from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+	const i = i18n();
 	const runs = $derived([data.a, data.b]);
 	const same = (x: { text: string } | null, y: { text: string } | null) => x?.text === y?.text;
 </script>
 
-<svelte:head><title>Vergleich · {data.script.name} · Claudio</title></svelte:head>
+<svelte:head><title>{i.t('test.comparePageTitle', { name: data.script.name })}</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{data.script.repo}?tab=tests">Tests</a> / <a href="/tests/{data.script.id}">{data.script.name}</a></p>
-<h1>Läufe vergleichen</h1>
+<p class="crumb"><a href="/repos/{data.script.repo}?tab=tests">{i.t('test.tests')}</a> / <a href="/tests/{data.script.id}">{data.script.name}</a></p>
+<h1>{i.t('test.compareRuns')}</h1>
 
 <div class="sheet table">
 	<table class="list cmp">
@@ -19,31 +20,31 @@
 			<tr>
 				<th></th>
 				{#each runs as run (run.id)}
-					<th><a href="/test-runs/{run.id}">Lauf vom {formatDate(run.createdAt)}</a></th>
+					<th><a href="/test-runs/{run.id}">{i.t('test.runFrom', { date: i.formatDate(run.createdAt) })}</a></th>
 				{/each}
 			</tr>
 		</thead>
 		<tbody>
 			<tr>
-				<th scope="row">Ergebnis</th>
+				<th scope="row">{i.t('test.colResult')}</th>
 				{#each runs as run (run.id)}<td><OutcomeBadge status={run.status} outcome={run.outcome} healed={run.healed} /></td>{/each}
 			</tr>
 			<tr>
-				<th scope="row">Art</th>
-				{#each runs as run (run.id)}<td>{run.mode ? MODE_LABEL[run.mode] : '–'}{run.mode === 'replay' && run.stepsVersion ? ` von Version ${run.stepsVersion}` : ''}</td>{/each}
+				<th scope="row">{i.t('test.colKind')}</th>
+				{#each runs as run (run.id)}<td>{run.mode ? i.labels.mode[run.mode] : '–'}{run.mode === 'replay' && run.stepsVersion ? i.t('test.fromVersion', { version: run.stepsVersion }) : ''}</td>{/each}
 			</tr>
 			<tr>
-				<th scope="row">Dauer, Kosten</th>
-				{#each runs as run (run.id)}<td>{run.durationMs !== null ? formatDuration(run.durationMs) : '–'}, {formatUsd(run.costUsd)}</td>{/each}
+				<th scope="row">{i.t('test.durationCost')}</th>
+				{#each runs as run (run.id)}<td>{run.durationMs !== null ? i.formatDuration(run.durationMs) : '–'}, {i.formatUsd(run.costUsd)}</td>{/each}
 			</tr>
 			<tr>
-				<th scope="row">Prüf-Agent</th>
+				<th scope="row">{i.t('test.judge')}</th>
 				{#each runs as run (run.id)}
 					<td>
 						{#if run.judge}
-							{run.judge.passed ? 'Erwartung erfüllt' : 'Nicht erfüllt'} ({Math.round(run.judge.confidence * 100)} %)
+							{run.judge.passed ? i.t('test.expectationMet') : i.t('test.expectationNotMetShort')} ({Math.round(run.judge.confidence * 100)} %)
 							{#each run.judge.deviations as d, i (i)}<span class="dev">{d}</span>{/each}
-						{:else}<span class="faint">nicht nötig</span>{/if}
+						{:else}<span class="faint">{i.t('test.notNeeded')}</span>{/if}
 					</td>
 				{/each}
 			</tr>
@@ -51,10 +52,10 @@
 	</table>
 </div>
 
-<h2 class="h">Schritte</h2>
+<h2 class="h">{i.t('test.steps')}</h2>
 <div class="sheet table">
 	<table class="list cmp steps">
-		<thead><tr><th class="num">#</th><th>Lauf A</th><th>Lauf B</th></tr></thead>
+		<thead><tr><th class="num">#</th><th>{i.t('test.runA')}</th><th>{i.t('test.runB')}</th></tr></thead>
 		<tbody>
 			{#each data.rows as row, i (i)}
 				<tr class:diff={!same(row.a, row.b) || row.a?.ok !== row.b?.ok}>
@@ -75,13 +76,13 @@
 	</table>
 </div>
 
-<h2 class="h">Endzustand</h2>
+<h2 class="h">{i.t('test.finalState')}</h2>
 <div class="shots">
 	{#each runs as run (run.id)}
 		{#if run.finalShot}
-			<a href={run.finalShot} target="_blank" rel="noopener noreferrer"><img src={run.finalShot} alt="Endzustand des Laufs vom {formatDate(run.createdAt)}" /></a>
+			<a href={run.finalShot} target="_blank" rel="noopener noreferrer"><img src={run.finalShot} alt={i.t('test.finalStateAlt', { date: i.formatDate(run.createdAt) })} /></a>
 		{:else}
-			<p class="faint">Kein Screenshot vorhanden (Screenshots werden nach 14 Tagen gelöscht).</p>
+			<p class="faint">{i.t('test.noScreenshot')}</p>
 		{/if}
 	{/each}
 </div>

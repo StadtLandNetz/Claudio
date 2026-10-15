@@ -1,4 +1,5 @@
 import { Octokit } from 'octokit';
+import { requestI18n } from './i18n.js';
 
 export type GithubRepo = {
 	fullName: string;
@@ -97,9 +98,10 @@ export async function fetchUserOrgs(token: string): Promise<string[]> {
 
 /** Human-readable message for GitHub API errors (expired token, missing access). */
 export function githubErrorMessage(e: unknown): string {
+	const { t } = requestI18n();
 	const status = (e as { status?: number }).status;
-	if (status === 401) return 'Dein GitHub-Zugang ist abgelaufen. Melde dich ab und wieder an.';
-	if (status === 403) return 'GitHub verweigert den Zugriff (fehlende Rechte oder Rate-Limit).';
-	if (status === 404) return 'GitHub kennt dieses Repository nicht oder du hast keinen Zugriff.';
-	return `GitHub-Fehler: ${(e as Error).message}`;
+	if (status === 401) return t('system.githubExpired');
+	if (status === 403) return t('system.githubForbidden');
+	if (status === 404) return t('system.githubNotFound');
+	return t('system.githubError', { message: (e as Error).message });
 }

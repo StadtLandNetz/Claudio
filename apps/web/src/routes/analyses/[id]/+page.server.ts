@@ -6,19 +6,20 @@ import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { runEvidenceFromDisk, runFindingsFromDisk, withAvailability } from '#lib/server/run-files.js';
 import { renderMarkdown } from '#lib/markdown.js';
+import { serverI18n } from '#lib/i18n/index.js';
 import type { Actions, PageServerLoad } from './$types';
 
-async function loadAnalysis(idParam: string, user: App.Locals['user'], min: AccessLevel = 'read') {
+async function loadAnalysis(idParam: string, locals: App.Locals, min: AccessLevel = 'read') {
 	const id = Number(idParam);
 	const analysis = Number.isInteger(id) ? await getAnalysis(db(), id) : undefined;
-	if (!analysis) error(404, 'Diese Analyse gibt es nicht.');
+	if (!analysis) error(404, serverI18n(locals.locale).t('analysis.notFound'));
 	// Visible only with access to its repository on GitHub.
-	await requireRepo(user, analysis.repoId, min);
+	await requireRepo(locals.user, analysis.repoId, min);
 	return analysis;
 }
 
 export const load: PageServerLoad = async ({ params, locals }) => {
-	const a = await loadAnalysis(params.id, locals.user, 'read');
+	const a = await loadAnalysis(params.id, locals, 'read');
 	const [events, docs] = await Promise.all([eventsSince(db(), { analysisId: a.id }, 0, 5000), knowledgeDocsOf(db(), a.id)]);
 	return {
 		analysis: {
@@ -50,7 +51,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 export const actions: Actions = {
 	abort: async ({ params, locals }) => {
-		const a = await loadAnalysis(params.id, locals.user, 'write');
+		const a = await loadAnalysis(params.id, locals, 'write');
 		await requestAnalysisAbort(db(), a.id);
 		return { aborted: true };
 	}

@@ -6,9 +6,11 @@ import { db } from '#lib/server/db.js';
 import { createDemoRepo, DEMO_REPO } from '#lib/server/demo.js';
 import { devFixtures, githubOAuthConfig } from '#lib/server/env.js';
 import { getRepoInfo, githubErrorMessage, listUserRepos, type GithubRepo } from '#lib/server/github.js';
+import { serverI18n } from '#lib/i18n/index.js';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
+	const { t } = serverI18n(locals.locale);
 	const { repos } = await visibleRepos(locals.user!);
 	const reviews = await listReviews(db(), { limit: 500, repoIds: repos.map((r) => r.id) });
 	const lastReview = new Map<number, Date>();
@@ -24,7 +26,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			githubError = githubErrorMessage(e);
 		}
 	} else {
-		githubError = 'Du bist ohne GitHub angemeldet. Melde dich mit GitHub an, um deine Repositories zu laden.';
+		githubError = t('common.noGithubSession');
 	}
 
 	const added = new Set(repos.map((r) => r.fullName));
@@ -46,27 +48,28 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 export const actions: Actions = {
 	add: async ({ request, locals }) => {
+		const { t } = serverI18n(locals.locale);
 		// Accepts owner/name or a GitHub URL.
 		const fullName = String((await request.formData()).get('fullName') ?? '')
 			.trim()
 			.replace(/^https?:\/\/github\.com\//i, '')
 			.replace(/\.git$/i, '')
 			.replace(/\/+$/, '');
-		if (!/^[\w.-]+\/[\w.-]+$/.test(fullName)) return fail(400, { error: 'Gib das Repository als besitzer/name an.' });
+		if (!/^[\w.-]+\/[\w.-]+$/.test(fullName)) return fail(400, { error: t('common.repoNameInvalid') });
 		const token = await userToken(locals.user!);
-		if (!token) return fail(400, { error: 'Zum Hinzufügen brauchst du eine Anmeldung mit GitHub.' });
+		if (!token) return fail(400, { error: t('common.addNeedsGithub') });
 		let info;
 		try {
 			info = await getRepoInfo(token, fullName);
 		} catch (e) {
 			return fail(400, { error: githubErrorMessage(e) });
 		}
-		if (!info.canWrite) return fail(403, { error: 'Zum Einrichten in Claudio brauchst du Schreibrechte an diesem Repository auf GitHub.' });
+		if (!info.canWrite) return fail(403, { error: t('common.addNeedsWrite') });
 		await addRepo(db(), { fullName: info.fullName, isPrivate: info.isPrivate, defaultBranch: info.defaultBranch, createdBy: locals.user!.id });
 		redirect(303, `/repos/${info.fullName}?tab=settings&new=1`);
 	},
 	demo: async ({ locals }) => {
-		if (!devFixtures()) return fail(404, { error: 'Die Demo ist nicht aktiviert.' });
+		if (!devFixtures()) return fail(404, { error: serverI18n(locals.locale).t('common.demoDisabled') });
 		await createDemoRepo(db(), locals.user!.id);
 		redirect(303, `/repos/${DEMO_REPO}`);
 	}

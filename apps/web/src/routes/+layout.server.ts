@@ -6,12 +6,13 @@ import { devFixtures } from '#lib/server/env.js';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ locals }) => {
-	if (!locals.user) return { user: null, repos: [], waiting: [], authExpired: false };
+	if (!locals.user) return { locale: locals.locale, user: null, repos: [], waiting: [], authExpired: false };
 	const [{ repos, authExpired }, allWaiting] = await Promise.all([visibleRepos(locals.user), listOpenHumanRequests(db())]);
 	const visible = new Set(repos.map((r) => r.id));
 	const waiting = allWaiting.filter((w) => visible.has(w.repoId));
 	const runPath = { review: 'reviews', analysis: 'analyses', test: 'test-runs' } as const;
 	return {
+		locale: locals.locale,
 		user: locals.user,
 		authExpired,
 		// onGithub: false for the offline demo repo, which does not exist on GitHub.

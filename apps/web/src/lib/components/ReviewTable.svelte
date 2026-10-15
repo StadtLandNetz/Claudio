@@ -1,22 +1,24 @@
 <script lang="ts">
 	import StatusBadge from './StatusBadge.svelte';
-	import { formatDate, formatUsd, isActive } from '#lib/labels.js';
+	import { isActive } from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
 	import type { ReviewSummary } from '#lib/types.js';
 
 	let { reviews, showRepo = true }: { reviews: ReviewSummary[]; showRepo?: boolean } = $props();
+	const i = i18n();
 </script>
 
 <div class="scroll">
 	<table class="list">
 		<thead>
 			<tr>
-				<th>Pull Request</th>
-				<th>Ergebnis</th>
-				<th class="num">Kriterien</th>
-				<th class="num">Findings</th>
-				<th class="num">Tests</th>
-				<th class="num">Kosten</th>
-				<th>Gestartet</th>
+				<th>{i.t('review.pullRequest')}</th>
+				<th>{i.t('review.colResult')}</th>
+				<th class="num">{i.t('review.colCriteria')}</th>
+				<th class="num">{i.t('review.colFindings')}</th>
+				<th class="num">{i.t('review.colTests')}</th>
+				<th class="num">{i.t('review.costs')}</th>
+				<th>{i.t('review.started')}</th>
 			</tr>
 		</thead>
 		<tbody>
@@ -32,14 +34,14 @@
 					<td class="num">{r.acTotal ? `${r.acPassed} / ${r.acTotal}` : '–'}</td>
 					<td class="num">
 						{#if r.status === 'completed' || r.findings > 0}
-							{r.findings}{#if r.blocking > 0}, <span class="blocking">{r.blocking} blockierend</span>{/if}
+							{r.findings}{#if r.blocking > 0}, <span class="blocking">{i.t('review.nBlocking', { n: r.blocking })}</span>{/if}
 						{:else}–{/if}
 					</td>
 					<td class="num">{r.testsTotal ? `${r.testsPassed} / ${r.testsTotal}` : '–'}</td>
-					<td class="num">{formatUsd(r.costUsd)}</td>
+					<td class="num">{i.formatUsd(r.costUsd)}</td>
 					<td class="when">
-						{formatDate(r.createdAt)}
-						<span class="faint">von {r.startedBy}</span>
+						{i.formatDate(r.createdAt)}
+						<span class="faint">{i.t('review.byUser', { user: r.startedBy })}</span>
 					</td>
 				</tr>
 			{/each}

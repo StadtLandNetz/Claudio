@@ -31,7 +31,7 @@ import {
 	updateRepoSettings
 } from '@claudio/db';
 import { atLeast, requireRepo, visibleRepos } from '#lib/server/access.js';
-import { NO_KEY_MESSAGE, checkAnthropicKey, keyOptional } from '#lib/server/anthropic.js';
+import { checkAnthropicKey, keyOptional, noKeyMessage } from '#lib/server/anthropic.js';
 import { userToken } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
@@ -42,6 +42,7 @@ import { renderMarkdown } from '#lib/markdown.js';
 import { devFixtures } from '#lib/server/env.js';
 import { githubErrorMessage, listOpenPulls, type GithubPull } from '#lib/server/github.js';
 import { summarize } from '#lib/server/summary.js';
+import { type I18n, serverI18n } from '#lib/i18n/index.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /** The repo of this page, if the user has at least `min` access on GitHub (404 / 403 otherwise). */
@@ -50,6 +51,7 @@ async function loadRepo(params: { owner: string; name: string }, user: App.Local
 }
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
+	const { t } = serverI18n(locals.locale);
 	const { repo, level } = await requireRepo(locals.user, `${params.owner}/${params.name}`, 'read');
 	const [roles, reviews] = await Promise.all([listRoles(db(), repo.id), listReviews(db(), { repoId: repo.id, limit: 100 })]);
 	const [dismissed, reviewTests] = await Promise.all([
@@ -66,7 +68,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		];
 	} else {
 		const token = await userToken(locals.user!);
-		if (!token) pullsError = 'Ohne GitHub-Anmeldung kann Claudio keine Pull Requests laden.';
+		if (!token) pullsError = t('repo.pullsNoToken');
 		else
 			try {
 				pulls = await listOpenPulls(token, repo.fullName);
@@ -102,7 +104,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		webhook = {
 			id: repo.webhookId,
 			ok: code === null ? null : code >= 200 && code < 300,
-			status: info ? (code ? `Letzte Zustellung: HTTP ${code}${info.lastResponse?.message ? ` (${info.lastResponse.message})` : ''}` : 'Noch keine Zustellung') : 'Status nicht abrufbar',
+			status: info
+				? code
+					? t('repo.webhookLastDelivery', { code, detail: info.lastResponse?.message ? ` (${info.lastResponse.message})` : '' })
+					: t('repo.webhookNoDelivery')
+				: t('repo.webhookStatusUnavailable'),
 			by: owner?.login ?? null
 		};
 	}
@@ -191,7 +197,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		lessons: repo.lessons ?? [],
 		learningsInPrompt: LEARNINGS_IN_PROMPT,
 		learnings: (await listLearnings(db(), repo.id)).map((l) => {
-			const kind = { review: ['reviews', 'Review'], analysis: ['analyses', 'Analyse'], test: ['test-runs', 'Testlauf'] }[l.runKind];
+			const kind = { review: ['reviews', t('repo.sourceReview')], analysis: ['analyses', t('repo.sourceAnalysis')], test: ['test-runs', t('repo.sourceTest')] }[l.runKind];
 			return { id: l.id, text: l.text, at: l.createdAt, source: `${kind[1]} #${l.runRefId}`, href: `/${kind[0]}/${l.runRefId}` };
 		}),
 		tests: tests.map((t) => ({
@@ -217,22 +223,24 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 const text = (v: FormDataEntryValue | null) => String(v ?? '').trim();
 
-const RoleForm = z.object({
-	name: z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/, 'Rollenname: Kleinbuchstaben, Ziffern, - oder _, beginnt mit einem Buchstaben.'),
-	description: z.string().max(300),
-	username: z.string().max(300),
-	password: z.string().max(300),
-	loginPath: z.string().regex(/^\//, 'Der Login-Pfad beginnt mit /.'),
-	successUrlContains: z.string().max(300),
-	recipe: z.string()
-});
+const roleForm = (t: I18n['t']) =>
+	z.object({
+		name: z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/, t('repo.roleNameInvalid')),
+		description: z.string().max(300),
+		username: z.string().max(300),
+		password: z.string().max(300),
+		loginPath: z.string().regex(/^\//, t('repo.loginPathInvalid')),
+		successUrlContains: z.string().max(300),
+		recipe: z.string()
+	});
 
 export const actions: Actions = {
 	settings: async ({ params, request, locals }) => {
+		const { t } = serverI18n(locals.locale);
 		const repo = await loadRepo(params, locals.user, 'admin');
 		const f = await request.formData();
 		const defaultInstanceUrl = text(f.get('defaultInstanceUrl'));
-		if (defaultInstanceUrl && !URL.canParse(defaultInstanceUrl)) return fail(400, { error: 'Die Standard-URL ist keine gültige Adresse.', form: 'settings' });
+		if (defaultInstanceUrl && !URL.canParse(defaultInstanceUrl)) return fail(400, { error: t('repo.defaultUrlInvalid'), form: 'settings' });
 		const hosts = parseHostList(text(f.get('extraAllowedHosts')));
 		await updateRepoSettings(db(), repo.id, {
 			notes: text(f.get('notes')) || null,
@@ -244,17 +252,18 @@ export const actions: Actions = {
 	},
 
 	role: async ({ params, request, locals }) => {
+		const { t } = serverI18n(locals.locale);
 		const repo = await loadRepo(params, locals.user, 'admin');
 		const f = await request.formData();
-		const parsed = RoleForm.safeParse(Object.fromEntries(['name', 'description', 'username', 'password', 'loginPath', 'successUrlContains', 'recipe'].map((k) => [k, text(f.get(k))])));
-		if (!parsed.success) return fail(400, { error: parsed.error.issues[0]?.message ?? 'Eingaben prüfen.', form: 'role' });
+		const parsed = roleForm(t).safeParse(Object.fromEntries(['name', 'description', 'username', 'password', 'loginPath', 'successUrlContains', 'recipe'].map((k) => [k, text(f.get(k))])));
+		if (!parsed.success) return fail(400, { error: parsed.error.issues[0]?.message ?? t('repo.checkInput'), form: 'role' });
 		const v = parsed.data;
 		let recipe = null;
 		if (v.recipe) {
 			try {
 				recipe = z.array(LoginStepSchema).parse(JSON.parse(v.recipe));
 			} catch {
-				return fail(400, { error: 'Das Login-Rezept ist kein gültiges JSON-Array aus Login-Schritten.', form: 'role' });
+				return fail(400, { error: t('repo.recipeInvalid'), form: 'role' });
 			}
 		}
 		try {
@@ -280,12 +289,13 @@ export const actions: Actions = {
 	},
 
 	analyze: async ({ params, request, locals }) => {
+		const { t } = serverI18n(locals.locale);
 		const repo = await loadRepo(params, locals.user, 'write');
 		const roles = await listRoles(db(), repo.id);
-		if (!repo.dataConfirmed || roles.length === 0) return fail(400, { error: 'Richte zuerst Rollen und die Datenschutz-Bestätigung ein.', form: 'analyze' });
-		if (!repo.anthropicKeyEnc && !keyOptional(repo)) return fail(400, { error: NO_KEY_MESSAGE, form: 'analyze' });
+		if (!repo.dataConfirmed || roles.length === 0) return fail(400, { error: t('repo.analyzeNeedsSetup'), form: 'analyze' });
+		if (!repo.anthropicKeyEnc && !keyOptional(repo)) return fail(400, { error: noKeyMessage(), form: 'analyze' });
 		if ((await listAnalyses(db(), { repoId: repo.id, activeOnly: true })).length > 0) {
-			return fail(400, { error: 'Für dieses Repository läuft schon eine Analyse.', form: 'analyze' });
+			return fail(400, { error: t('repo.analysisAlreadyRunning'), form: 'analyze' });
 		}
 		const f = await request.formData();
 		const fixture = repo.fullName === DEMO_REPO && devFixtures() ? DEMO_FIXTURE : null;
@@ -299,14 +309,15 @@ export const actions: Actions = {
 		});
 		if (!parsed.success) {
 			const issue = parsed.error.issues[0];
-			return fail(400, { error: issue?.path[0] === 'instanceUrl' ? 'Gib die vollständige Adresse einer laufenden Instanz an.' : (issue?.message ?? 'Eingaben prüfen.'), form: 'analyze' });
+			return fail(400, { error: issue?.path[0] === 'instanceUrl' ? t('repo.instanceUrlRequired') : (issue?.message ?? t('repo.checkInput')), form: 'analyze' });
 		}
-		if (!fixture && !(await userToken(locals.user!))) return fail(400, { error: 'Zum Lesen des Codes brauchst du eine Anmeldung mit GitHub.', form: 'analyze' });
+		if (!fixture && !(await userToken(locals.user!))) return fail(400, { error: t('repo.githubLoginForCode'), form: 'analyze' });
 		const id = await createAnalysis(db(), { repoId: repo.id, request: parsed.data, fixture, startedBy: locals.user!.id });
 		redirect(303, `/analyses/${id}`);
 	},
 
 	createTest: async ({ params, request, locals }) => {
+		const { t } = serverI18n(locals.locale);
 		const repo = await loadRepo(params, locals.user, 'write');
 		const f = await request.formData();
 		const input = {
@@ -319,20 +330,21 @@ export const actions: Actions = {
 			allowAnyHost: f.get('allowAnyHost') === 'on'
 		};
 		if (!input.name || !input.description || !input.expectation) {
-			return fail(400, { error: 'Name, Ablauf und erwartetes Ergebnis sind Pflicht.', form: 'createTest' });
+			return fail(400, { error: t('repo.testFieldsRequired'), form: 'createTest' });
 		}
 		const id = await createTestScript(db(), repo.id, input, locals.user!.id);
 		redirect(303, `/tests/${id}?new=1`);
 	},
 
 	runTests: async ({ params, request, locals }) => {
+		const { t } = serverI18n(locals.locale);
 		const repo = await loadRepo(params, locals.user, 'write');
-		if (!repo.dataConfirmed) return fail(400, { error: 'Bestätige zuerst in den Einstellungen, dass die Instanz nur Testdaten enthält.', form: 'runTests' });
+		if (!repo.dataConfirmed) return fail(400, { error: t('repo.confirmTestDataFirst'), form: 'runTests' });
 		const f = await request.formData();
 		const parsed = TestRunRequestSchema.safeParse({ repo: repo.fullName, instanceUrl: text(f.get('instanceUrl')), budget: f.get('budget') });
-		if (!parsed.success) return fail(400, { error: 'Gib die vollständige Adresse einer laufenden Instanz an.', form: 'runTests' });
+		if (!parsed.success) return fail(400, { error: t('repo.instanceUrlRequired'), form: 'runTests' });
 		const scripts = await listTestScripts(db(), repo.id);
-		if (scripts.length === 0) return fail(400, { error: 'Es gibt noch keine Tests.', form: 'runTests' });
+		if (scripts.length === 0) return fail(400, { error: t('repo.noTestsYet'), form: 'runTests' });
 		const batchId = randomUUID().slice(0, 8);
 		await createTestRuns(
 			db(),
@@ -342,11 +354,12 @@ export const actions: Actions = {
 	},
 
 	automation: async ({ params, request, locals }) => {
+		const { t } = serverI18n(locals.locale);
 		const repo = await loadRepo(params, locals.user, 'admin');
 		const f = await request.formData();
 		const template = text(f.get('instanceUrlTemplate'));
 		if (template && !URL.canParse(template.replace(/\{[a-z_]+\}/g, 'x'))) {
-			return fail(400, { error: 'Die URL-Vorlage ergibt keine gültige Adresse.', form: 'automation' });
+			return fail(400, { error: t('repo.templateInvalid'), form: 'automation' });
 		}
 		const pick = <T extends string>(v: FormDataEntryValue | null, allowed: readonly T[], fallback: T): T =>
 			(allowed as readonly string[]).includes(String(v)) ? (String(v) as T) : fallback;
@@ -383,9 +396,10 @@ export const actions: Actions = {
 	},
 
 	installWebhook: async ({ params, locals, url }) => {
+		const { t } = serverI18n(locals.locale);
 		const repo = await loadRepo(params, locals.user, 'admin');
 		const token = await userToken(locals.user!);
-		if (!token) return fail(400, { error: 'Zum Einrichten brauchst du eine Anmeldung mit GitHub.', form: 'webhook' });
+		if (!token) return fail(400, { error: t('repo.githubLoginForWebhook'), form: 'webhook' });
 		const secret = randomUUID() + randomUUID();
 		const github = createGithubClient(token);
 		try {
@@ -395,7 +409,7 @@ export const actions: Actions = {
 		} catch (e) {
 			const status = (e as { status?: number }).status;
 			return fail(400, {
-				error: status === 404 || status === 403 ? 'GitHub erlaubt das nicht: Für Webhooks brauchst du Admin-Rechte am Repository.' : `GitHub hat abgelehnt: ${(e as Error).message}`,
+				error: status === 404 || status === 403 ? t('repo.webhookForbidden') : t('repo.githubRejected', { message: (e as Error).message }),
 				form: 'webhook'
 			});
 		}
@@ -411,6 +425,7 @@ export const actions: Actions = {
 	},
 
 	setKey: async ({ params, request, locals }) => {
+		const { t } = serverI18n(locals.locale);
 		const repo = await loadRepo(params, locals.user, 'admin');
 		const f = await request.formData();
 		const source = text(f.get('source'));
@@ -419,9 +434,9 @@ export const actions: Actions = {
 			// Copy from another repository, only if the user is admin there too.
 			const { repo: from } = await requireRepo(locals.user, source, 'admin');
 			key = repoAnthropicKey(from) ?? '';
-			if (!key) return fail(400, { error: `In ${from.fullName} ist kein Key hinterlegt.`, form: 'key' });
+			if (!key) return fail(400, { error: t('repo.keyNotInSource', { repo: from.fullName }), form: 'key' });
 		}
-		if (!key) return fail(400, { error: 'Trage einen Key ein oder wähle ein Repository, aus dem er übernommen wird.', form: 'key' });
+		if (!key) return fail(400, { error: t('repo.keyRequired'), form: 'key' });
 		const check = await checkAnthropicKey(key);
 		if (!check.ok && !(check.unverified && f.get('force') === 'on')) {
 			return fail(400, { error: check.reason, unverified: check.unverified ?? false, form: 'key' });
@@ -451,10 +466,11 @@ export const actions: Actions = {
 	},
 
 	remove: async ({ params, locals }) => {
+		const { t } = serverI18n(locals.locale);
 		const repo = await loadRepo(params, locals.user, 'admin');
 		const [reviews, analyses] = await Promise.all([listReviews(db(), { repoId: repo.id, limit: 1 }), listAnalyses(db(), { repoId: repo.id, limit: 1 })]);
 		if (reviews.length > 0 || analyses.length > 0) {
-			return fail(400, { error: 'Repositories mit Reviews oder Analysen bleiben erhalten, damit Prüfprotokolle und Wissensbasis nicht verloren gehen.', form: 'remove' });
+			return fail(400, { error: t('repo.removeBlocked'), form: 'remove' });
 		}
 		await removeRepo(db(), repo.id);
 		redirect(303, '/repos');

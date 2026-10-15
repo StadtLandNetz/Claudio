@@ -1,31 +1,33 @@
 <script lang="ts">
 	import ReviewTable from '#lib/components/ReviewTable.svelte';
 	import { isActive } from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+	const i = i18n();
 	const running = $derived(data.reviews.filter((r) => isActive(r.status)).length);
 </script>
 
-<svelte:head><title>Übersicht · Claudio</title></svelte:head>
+<svelte:head><title>{i.t('common.overviewTitle')}</title></svelte:head>
 
 <div class="head">
 	<div>
-		<h1>Reviews</h1>
+		<h1>{i.t('common.reviews')}</h1>
 		<p class="muted">
 			{#if running > 0}
-				{running === 1 ? 'Ein Review läuft gerade.' : `${running} Reviews laufen gerade.`}
+				{i.t('common.reviewsRunning', { n: running })}
 			{:else}
-				Alle Abnahmen, die Claudio durchgeführt hat, die neuesten zuerst.
+				{i.t('common.reviewsIntro')}
 			{/if}
 		</p>
 	</div>
-	<a class="btn primary" href="/repos">Review starten</a>
+	<a class="btn primary" href="/repos">{i.t('common.startReview')}</a>
 </div>
 
 {#each data.analyses as a (a.id)}
 	<p class="notice analysis">
-		Analyse von {a.repo} {a.status === 'queued' ? 'wartet auf den Worker' : 'läuft'}. <a href="/analyses/{a.id}">Verlauf ansehen</a>
+		{a.status === 'queued' ? i.t('common.analysisQueued', { repo: a.repo }) : i.t('common.analysisRunning', { repo: a.repo })} <a href="/analyses/{a.id}">{i.t('common.viewLog')}</a>
 	</p>
 {/each}
 
@@ -35,13 +37,13 @@
 	</section>
 {:else}
 	<section class="empty sheet">
-		<h2>Noch keine Reviews</h2>
+		<h2>{i.t('common.noReviews')}</h2>
 		{#if data.repoCount === 0}
-			<p class="muted">Füge zuerst ein Repository hinzu. Danach kannst du für jeden offenen Pull Request einen Review starten.</p>
-			<a class="btn primary" href="/repos">Repository hinzufügen</a>
+			<p class="muted">{i.t('common.noReposHint')}</p>
+			<a class="btn primary" href="/repos">{i.t('common.addRepo')}</a>
 		{:else}
-			<p class="muted">Wähle ein Repository und einen offenen Pull Request, um den ersten Review zu starten.</p>
-			<a class="btn primary" href="/repos">Repository wählen</a>
+			<p class="muted">{i.t('common.pickRepoHint')}</p>
+			<a class="btn primary" href="/repos">{i.t('common.pickRepo')}</a>
 		{/if}
 	</section>
 {/if}

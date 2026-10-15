@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
+	import { i18n } from '#lib/i18n/index.js';
 
 	type Entry = { seq: number; line: string };
 
@@ -21,6 +22,7 @@
 		/** Every new log line, e.g. to react to "Mensch gebraucht:". */
 		online?: (line: string) => void;
 	} = $props();
+	const i = i18n();
 
 	let live = $state<Entry[]>([]);
 	const log = $derived([...events, ...live.filter((l) => l.seq > (events.at(-1)?.seq ?? 0))]);
@@ -78,14 +80,14 @@
 
 <details class="sheet logsheet" open={active}>
 	<summary>
-		<h2>Verlauf des Agenten</h2>
-		<span class="faint">{log.length} Einträge{#if streaming}, live{/if}</span>
+		<h2>{i.t('common.agentLog')}</h2>
+		<span class="faint">{i.t('common.entryCount', { n: log.length })}{#if streaming}{i.t('common.live')}{/if}</span>
 	</summary>
 	<div class="log" bind:this={box} onscroll={() => box && (follow = box.scrollTop + box.clientHeight >= box.scrollHeight - 24)}>
 		{#each log as entry (entry.seq)}
 			<p class={kind(entry.line)}>{entry.line}</p>
 		{:else}
-			<p class="sys">Noch keine Einträge.</p>
+			<p class="sys">{i.t('common.noEntries')}</p>
 		{/each}
 	</div>
 </details>

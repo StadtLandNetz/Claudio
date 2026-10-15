@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { SEVERITY_LABEL } from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
 	import type { Severity } from '@claudio/core';
 
 	let { severity }: { severity: Severity } = $props();
+	const i = i18n();
 </script>
 
-<span class="sev {severity}">{SEVERITY_LABEL[severity]}</span>
+<span class="sev {severity}">{i.labels.severity[severity]}</span>
 
 <style>
 	.sev {

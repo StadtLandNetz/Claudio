@@ -1,15 +1,17 @@
 <script lang="ts">
-	import { OUTCOME_LABEL, STATUS_LABEL } from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
+
+	const i = i18n();
 
 	let { status, outcome = null, healed = false }: { status: string; outcome?: string | null; healed?: boolean } = $props();
 	const live = $derived(status === 'queued' || status === 'running');
 	const tone = $derived(live ? 'live' : outcome === 'passed' ? 'pass' : outcome === 'failed' ? 'block' : 'hint');
-	const label = $derived(live || !outcome ? (STATUS_LABEL[status] ?? status) : OUTCOME_LABEL[outcome]);
+	const label = $derived(live || !outcome ? (i.labels.status[status] ?? status) : i.labels.outcome[outcome]);
 </script>
 
 <span class="badge {tone}">
 	{#if live}<span class="pulse" aria-hidden="true"></span>{/if}
-	{label}{#if healed && !live}<span class="healed" title="Ablauf wurde während des Laufs repariert"> · repariert</span>{/if}
+	{label}{#if healed && !live}<span class="healed" title={i.t('test.healedTitle')}>{i.t('test.healedSuffix')}</span>{/if}
 </span>
 
 <style>

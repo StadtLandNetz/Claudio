@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { STATUS_LABEL, VERDICT_LABEL } from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
 	import type { Verdict } from '@claudio/core';
 
 	let { status, verdict = null }: { status: string; verdict?: string | null } = $props();
+	const i = i18n();
 
 	const tone = $derived(
 		status === 'running' || status === 'queued'
@@ -16,7 +17,7 @@
 						: 'hint'
 	);
 	const label = $derived(
-		status === 'completed' && verdict ? VERDICT_LABEL[verdict as Verdict] : (STATUS_LABEL[status] ?? status)
+		status === 'completed' && verdict ? i.labels.verdict[verdict as Verdict] : (i.labels.status[status] ?? status)
 	);
 </script>
 

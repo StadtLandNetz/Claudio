@@ -3,18 +3,20 @@ import { describeStep, resolveStepTemplates } from '@claudio/core';
 import { getTestRun, getTestScript } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
+import { serverI18n } from '#lib/i18n/index.js';
 import { fileAvailability, runFileUrl } from '#lib/server/run-files.js';
 import type { PageServerLoad } from './$types';
 
 const runTagOf = (runId: string) => runId.split('-').slice(-2).join('');
 
 export const load: PageServerLoad = async ({ params, url, locals }) => {
+	const { t } = serverI18n(locals.locale);
 	const script = await getTestScript(db(), Number(params.id));
-	if (!script) error(404, 'Diesen Test gibt es nicht.');
+	if (!script) error(404, t('test.testNotFound'));
 	await requireRepo(locals.user, script.repoId, 'read');
 	const ids = [Number(url.searchParams.get('a')), Number(url.searchParams.get('b'))];
 	const runs = await Promise.all(ids.map((id) => (Number.isInteger(id) ? getTestRun(db(), id) : undefined)));
-	if (runs.some((r) => !r || r.scriptId !== script.id)) error(404, 'Wähle zwei Läufe dieses Tests aus.');
+	if (runs.some((r) => !r || r.scriptId !== script.id)) error(404, t('test.errorPickTwoRuns'));
 
 	const availability = await Promise.all(runs.map((run) => fileAvailability(run!.report?.runId)));
 	const view = runs.map((run, i) => {

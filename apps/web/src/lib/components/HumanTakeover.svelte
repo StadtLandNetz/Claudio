@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { liveFrames } from '#lib/live-frames.svelte.js';
+	import { i18n } from '#lib/i18n/index.js';
 
 	let { src, requestId, reason, url }: { src: string; requestId: number; reason: string; url: string } = $props();
+	const i = i18n();
 
 	const frames = liveFrames(() => src);
 	let img: HTMLImageElement | undefined = $state();
@@ -18,7 +20,7 @@
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify(input)
 		});
-		if (!res.ok) error = res.status === 409 ? 'Die Anfrage ist schon erledigt.' : 'Eingabe wurde nicht angenommen.';
+		if (!res.ok) error = res.status === 409 ? i.t('common.takeoverAlreadyDone') : i.t('common.inputRejected');
 	}
 
 	/** Maps a click on the (letterboxed) image to relative page coordinates. */
@@ -55,42 +57,42 @@
 	}
 </script>
 
-<section class="takeover" aria-label="Claudio braucht dich">
+<section class="takeover" aria-label={i.t('common.needsYou')}>
 	<header>
 		<span class="dot" aria-hidden="true"></span>
 		<div>
-			<h2>Claudio braucht dich</h2>
-			<p>{reason}. Löse es direkt im Bild unten, dann geht der Lauf weiter.</p>
+			<h2>{i.t('common.needsYou')}</h2>
+			<p>{i.t('common.takeoverHint', { reason })}</p>
 		</div>
 	</header>
 
 	<div class="screen">
 		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 		{#if frames.url}
-			<img bind:this={img} src={frames.url} alt="Browser von Claudio, zum Bedienen anklicken" class="show" onclick={click} />
+			<img bind:this={img} src={frames.url} alt={i.t('common.takeoverImageAlt')} class="show" onclick={click} />
 		{:else}
-			<p class="wait faint">Verbinde mit dem Browser …</p>
+			<p class="wait faint">{i.t('common.connecting')}</p>
 		{/if}
 		{#if lastClick}<span class="ripple" style="left:{lastClick.x}px;top:{lastClick.y}px"></span>{/if}
 	</div>
 
 	<div class="controls">
 		<form onsubmit={typeText} class="type">
-			<label class="visually-hidden" for="human-text">Text eingeben</label>
-			<input id="human-text" type="text" bind:value={text} placeholder="Text ins fokussierte Feld tippen" autocomplete="off" />
-			<button class="btn small" type="submit" disabled={!text}>Tippen</button>
+			<label class="visually-hidden" for="human-text">{i.t('common.typeTextLabel')}</label>
+			<input id="human-text" type="text" bind:value={text} placeholder={i.t('common.typeTextPlaceholder')} autocomplete="off" />
+			<button class="btn small" type="submit" disabled={!text}>{i.t('common.type')}</button>
 		</form>
-		<div class="keys" role="group" aria-label="Tasten">
+		<div class="keys" role="group" aria-label={i.t('common.keys')}>
 			{#each ['Enter', 'Tab', 'Backspace', 'Escape'] as key (key)}
 				<button class="btn small" type="button" onclick={() => send({ type: 'key', key })}>{key === 'Escape' ? 'Esc' : key}</button>
 			{/each}
-			<button class="btn small" type="button" onclick={() => send({ type: 'scroll', dy: -400 })} aria-label="Nach oben scrollen">Hoch</button>
-			<button class="btn small" type="button" onclick={() => send({ type: 'scroll', dy: 400 })} aria-label="Nach unten scrollen">Runter</button>
+			<button class="btn small" type="button" onclick={() => send({ type: 'scroll', dy: -400 })} aria-label={i.t('common.scrollUpLabel')}>{i.t('common.scrollUp')}</button>
+			<button class="btn small" type="button" onclick={() => send({ type: 'scroll', dy: 400 })} aria-label={i.t('common.scrollDownLabel')}>{i.t('common.scrollDown')}</button>
 		</div>
 		{#if error}<p class="err" role="alert">{error}</p>{/if}
 		<div class="finish">
-			<button class="btn primary" type="button" disabled={busy} onclick={() => finish('resolved')}>Erledigt, weitermachen</button>
-			<button class="btn" type="button" disabled={busy} onclick={() => finish('cancelled')}>Nicht lösbar</button>
+			<button class="btn primary" type="button" disabled={busy} onclick={() => finish('resolved')}>{i.t('common.doneContinue')}</button>
+			<button class="btn" type="button" disabled={busy} onclick={() => finish('cancelled')}>{i.t('common.cannotSolve')}</button>
 			<span class="faint">{url}</span>
 		</div>
 	</div>

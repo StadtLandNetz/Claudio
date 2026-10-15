@@ -5,28 +5,19 @@
 	import KnowledgeView from '#lib/components/KnowledgeView.svelte';
 	import ReviewTable from '#lib/components/ReviewTable.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
-	import {
-		ANALYSIS_BUDGET_LABEL,
-		BUDGET_LABEL,
-		DETERMINISM_LABEL,
-		STRICTNESS_LABEL,
-		MODE_LABEL,
-		TEST_BUDGET_LABEL,
-		DEFAULT_TEST_BUDGET,
-		formatDate,
-		formatUsd,
-		isActive
-	} from '#lib/labels.js';
+	import { i18n } from '#lib/i18n/index.js';
+	import { DEFAULT_TEST_BUDGET, isActive } from '#lib/labels.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
+	const i = i18n();
 
 	const tabs = [
-		{ id: 'pulls', label: 'Pull Requests' },
-		{ id: 'reviews', label: 'Reviews' },
-		{ id: 'tests', label: 'Tests' },
-		{ id: 'knowledge', label: 'Wissen' },
-		{ id: 'settings', label: 'Einstellungen' }
+		{ id: 'pulls', label: 'repo.tabPulls' },
+		{ id: 'reviews', label: 'repo.tabReviews' },
+		{ id: 'tests', label: 'repo.tabTests' },
+		{ id: 'knowledge', label: 'repo.tabKnowledge' },
+		{ id: 'settings', label: 'repo.tabSettings' }
 	] as const;
 
 	const hasKey = $derived(Boolean(data.anthropicKey) || data.keyOptional);
@@ -53,32 +44,32 @@
 
 <h1>{data.repo.fullName}</h1>
 
-<nav class="tabs" aria-label="Bereiche">
+<nav class="tabs" aria-label={i.t('repo.tabsLabel')}>
 	{#each tabs.filter((t) => t.id !== 'settings' || isAdmin) as t (t.id)}
 		<a href="?tab={t.id}" aria-current={data.tab === t.id ? 'page' : undefined}>
-			{t.label}
+			{i.t(t.label)}
 			{#if t.id === 'reviews' && data.reviews.length}<span class="count">{data.reviews.length}</span>{/if}
 			{#if t.id === 'tests' && data.tests.length}<span class="count">{data.tests.length}</span>{/if}
-			{#if t.id === 'settings' && !ready}<span class="dot" title="Einrichtung unvollständig"></span>{/if}
-			{#if t.id === 'knowledge' && data.knowledge?.stale}<span class="dot" title="Wissensbasis veraltet"></span>{/if}
+			{#if t.id === 'settings' && !ready}<span class="dot" title={i.t('repo.setupIncomplete')}></span>{/if}
+			{#if t.id === 'knowledge' && data.knowledge?.stale}<span class="dot" title={i.t('repo.kbStale')}></span>{/if}
 		</a>
 	{/each}
 </nav>
 
 {#if data.tab === 'pulls'}
 	{#if !canWrite}
-		<p class="notice">Du hast an diesem Repository auf GitHub nur Lesezugriff. Berichte, Tests und Wissen kannst du ansehen, aber nichts starten.</p>
+		<p class="notice">{i.t('repo.readOnly')}</p>
 	{:else if !ready}
 		<p class="notice">
-			Bevor Claudio Pull Requests prüfen kann, fehlt noch:
-			{[!hasKey && 'ein Anthropic-API-Key', !data.repo.dataConfirmed && 'die Bestätigung, dass die Instanzen nur Testdaten enthalten', data.roles.length === 0 && 'mindestens eine Rolle mit Zugangsdaten'].filter(Boolean).join(', ')}.
-			{#if isAdmin}<a href="?tab=settings">Einstellungen öffnen</a>{:else}Das kann ein Admin des Repositorys in den Einstellungen eintragen.{/if}
+			{i.t('repo.missingIntro')}
+			{[!hasKey && i.t('repo.missingKey'), !data.repo.dataConfirmed && i.t('repo.missingDataConfirmed'), data.roles.length === 0 && i.t('repo.missingRole')].filter(Boolean).join(', ')}.
+			{#if isAdmin}<a href="?tab=settings">{i.t('repo.openSettings')}</a>{:else}{i.t('repo.adminCanSetUp')}{/if}
 		</p>
 	{/if}
 	{#if data.pullsError}
 		<p class="notice error">{data.pullsError}</p>
 	{:else if data.pulls.length === 0}
-		<p class="muted">Keine offenen Pull Requests.</p>
+		<p class="muted">{i.t('repo.noPulls')}</p>
 	{:else}
 		<ul class="pulls sheet">
 			{#each data.pulls as pr (pr.number)}
@@ -86,13 +77,13 @@
 					<div class="pr">
 						<a href={pr.url} target="_blank" rel="noopener noreferrer" class="title">#{pr.number} {pr.title}</a>
 						<span class="faint">
-							{pr.headRef}{pr.author ? `, von ${pr.author}` : ''}, aktualisiert {formatDate(pr.updatedAt)}
-							{#if pr.draft}<span class="tag">Entwurf</span>{/if}
-							{#if pr.fixture}<span class="tag">Demo-Fixture</span>{/if}
+							{pr.headRef}{pr.author ? i.t('repo.prBy', { author: pr.author }) : ''}{i.t('repo.prUpdated', { date: i.formatDate(pr.updatedAt) })}
+							{#if pr.draft}<span class="tag">{i.t('repo.draft')}</span>{/if}
+							{#if pr.fixture}<span class="tag">{i.t('repo.demoFixture')}</span>{/if}
 						</span>
 					</div>
 					{#if ready && canWrite}
-						<a class="btn small primary" href="/reviews/new?repo={encodeURIComponent(data.repo.fullName)}&pr={pr.number}">Review starten</a>
+						<a class="btn small primary" href="/reviews/new?repo={encodeURIComponent(data.repo.fullName)}&pr={pr.number}">{i.t('repo.startReview')}</a>
 					{/if}
 				</li>
 			{/each}
@@ -102,22 +93,23 @@
 	{#if data.batch}
 		{@const done = data.batch.filter((r) => !isActive(r.status)).length}
 		<section class="batch">
-			<h2>Suite-Lauf</h2>
+			<h2>{i.t('repo.suiteRun')}</h2>
 			<p class="muted">
-				{done} von {data.batch.length} Tests fertig{#if done === data.batch.length}:
-					{data.batch.filter((r) => r.outcome === 'passed').length} bestanden,
-					{data.batch.filter((r) => r.outcome === 'failed').length} fehlgeschlagen{/if}.
+				{i.t('repo.batchDone', { done, total: data.batch.length })}{#if done === data.batch.length}{i.t('repo.batchResult', {
+						passed: data.batch.filter((r) => r.outcome === 'passed').length,
+						failed: data.batch.filter((r) => r.outcome === 'failed').length
+					})}{/if}.
 			</p>
 			<div class="sheet table">
 				<table class="list">
-					<thead><tr><th>Test</th><th>Ergebnis</th><th>Art</th><th class="num">Kosten</th></tr></thead>
+					<thead><tr><th>{i.t('repo.colTest')}</th><th>{i.t('repo.colResult')}</th><th>{i.t('repo.colKind')}</th><th class="num">{i.t('repo.colCost')}</th></tr></thead>
 					<tbody>
 						{#each data.batch as run (run.id)}
 							<tr>
 								<td><a href="/test-runs/{run.id}">{run.scriptName}</a></td>
 								<td><OutcomeBadge status={run.status} outcome={run.outcome} healed={run.healed} /></td>
-								<td>{run.mode ? MODE_LABEL[run.mode] : '–'}</td>
-								<td class="num">{formatUsd(run.costUsd)}</td>
+								<td>{run.mode ? i.labels.mode[run.mode] : '–'}</td>
+								<td class="num">{i.formatUsd(run.costUsd)}</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -130,21 +122,21 @@
 		<div class="sheet table">
 			<table class="list">
 				<thead>
-					<tr><th>Test</th><th>Art</th><th class="num">Schritte</th><th>Letzter Lauf</th><th>Bei Reviews</th></tr>
+					<tr><th>{i.t('repo.colTest')}</th><th>{i.t('repo.colKind')}</th><th class="num">{i.t('repo.colSteps')}</th><th>{i.t('repo.colLastRun')}</th><th>{i.t('repo.colInReviews')}</th></tr>
 				</thead>
 				<tbody>
 					{#each data.tests as test (test.id)}
 						<tr>
 							<td><a href="/tests/{test.id}">{test.name}</a></td>
-							<td>{test.determinism ? DETERMINISM_LABEL[test.determinism] : 'Noch nicht aufgezeichnet'}</td>
+							<td>{test.determinism ? i.labels.determinism[test.determinism] : i.t('repo.notRecorded')}</td>
 							<td class="num">{test.stepCount || '–'}</td>
 							<td>
 								{#if test.lastStatus}
 									<OutcomeBadge status={test.lastStatus} outcome={test.lastOutcome} healed={test.lastHealed} />
-									<span class="faint">{formatDate(test.lastRunAt)}</span>
+									<span class="faint">{i.formatDate(test.lastRunAt)}</span>
 								{:else}–{/if}
 							</td>
-							<td>{test.runInReviews ? 'Ja' : 'Nein'}</td>
+							<td>{test.runInReviews ? i.t('repo.yes') : i.t('repo.no')}</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -152,61 +144,58 @@
 		</div>
 	{:else}
 		<section class="empty-kb">
-			<h2>Noch keine Tests</h2>
-			<p class="muted">
-				Beschreibe einen Ablauf und was am Ende stimmen muss. Beim ersten Lauf führt Claudio ihn im Browser aus und zeichnet die Schritte
-				auf. Danach laufen sie ohne Modell in Sekunden, auch automatisch bei jedem PR-Review.
-			</p>
+			<h2>{i.t('repo.noTests')}</h2>
+			<p class="muted">{i.t('repo.noTestsText')}</p>
 		</section>
 	{/if}
 
 	{#if data.tests.length && !data.activeTestRuns && canWrite}
 		<details class="sheet analyze" open={!!formError('runTests')}>
-			<summary><strong>Alle Tests ausführen</strong></summary>
+			<summary><strong>{i.t('repo.runAllTests')}</strong></summary>
 			<form method="POST" action="?tab=tests&/runTests" class="fields" onsubmit={() => (runningTests = true)}>
 				{#if formError('runTests')}<p class="notice error" role="alert">{formError('runTests')}</p>{/if}
 				<label class="field">
-					<span>Adresse der Instanz</span>
+					<span>{i.t('repo.instanceUrl')}</span>
 					<input type="url" name="instanceUrl" required value={data.repo.defaultInstanceUrl} placeholder="https://staging.example.de" />
 				</label>
 				<label class="field">
-					<span>Budget pro Test</span>
+					<span>{i.t('repo.budgetPerTest')}</span>
 					<select name="budget">
-						{#each Object.entries(TEST_BUDGET_LABEL) as [value, label] (value)}
+						{#each Object.entries(i.labels.testBudget) as [value, label] (value)}
 							<option {value} selected={value === DEFAULT_TEST_BUDGET}>{label}</option>
 						{/each}
 					</select>
-					<small>Gilt nur, wenn ein Test aufgezeichnet, repariert oder bewertet werden muss. Reine Wiedergaben kosten nichts.</small>
+					<small>{i.t('repo.budgetPerTestHint')}</small>
 				</label>
 				<div class="actions">
-					<button class="btn primary" type="submit" disabled={runningTests}>{runningTests ? 'Wird eingereiht …' : `${data.tests.length} Tests ausführen`}</button>
+					<button class="btn primary" type="submit" disabled={runningTests}>{runningTests ? i.t('repo.queuing') : i.t('repo.runTestsCount', { n: data.tests.length })}</button>
 				</div>
 			</form>
 		</details>
 	{:else if data.activeTestRuns}
-		<p class="notice">{data.activeTestRuns} Testläufe warten oder laufen gerade.</p>
+		<p class="notice">{i.t('repo.activeTestRuns', { n: data.activeTestRuns })}</p>
 	{/if}
 
 	{#if canWrite}
 	<details class="sheet analyze" open={data.tests.length === 0 || !!formError('createTest')}>
-		<summary><strong>Neuer Test</strong></summary>
+		<summary><strong>{i.t('repo.newTest')}</strong></summary>
 		<form method="POST" action="?tab=tests&/createTest" class="fields">
 			{#if formError('createTest')}<p class="notice error" role="alert">{formError('createTest')}</p>{/if}
 			<label class="field">
-				<span>Name</span>
-				<input type="text" name="name" required placeholder="Fahrt anlegen" />
+				<span>{i.t('repo.name')}</span>
+				<input type="text" name="name" required placeholder={i.t('repo.testNamePlaceholder')} />
 			</label>
 			<label class="field">
-				<span>Ablauf</span>
-				<textarea name="description" rows="3" required placeholder="Als Disponent eine Fahrt für morgen anlegen: Fahrgast, Uhrzeit 08:30, von Rathaus nach Schule."></textarea>
-				<small>So, wie du es einer Kollegin erklären würdest. Claudio legt eindeutige Testdaten selbst an.</small>
+				<span>{i.t('repo.flow')}</span>
+				<textarea name="description" rows="3" required placeholder={i.t('repo.flowPlaceholder')}></textarea>
+				<small>{i.t('repo.flowHint')}</small>
 			</label>
 			<label class="field">
-				<span>Erwartetes Ergebnis</span>
-				<textarea name="expectation" rows="2" required placeholder="Nach dem Speichern erscheint eine Erfolgsmeldung und die Fahrt steht mit allen Angaben in der Liste."></textarea>
+				<span>{i.t('repo.expectation')}</span>
+				<textarea name="expectation" rows="2" required placeholder={i.t('repo.expectationPlaceholder')}></textarea>
 			</label>
 			<fieldset>
-				<legend>Rollen</legend>
+				<legend>{i.t('repo.roles')}</legend>
 				<div class="options">
 					{#each data.roles as role (role.name)}
 						<label class="check"><input type="checkbox" name="roles" value={role.name} /> <span>{role.name}</span></label>
@@ -214,104 +203,99 @@
 				</div>
 			</fieldset>
 			<fieldset>
-				<legend>Andere Websites</legend>
+				<legend>{i.t('repo.otherSites')}</legend>
 				<label class="field">
-					<span>Weitere erlaubte Hosts</span>
+					<span>{i.t('repo.extraHosts')}</span>
 					<input type="text" name="allowedHosts" placeholder="google.com, login.example.de" />
-					<small>Standardmäßig bleibt der Test auf der Instanz. Hier eingetragene Hosts darf er zusätzlich öffnen; mehrere mit Komma trennen, Subdomains sind mit erlaubt.</small>
+					<small>{i.t('repo.testHostsHint')}</small>
 				</label>
 				<label class="check">
 					<input type="checkbox" name="allowAnyHost" />
-					<span>Beliebige Websites erlauben <span class="faint">Nur für Tests, die bewusst im offenen Web arbeiten. Große Suchmaschinen zeigen automatisierten Browsern oft ein Captcha.</span></span>
+					<span>{i.t('repo.allowAnyHost')} <span class="faint">{i.t('repo.allowAnyHostHint')}</span></span>
 				</label>
 			</fieldset>
 			<label class="check">
 				<input type="checkbox" name="runInReviews" checked />
-				<span>Bei jedem PR-Review als Regressionstest mitlaufen lassen</span>
+				<span>{i.t('repo.runInReviews')}</span>
 			</label>
-			<div class="actions"><button class="btn primary" type="submit">Test anlegen</button></div>
+			<div class="actions"><button class="btn primary" type="submit">{i.t('repo.createTest')}</button></div>
 		</form>
 	</details>
 	{/if}
 {:else if data.tab === 'knowledge'}
 	{#if runningAnalysis}
 		<p class="notice">
-			Eine Analyse {runningAnalysis.status === 'queued' ? 'wartet auf den Worker' : 'läuft gerade'}.
-			<a href="/analyses/{runningAnalysis.id}">Verlauf ansehen</a>
+			{runningAnalysis.status === 'queued' ? i.t('repo.analysisQueued') : i.t('repo.analysisRunning')}
+			<a href="/analyses/{runningAnalysis.id}">{i.t('repo.viewProgress')}</a>
 		</p>
 	{/if}
 
 	{#if data.knowledge}
 		<div class="kb-head">
 			<p>
-				Stand: Commit <code>{data.knowledge.commitSha.slice(0, 7)}</code>{data.knowledge.branch ? ` auf ${data.knowledge.branch}` : ''},
-				analysiert {formatDate(data.knowledge.analyzedAt)} von {data.knowledge.startedBy}.
-				<a href="/analyses/{data.knowledge.analysisId}">Lauf ansehen</a>
+				{i.t('repo.kbAsOf')} <code>{data.knowledge.commitSha.slice(0, 7)}</code>{data.knowledge.branch ? i.t('repo.kbOnBranch', { branch: data.knowledge.branch }) : ''},
+				{i.t('repo.kbAnalyzed', { date: i.formatDate(data.knowledge.analyzedAt), by: data.knowledge.startedBy ?? '' })}
+				<a href="/analyses/{data.knowledge.analysisId}">{i.t('repo.viewRun')}</a>
 			</p>
 			{#if data.knowledge.stale}
 				<p class="notice">
-					Seit der Analyse hat sich {data.knowledge.branch} geändert (jetzt <code>{data.knowledge.headSha?.slice(0, 7)}</code>). Aktualisiere die
-					Wissensbasis, damit Reviews vom aktuellen Stand ausgehen. Ein Update prüft nur, was sich geändert hat.
+					{i.t('repo.staleChanged', { branch: data.knowledge.branch ?? '' })} <code>{data.knowledge.headSha?.slice(0, 7)}</code>{i.t('repo.staleUpdate')}
 				</p>
 			{/if}
 			{#if !data.knowledge.complete}
-				<p class="notice">Die letzte Analyse wurde nicht vollständig abgeschlossen. Die Dokumente können Lücken haben.</p>
+				<p class="notice">{i.t('repo.kbIncomplete')}</p>
 			{/if}
 		</div>
 		<KnowledgeView docs={data.knowledge.docs} />
-		<p class="faint kb-use">Jeder Review dieses Repositorys bekommt diese Wissensbasis mit.</p>
+		<p class="faint kb-use">{i.t('repo.kbUse')}</p>
 	{:else if !runningAnalysis}
 		<section class="empty-kb">
-			<h2>Noch keine Wissensbasis</h2>
-			<p class="muted">
-				Bei einer Analyse liest Claudio den Code und geht die laufende App Bildschirm für Bildschirm durch. Heraus kommen fünf Dokumente:
-				Überblick, Module, Routen, App-Karte mit dem erwarteten Verhalten jedes Bildschirms und Notizen. Reviews nutzen sie, um betroffene
-				Bereiche schneller zu finden und Abweichungen vom bisherigen Verhalten zu erkennen.
-			</p>
+			<h2>{i.t('repo.noKb')}</h2>
+			<p class="muted">{i.t('repo.noKbText')}</p>
 		</section>
 	{/if}
 
 	{#if !runningAnalysis && canWrite}
 		{#if !ready}
 			<p class="notice">
-				Für eine Analyse braucht Claudio Rollen und die Datenschutz-Bestätigung. <a href="?tab=settings">Einstellungen öffnen</a>
+				{i.t('repo.analysisNeedsSetup')} <a href="?tab=settings">{i.t('repo.openSettings')}</a>
 			</p>
 		{:else}
 			<details class="sheet analyze" open={!data.knowledge || !!formError('analyze')}>
-				<summary><strong>{data.knowledge ? 'Wissensbasis aktualisieren' : 'Analyse starten'}</strong></summary>
+				<summary><strong>{data.knowledge ? i.t('repo.updateKb') : i.t('repo.startAnalysis')}</strong></summary>
 				<form method="POST" action="?tab=knowledge&/analyze" class="fields" onsubmit={() => (analyzing = true)}>
 					{#if formError('analyze')}<p class="notice error" role="alert">{formError('analyze')}</p>{/if}
 					<label class="field">
-						<span>Adresse einer laufenden Instanz</span>
+						<span>{i.t('repo.runningInstanceUrl')}</span>
 						<input type="url" name="instanceUrl" required value={data.repo.defaultInstanceUrl} placeholder="https://staging.example.de" />
-						<small>Am besten der Stand des Hauptbranches, z. B. Staging. Der Browser bleibt auf diesem Host.</small>
+						<small>{i.t('repo.runningInstanceHint')}</small>
 					</label>
 					<fieldset>
-						<legend>Rollen</legend>
+						<legend>{i.t('repo.roles')}</legend>
 						<div class="options">
 							{#each data.roles as role (role.name)}
 								<label class="check"><input type="checkbox" name="roles" value={role.name} checked /> <span>{role.name}</span></label>
 							{/each}
 						</div>
-						<small>Claudio schaut sich die App mit jeder gewählten Rolle an.</small>
+						<small>{i.t('repo.rolesAnalyzeHint')}</small>
 					</fieldset>
 					<div class="grid">
 						<label class="field">
-							<span>Budget</span>
+							<span>{i.t('repo.budget')}</span>
 							<select name="budget">
-								{#each Object.entries(ANALYSIS_BUDGET_LABEL) as [value, label] (value)}
+								{#each Object.entries(i.labels.analysisBudget) as [value, label] (value)}
 									<option {value} selected={value === (data.knowledge ? 'quick' : 'standard')}>{label}</option>
 								{/each}
 							</select>
 						</label>
 					</div>
 					<label class="field">
-						<span>Zusätzliche Anweisungen (optional)</span>
-						<textarea name="extraInstructions" rows="2" placeholder="z. B. Den Abrechnungsbereich auslassen."></textarea>
+						<span>{i.t('repo.extraInstructions')}</span>
+						<textarea name="extraInstructions" rows="2" placeholder={i.t('repo.extraInstructionsPlaceholder')}></textarea>
 					</label>
 					<div class="actions">
 						<button class="btn primary" type="submit" disabled={analyzing}>
-							{analyzing ? 'Wird eingereiht …' : data.knowledge ? 'Wissensbasis aktualisieren' : 'Analyse starten'}
+							{analyzing ? i.t('repo.queuing') : data.knowledge ? i.t('repo.updateKb') : i.t('repo.startAnalysis')}
 						</button>
 					</div>
 				</form>
@@ -321,20 +305,20 @@
 
 	{#if data.analyses.length}
 		<section class="history">
-			<h2>Bisherige Analysen</h2>
+			<h2>{i.t('repo.pastAnalyses')}</h2>
 			<div class="sheet table">
 				<table class="list">
 					<thead>
-						<tr><th>Gestartet</th><th>Status</th><th>Commit</th><th class="num">Dokumente</th><th class="num">Kosten</th></tr>
+						<tr><th>{i.t('repo.colStarted')}</th><th>{i.t('repo.colStatus')}</th><th>{i.t('repo.colCommit')}</th><th class="num">{i.t('repo.colDocs')}</th><th class="num">{i.t('repo.colCost')}</th></tr>
 					</thead>
 					<tbody>
 						{#each data.analyses as an (an.id)}
 							<tr>
-								<td><a href="/analyses/{an.id}">{formatDate(an.createdAt)}</a> <span class="faint">von {an.startedBy}</span></td>
+								<td><a href="/analyses/{an.id}">{i.formatDate(an.createdAt)}</a> <span class="faint">{i.t('repo.byUser', { user: an.startedBy ?? '' })}</span></td>
 								<td><StatusBadge status={an.status} /></td>
 								<td>{#if an.commitSha}<code>{an.commitSha.slice(0, 7)}</code>{:else}–{/if}</td>
 								<td class="num">{an.docCount || '–'}</td>
-								<td class="num">{formatUsd(an.costUsd)}</td>
+								<td class="num">{i.formatUsd(an.costUsd)}</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -346,66 +330,66 @@
 	{#if data.reviews.length}
 		<section class="sheet table"><ReviewTable reviews={data.reviews} showRepo={false} /></section>
 	{:else}
-		<p class="muted">Für dieses Repository gibt es noch keine Reviews.</p>
+		<p class="muted">{i.t('repo.noReviews')}</p>
 	{/if}
 {:else if !isAdmin}
-	<p class="notice">Die Einstellungen kann nur ändern, wer auf GitHub Admin-Rechte an diesem Repository hat.</p>
+	<p class="notice">{i.t('repo.adminOnly')}</p>
 {:else}
 	{#if data.isNew}
 		<p class="notice ok">
-			Repository hinzugefügt. Hinterlege als Nächstes den Anthropic-API-Key{data.keySources.length ? ' (oder übernimm ihn aus einem deiner Repositories)' : ''} und lege fest, als wer Claudio sich in der App anmeldet.
+			{data.keySources.length ? i.t('repo.addedNextOrCopy') : i.t('repo.addedNext')}
 		</p>
 	{/if}
 
 	<section class="part" id="anthropic">
 		<div class="intro">
-			<h2>Anthropic-API-Key</h2>
-			<p class="muted">Alle Modellaufrufe dieses Repositorys laufen über diesen Key und werden darüber abgerechnet. Ohne Key startet Claudio hier keine Reviews, Analysen oder Aufzeichnungen.</p>
+			<h2>{i.t('repo.keyTitle')}</h2>
+			<p class="muted">{i.t('repo.keyIntro')}</p>
 		</div>
 		<div class="sheet fields keybox">
 			{#if formError('key')}<p class="notice error" role="alert">{formError('key')}</p>{/if}
 			{#if data.anthropicKey}
 				<p>
 					<span class="dot-ok"></span>
-					Hinterlegt, endet auf <code>…{data.anthropicKey.hint}</code>{#if data.anthropicKey.by}, gesetzt von {data.anthropicKey.by}{/if}{#if data.anthropicKey.at}, {formatDate(data.anthropicKey.at)}{/if}.
-					{#if saved === 'key'}<span class="ok" role="status">Gespeichert</span>{/if}
+					{i.t('repo.keyStored')} <code>…{data.anthropicKey.hint}</code>{#if data.anthropicKey.by}{i.t('repo.keySetBy', { by: data.anthropicKey.by })}{/if}{#if data.anthropicKey.at}, {i.formatDate(data.anthropicKey.at)}{/if}.
+					{#if saved === 'key'}<span class="ok" role="status">{i.t('repo.saved')}</span>{/if}
 				</p>
 			{:else if data.keyOptional}
-				<p class="muted">Kein Key hinterlegt. Das Demo-Repository nutzt auf dem Entwicklungsserver die Claude-Anmeldung dieses Rechners.</p>
+				<p class="muted">{i.t('repo.keyDemo')}</p>
 			{:else}
-				<p class="notice">Noch kein Key hinterlegt.</p>
+				<p class="notice">{i.t('repo.keyMissing')}</p>
 			{/if}
 
 			{#if data.keySources.length}
 				<form method="POST" action="?tab=settings&/setKey" use:enhance={() => ({ update }) => update({ reset: false })} class="row-form">
 					<label class="field">
-						<span>Aus einem anderen Repository übernehmen</span>
+						<span>{i.t('repo.keyCopyFrom')}</span>
 						<select name="source">
 							{#each data.keySources as src (src.fullName)}
 								<option value={src.fullName}>{src.fullName} (…{src.hint})</option>
 							{/each}
 						</select>
-						<small>Kopiert den Key. Danach lässt er sich hier unabhängig ändern.</small>
+						<small>{i.t('repo.keyCopyHint')}</small>
 					</label>
-					<button class="btn {data.anthropicKey ? '' : 'primary'}" type="submit">Übernehmen</button>
+					<button class="btn {data.anthropicKey ? '' : 'primary'}" type="submit">{i.t('repo.keyCopy')}</button>
 				</form>
 			{/if}
 
 			<form method="POST" action="?tab=settings&/setKey" use:enhance class="row-form">
 				<label class="field">
-					<span>{data.anthropicKey ? 'Neuen Key setzen' : 'Key eintragen'}</span>
+					<span>{data.anthropicKey ? i.t('repo.keyNew') : i.t('repo.keyEnter')}</span>
 					<input type="password" name="key" autocomplete="off" placeholder="sk-ant-…" />
-					<small>Aus der Anthropic Console (console.anthropic.com → API Keys). Am besten ein eigener Workspace mit Ausgabenlimit. Claudio prüft den Key beim Speichern.</small>
+					<small>{i.t('repo.keyHint')}</small>
 				</label>
 				{#if form && 'unverified' in form && form.unverified}
-					<label class="check"><input type="checkbox" name="force" /> <span>Trotzdem speichern</span></label>
+					<label class="check"><input type="checkbox" name="force" /> <span>{i.t('repo.saveAnyway')}</span></label>
 				{/if}
-				<button class="btn {data.anthropicKey || data.keySources.length ? '' : 'primary'}" type="submit">Speichern</button>
+				<button class="btn {data.anthropicKey || data.keySources.length ? '' : 'primary'}" type="submit">{i.t('repo.save')}</button>
 			</form>
 
 			{#if data.anthropicKey}
-				<form method="POST" action="?tab=settings&/removeKey" use:enhance onsubmit={(e) => { if (!confirm('Key entfernen? Danach startet Claudio für dieses Repository keine Modellaufrufe mehr.')) e.preventDefault(); }}>
-					<button class="btn small danger" type="submit">Key entfernen</button>
+				<form method="POST" action="?tab=settings&/removeKey" use:enhance onsubmit={(e) => { if (!confirm(i.t('repo.removeKeyConfirm'))) e.preventDefault(); }}>
+					<button class="btn small danger" type="submit">{i.t('repo.removeKey')}</button>
 				</form>
 			{/if}
 		</div>
@@ -413,79 +397,78 @@
 
 	<section class="part">
 		<div class="intro">
-			<h2>Allgemein</h2>
-			<p class="muted">Hinweise für den Agenten und wo die Instanzen der Pull Requests laufen.</p>
+			<h2>{i.t('repo.generalTitle')}</h2>
+			<p class="muted">{i.t('repo.generalIntro')}</p>
 		</div>
 		<form method="POST" action="?tab=settings&/settings" use:enhance={() => ({ update }) => update({ reset: false })} class="sheet fields">
 			{#if formError('settings')}<p class="notice error" role="alert">{formError('settings')}</p>{/if}
 			<label class="field">
-				<span>Hinweise zur App</span>
-				<textarea name="notes" rows="4" placeholder="Fachbegriffe, Hauptobjekte, Datumsformat, heikle Bereiche">{data.repo.notes}</textarea>
-				<small>Claudio liest das vor jedem Review. Gut sind Domänenbegriffe und bekannte Eigenheiten.</small>
+				<span>{i.t('repo.appNotes')}</span>
+				<textarea name="notes" rows="4" placeholder={i.t('repo.appNotesPlaceholder')}>{data.repo.notes}</textarea>
+				<small>{i.t('repo.appNotesHint')}</small>
 			</label>
 			<label class="field">
-				<span>Standard-URL der Instanz</span>
+				<span>{i.t('repo.defaultUrl')}</span>
 				<input type="url" name="defaultInstanceUrl" value={data.repo.defaultInstanceUrl} placeholder="https://pr-123.preview.example.de" />
-				<small>Wird beim Start eines Reviews vorgeschlagen und lässt sich dort ändern.</small>
+				<small>{i.t('repo.defaultUrlHint')}</small>
 			</label>
 			<label class="field">
-				<span>Weitere erlaubte Hosts</span>
+				<span>{i.t('repo.extraHosts')}</span>
 				<input type="text" name="extraAllowedHosts" value={data.repo.extraAllowedHosts.join(', ')} placeholder="auth.example.de, login.example.com" />
-				<small>Der Browser darf nur die Instanz besuchen und diese Hosts, z. B. einen Login-Anbieter. Mehrere mit Komma trennen; Subdomains sind mit erlaubt, ganze URLs werden auf den Host gekürzt. Gilt für Reviews, Analysen und alle Tests.</small>
+				<small>{i.t('repo.extraHostsHint')}</small>
 			</label>
 			<label class="check">
 				<input type="checkbox" name="dataConfirmed" checked={data.repo.dataConfirmed} />
 				<span>
-					Die geprüften Instanzen enthalten nur Testdaten.
-					<span class="faint">Screenshots und Seiteninhalte gehen an Anthropic. Ohne diese Bestätigung startet Claudio keinen Review.</span>
+					{i.t('repo.dataConfirmed')}
+					<span class="faint">{i.t('repo.dataConfirmedHint')}</span>
 				</span>
 			</label>
 			<div class="actions">
-				<button class="btn primary" type="submit">Einstellungen speichern</button>
-				{#if saved === 'settings'}<span class="ok" role="status">Gespeichert</span>{/if}
+				<button class="btn primary" type="submit">{i.t('repo.saveSettings')}</button>
+				{#if saved === 'settings'}<span class="ok" role="status">{i.t('repo.saved')}</span>{/if}
 			</div>
 		</form>
 	</section>
 
 	<section class="part">
 		<div class="intro">
-			<h2>Automatisierung</h2>
-			<p class="muted">Reviews direkt aus GitHub starten und das Ergebnis am Pull Request anzeigen.</p>
+			<h2>{i.t('repo.automationTitle')}</h2>
+			<p class="muted">{i.t('repo.automationIntro')}</p>
 		</div>
 		<div class="fields">
 			<form method="POST" action="?tab=settings&/automation" use:enhance={() => ({ update }) => update({ reset: false })} class="sheet fields">
 				{#if formError('automation')}<p class="notice error" role="alert">{formError('automation')}</p>{/if}
 				<label class="field">
-					<span>GitHub-Environment der PR-Instanzen</span>
+					<span>{i.t('repo.envLabel')}</span>
 					<input type="text" name="deploymentEnvironment" value={data.automation.deploymentEnvironment ?? ''} list="environments" placeholder={data.suggestedEnvironment ?? 'Preview'} />
 					<datalist id="environments">
 						{#each data.environments as env (env)}<option value={env}></option>{/each}
 					</datalist>
 					<small>
-						Wenn eure Pipeline jeden PR in ein GitHub-Environment deployt, liest Claudio die Adresse der Instanz dort aus. Automatische Reviews starten dann erst, wenn die
-						Bereitstellung erfolgreich war, nicht schon beim Push. Leer lassen, um nur die URL-Vorlage zu nutzen.
-						{#if data.suggestedEnvironment}<strong>Vorschlag: {data.suggestedEnvironment}</strong>, dort landen die meisten PR-Bereitstellungen.{/if}
-						{#if data.environments.length}Environments in diesem Repository: {data.environments.join(', ')}.{/if}
+						{i.t('repo.envHint')}
+						{#if data.suggestedEnvironment}<strong>{i.t('repo.envSuggestion', { env: data.suggestedEnvironment })}</strong>{i.t('repo.envSuggestionTail')}{/if}
+						{#if data.environments.length}{i.t('repo.envList', { list: data.environments.join(', ') })}{/if}
 						{#if data.suggestedEnvironment && data.automation.deploymentEnvironment && data.automation.deploymentEnvironment.toLowerCase() !== data.suggestedEnvironment.toLowerCase()}
-							<span class="warn">Eingestellt ist „{data.automation.deploymentEnvironment}“, die PR-Bereitstellungen laufen aber nach „{data.suggestedEnvironment}“.</span>
+							<span class="warn">{i.t('repo.envMismatch', { set: data.automation.deploymentEnvironment, suggested: data.suggestedEnvironment })}</span>
 						{/if}
 					</small>
 				</label>
 				<label class="field">
-					<span>URL-Vorlage der PR-Instanzen</span>
+					<span>{i.t('repo.templateLabel')}</span>
 					<input type="text" name="instanceUrlTemplate" value={data.automation.instanceUrlTemplate} placeholder="https://pr-{'{pr}'}.preview.example.de" />
-					<small>Platzhalter: {'{pr}'} Nummer, {'{branch_slug}'} Branch als URL-Teil, {'{branch}'}, {'{sha}'}. Wird genutzt, wenn kein Environment gesetzt ist oder es für den PR keine Bereitstellung gibt. Ohne beides startet GitHub keine Reviews.</small>
+					<small>{i.t('repo.templateHint')}</small>
 				</label>
 				<fieldset>
-					<legend>Review starten bei</legend>
-					<label class="check"><input type="checkbox" name="onComment" checked={data.automation.onComment} /> <span>Kommentar <code>/claudio review</code> im PR <span class="faint">(optional mit quick, standard oder thorough)</span></span></label>
-					<label class="check"><input type="checkbox" name="onLabel" checked={data.automation.onLabel} /> <span>Label <code>claudio-review</code> am PR</span></label>
-					<label class="check"><input type="checkbox" name="onPush" checked={data.automation.onPush} /> <span>Jedem neuen und aktualisierten PR <span class="faint">(außer Entwürfen; kostet pro Push)</span></span></label>
+					<legend>{i.t('repo.startReviewOn')}</legend>
+					<label class="check"><input type="checkbox" name="onComment" checked={data.automation.onComment} /> <span>{i.t('repo.onCommentBefore')} <code>/claudio review</code> {i.t('repo.onCommentAfter')} <span class="faint">{i.t('repo.onCommentHint')}</span></span></label>
+					<label class="check"><input type="checkbox" name="onLabel" checked={data.automation.onLabel} /> <span>{i.t('repo.onLabelBefore')} <code>claudio-review</code> {i.t('repo.onLabelAfter')}</span></label>
+					<label class="check"><input type="checkbox" name="onPush" checked={data.automation.onPush} /> <span>{i.t('repo.onPush')} <span class="faint">{i.t('repo.onPushHint')}</span></span></label>
 				</fieldset>
-				<label class="check"><input type="checkbox" name="commitStatus" checked={data.automation.commitStatus} /> <span>Ergebnis als GitHub-Status „Claudio“ am PR anzeigen <span class="faint">(grün oder rot; kann per Branch-Schutz das Mergen blockieren, siehe „So funktioniert das“)</span></span></label>
-				<label class="check"><input type="checkbox" name="analyzeOnMerge" checked={data.automation.analyzeOnMerge} /> <span>Wissensbasis nach jedem Push auf {data.repo.defaultBranch ?? 'den Hauptbranch'} aktualisieren <span class="faint">(gegen die Standard-URL)</span></span></label>
+				<label class="check"><input type="checkbox" name="commitStatus" checked={data.automation.commitStatus} /> <span>{i.t('repo.commitStatus')} <span class="faint">{i.t('repo.commitStatusHint')}</span></span></label>
+				<label class="check"><input type="checkbox" name="analyzeOnMerge" checked={data.automation.analyzeOnMerge} /> <span>{i.t('repo.analyzeOnMerge', { branch: data.repo.defaultBranch ?? i.t('repo.mainBranch') })} <span class="faint">{i.t('repo.analyzeOnMergeHint')}</span></span></label>
 				<fieldset>
-					<legend>Automatische Reviews</legend>
+					<legend>{i.t('repo.autoReviews')}</legend>
 					<div class="options">
 						{#each data.roles as role (role.name)}
 							<label class="check"><input type="checkbox" name="autoRoles" value={role.name} checked={data.autoReview.roles.includes(role.name)} /> <span>{role.name}</span></label>
@@ -493,24 +476,24 @@
 					</div>
 					<div class="grid">
 						<label class="field">
-							<span>Budget</span>
+							<span>{i.t('repo.budget')}</span>
 							<select name="autoBudget">
-								{#each Object.entries(BUDGET_LABEL) as [value, label] (value)}<option {value} selected={data.autoReview.budget === value}>{label}</option>{/each}
+								{#each Object.entries(i.labels.budget) as [value, label] (value)}<option {value} selected={data.autoReview.budget === value}>{label}</option>{/each}
 							</select>
 						</label>
 						<label class="field">
-							<span>Strenge</span>
+							<span>{i.t('repo.strictness')}</span>
 							<select name="autoStrictness">
-								{#each Object.entries(STRICTNESS_LABEL) as [value, label] (value)}<option {value} selected={data.autoReview.strictness === value}>{label}</option>{/each}
+								{#each Object.entries(i.labels.strictness) as [value, label] (value)}<option {value} selected={data.autoReview.strictness === value}>{label}</option>{/each}
 							</select>
 						</label>
 					</div>
-					<label class="check"><input type="checkbox" name="autoComment" checked={data.autoReview.postComment} /> <span>Kurzfassung als Kommentar in den PR schreiben</span></label>
-					<label class="check"><input type="checkbox" name="autoTests" checked={data.autoReview.runTests} /> <span>Regressionstests mitlaufen lassen</span></label>
+					<label class="check"><input type="checkbox" name="autoComment" checked={data.autoReview.postComment} /> <span>{i.t('repo.autoComment')}</span></label>
+					<label class="check"><input type="checkbox" name="autoTests" checked={data.autoReview.runTests} /> <span>{i.t('repo.autoTests')}</span></label>
 				</fieldset>
 				<div class="actions">
-					<button class="btn primary" type="submit">Automatisierung speichern</button>
-					{#if saved === 'automation'}<span class="ok" role="status">Gespeichert</span>{/if}
+					<button class="btn primary" type="submit">{i.t('repo.saveAutomation')}</button>
+					{#if saved === 'automation'}<span class="ok" role="status">{i.t('repo.saved')}</span>{/if}
 				</div>
 			</form>
 
@@ -520,46 +503,46 @@
 				{#if data.webhook}
 					<p>
 						<span class="dot-ok" class:bad={data.webhook.ok === false}></span>
-						Eingerichtet{data.webhook.by ? ` von ${data.webhook.by}` : ''}. <span class="faint">{data.webhook.status}</span>
+						{data.webhook.by ? i.t('repo.webhookInstalledBy', { by: data.webhook.by }) : i.t('repo.webhookInstalled')} <span class="faint">{data.webhook.status}</span>
 					</p>
 				{:else}
-					<p class="muted">Noch nicht eingerichtet. Ohne Webhook startest du Reviews nur hier in Claudio.</p>
+					<p class="muted">{i.t('repo.webhookNone')}</p>
 				{/if}
 				{#if data.localBaseUrl}
 					<p class="notice">
-						GitHub kann <code>localhost</code> nicht erreichen. Setze <code>PUBLIC_BASE_URL</code> auf eine öffentliche Adresse (Server oder Tunnel wie cloudflared), bevor du den Webhook einrichtest.
+						{i.t('repo.localhostBefore')} <code>localhost</code>{i.t('repo.localhostMiddle')} <code>PUBLIC_BASE_URL</code> {i.t('repo.localhostAfter')}
 					</p>
 				{/if}
 
 				<details class="howto">
-					<summary>So funktioniert das</summary>
+					<summary>{i.t('repo.howTo')}</summary>
 					<div class="howto-body">
-						<p><strong>Was „Webhook einrichten“ tut:</strong> Claudio legt im Repository auf GitHub unter Settings → Webhooks einen Eintrag an. Darüber meldet GitHub neue und aktualisierte Pull Requests, Kommentare, Labels und Pushes an <code>{data.webhookUrl}</code>. Jede Meldung ist mit einem Geheimnis signiert, das nur dieses Repository und Claudio kennen.</p>
-						<p><strong>Voraussetzungen:</strong></p>
+						<p><strong>{i.t('repo.howWhatTitle')}</strong> {i.t('repo.howWhat')} <code>{data.webhookUrl}</code>{i.t('repo.howWhatAfter')}</p>
+						<p><strong>{i.t('repo.howPrereqTitle')}</strong></p>
 						<ul>
-							<li>Du hast Admin-Rechte am Repository auf GitHub.</li>
-							<li>Claudio ist unter einer öffentlichen Adresse erreichbar (<code>PUBLIC_BASE_URL</code>).</li>
-							<li>Oben ist eine URL-Vorlage eingetragen, damit Claudio weiß, wo die Instanz eines PRs läuft.</li>
+							<li>{i.t('repo.howPrereqAdmin')}</li>
+							<li>{i.t('repo.howPrereqPublicBefore')}<code>PUBLIC_BASE_URL</code>{i.t('repo.howPrereqPublicAfter')}</li>
+							<li>{i.t('repo.howPrereqTemplate')}</li>
 						</ul>
-						<p><strong>Danach</strong> startet ein Review, sobald jemand im PR <code>/claudio review</code> kommentiert, das Label <code>claudio-review</code> setzt oder (falls eingeschaltet) neue Commits pusht. Claudio reagiert auf den Kommentar mit 👀 und schreibt die Kurzfassung als Kommentar zurück.</p>
-						<p><strong>In wessen Namen:</strong> Automatische Läufe nutzen den GitHub-Zugang der Person, die den Webhook einrichtet. Kommentare und Status erscheinen unter ihrem Namen. Richtet ihn jemand anderes neu ein, wechselt das.</p>
-						<p><strong>GitHub-Status als Pflicht-Check:</strong> Mit eingeschaltetem Status zeigt jeder PR einen Check „Claudio“: gelb während des Reviews, dann grün (Abnahme empfohlen) oder rot (Änderungen nötig). Damit rote Reviews das Mergen verhindern:</p>
+						<p><strong>{i.t('repo.howAfterTitle')}</strong> {i.t('repo.howAfterA')} <code>/claudio review</code> {i.t('repo.howAfterB')} <code>claudio-review</code> {i.t('repo.howAfterC')}</p>
+						<p><strong>{i.t('repo.howWhoTitle')}</strong> {i.t('repo.howWho')}</p>
+						<p><strong>{i.t('repo.howCheckTitle')}</strong> {i.t('repo.howCheck')}</p>
 						<ol>
-							<li>Einmal einen Review laufen lassen, damit GitHub den Check „Claudio“ kennt.</li>
-							<li>Auf GitHub: Settings → Branches → Branch protection rule für {data.repo.defaultBranch ?? 'den Hauptbranch'} anlegen oder bearbeiten.</li>
-							<li>„Require status checks to pass before merging“ anhaken und „Claudio“ auswählen.</li>
+							<li>{i.t('repo.howCheckStep1')}</li>
+							<li>{i.t('repo.howCheckStep2', { branch: data.repo.defaultBranch ?? i.t('repo.mainBranch') })}</li>
+							<li>{i.t('repo.howCheckStep3')}</li>
 						</ol>
-						<p><strong>Entfernen</strong> löscht den Webhook auf GitHub. Bereits gestartete Reviews laufen zu Ende.</p>
+						<p><strong>{i.t('repo.howRemoveTitle')}</strong> {i.t('repo.howRemove')}</p>
 					</div>
 				</details>
 
 				<div class="actions">
 					<form method="POST" action="?tab=settings&/installWebhook" use:enhance>
-						<button class="btn {data.webhook ? '' : 'primary'}" type="submit">{data.webhook ? 'Neu einrichten' : 'Webhook einrichten'}</button>
+						<button class="btn {data.webhook ? '' : 'primary'}" type="submit">{data.webhook ? i.t('repo.webhookReinstall') : i.t('repo.webhookInstall')}</button>
 					</form>
 					{#if data.webhook}
 						<form method="POST" action="?tab=settings&/removeWebhook" use:enhance>
-							<button class="btn danger" type="submit">Entfernen</button>
+							<button class="btn danger" type="submit">{i.t('repo.remove')}</button>
 						</form>
 					{/if}
 				</div>
@@ -569,11 +552,8 @@
 
 	<section class="part">
 		<div class="intro">
-			<h2>Rollen</h2>
-			<p class="muted">
-				Benutzerkonten, mit denen Claudio sich anmeldet. Die Zugangsdaten werden verschlüsselt gespeichert und nie an das Modell
-				gegeben.
-			</p>
+			<h2>{i.t('repo.roles')}</h2>
+			<p class="muted">{i.t('repo.rolesIntro')}</p>
 		</div>
 		<div class="roles">
 			{#if formError('role')}<p class="notice error" role="alert">{formError('role')}</p>{/if}
@@ -581,18 +561,18 @@
 				<details class="sheet role">
 					<summary>
 						<strong>{role.name}</strong>
-						<span class="faint">{role.description || 'ohne Beschreibung'}, {role.username}</span>
-						{#if saved === `role:${role.name}`}<span class="ok" role="status">Gespeichert</span>{/if}
+						<span class="faint">{role.description || i.t('repo.noDescription')}, {role.username}</span>
+						{#if saved === `role:${role.name}`}<span class="ok" role="status">{i.t('repo.saved')}</span>{/if}
 					</summary>
 					{@render roleForm(role)}
 					<form method="POST" action="?tab=settings&/deleteRole" class="delete">
 						<input type="hidden" name="name" value={role.name} />
-						<button class="btn small danger" type="submit">Rolle löschen</button>
+						<button class="btn small danger" type="submit">{i.t('repo.deleteRole')}</button>
 					</form>
 				</details>
 			{/each}
 			<details class="sheet role" open={data.roles.length === 0}>
-				<summary><strong>Neue Rolle</strong></summary>
+				<summary><strong>{i.t('repo.newRole')}</strong></summary>
 				{@render roleForm(null)}
 			</details>
 		</div>
@@ -600,10 +580,8 @@
 
 	<section class="part" id="erfahrungen">
 		<div class="intro">
-			<h2>Erfahrungen des Agenten</h2>
-			<p class="muted">
-				Hält Claudio selbst fest, wenn ein Lauf ein Hindernis überwinden musste, etwa ein Feld ohne Beschriftung oder ein Cookie-Banner. Die neuesten {data.learningsInPrompt} bekommt jeder spätere Review, Test und jede Analyse mit. Lösch, was nicht stimmt.
-			</p>
+			<h2>{i.t('repo.learningsTitle')}</h2>
+			<p class="muted">{i.t('repo.learningsIntro', { n: data.learningsInPrompt })}</p>
 		</div>
 		<div>
 			{#if data.learnings.length}
@@ -612,25 +590,25 @@
 						<li>
 							<div>
 								<p>{learning.text}</p>
-								<span class="faint"><a href={learning.href}>{learning.source}</a>, {formatDate(learning.at)}</span>
+								<span class="faint"><a href={learning.href}>{learning.source}</a>, {i.formatDate(learning.at)}</span>
 							</div>
 							<form method="POST" action="?tab=settings&/removeLearning" use:enhance>
 								<input type="hidden" name="id" value={learning.id} />
-								<button class="btn small" type="submit">Löschen</button>
+								<button class="btn small" type="submit">{i.t('repo.delete')}</button>
 							</form>
 						</li>
 					{/each}
 				</ul>
 			{:else}
-				<p class="muted">Noch keine.</p>
+				<p class="muted">{i.t('repo.noneYet')}</p>
 			{/if}
 		</div>
 	</section>
 
 	<section class="part">
 		<div class="intro">
-			<h2>Gelernte Entscheidungen</h2>
-			<p class="muted">Entstehen, wenn jemand ein Finding mit Begründung verwirft. Jeder spätere Review bekommt sie als „gewollt, nicht melden“ mit.</p>
+			<h2>{i.t('repo.lessonsTitle')}</h2>
+			<p class="muted">{i.t('repo.lessonsIntro')}</p>
 		</div>
 		<div>
 			{#if data.lessons.length}
@@ -639,30 +617,30 @@
 						<li>
 							<div>
 								<p>{lesson.text}</p>
-								<span class="faint"><a href="/reviews/{lesson.reviewId}">Review #{lesson.reviewId}</a>, {lesson.by}, {formatDate(lesson.at)}</span>
+								<span class="faint"><a href="/reviews/{lesson.reviewId}">{i.t('repo.reviewRef', { id: lesson.reviewId })}</a>, {lesson.by}, {i.formatDate(lesson.at)}</span>
 							</div>
 							<form method="POST" action="?tab=settings&/removeLesson" use:enhance>
 								<input type="hidden" name="reviewId" value={lesson.reviewId} />
 								<input type="hidden" name="findingId" value={lesson.findingId} />
-								<button class="btn small" type="submit">Vergessen</button>
+								<button class="btn small" type="submit">{i.t('repo.forget')}</button>
 							</form>
 						</li>
 					{/each}
 				</ul>
 			{:else}
-				<p class="muted">Noch keine.</p>
+				<p class="muted">{i.t('repo.noneYet')}</p>
 			{/if}
 		</div>
 	</section>
 
 	<section class="part">
 		<div class="intro">
-			<h2>Entfernen</h2>
-			<p class="muted">Nimmt das Repository aus Claudio heraus. Auf GitHub ändert sich nichts.</p>
+			<h2>{i.t('repo.removeTitle')}</h2>
+			<p class="muted">{i.t('repo.removeIntro')}</p>
 		</div>
 		<form method="POST" action="?tab=settings&/remove" class="fields">
 			{#if formError('remove')}<p class="notice error" role="alert">{formError('remove')}</p>{/if}
-			<div><button class="btn danger" type="submit">Repository entfernen</button></div>
+			<div><button class="btn danger" type="submit">{i.t('repo.removeRepo')}</button></div>
 		</form>
 	</section>
 {/if}
@@ -671,42 +649,42 @@
 	<form method="POST" action="?tab=settings&/role" use:enhance={() => ({ update }) => update({ reset: !role })} class="fields">
 		<div class="grid">
 			<label class="field">
-				<span>Name</span>
+				<span>{i.t('repo.name')}</span>
 				<input type="text" name="name" value={role?.name ?? ''} readonly={!!role} required placeholder="dispatcher" />
 			</label>
 			<label class="field">
-				<span>Beschreibung</span>
-				<input type="text" name="description" value={role?.description ?? ''} placeholder="Disponent: plant Fahrten" />
+				<span>{i.t('repo.description')}</span>
+				<input type="text" name="description" value={role?.description ?? ''} placeholder={i.t('repo.descriptionPlaceholder')} />
 			</label>
 			<label class="field">
-				<span>Benutzername</span>
+				<span>{i.t('repo.username')}</span>
 				<input type="text" name="username" value={role?.username ?? ''} autocomplete="off" required={!role} />
 			</label>
 			<label class="field">
-				<span>Passwort</span>
+				<span>{i.t('repo.password')}</span>
 				<input
 					type="password"
 					name="password"
 					autocomplete="new-password"
 					required={!role}
-					placeholder={role ? 'Unverändert lassen' : ''}
+					placeholder={role ? i.t('repo.passwordUnchanged') : ''}
 				/>
 			</label>
 			<label class="field">
-				<span>Login-Pfad</span>
+				<span>{i.t('repo.loginPath')}</span>
 				<input type="text" name="loginPath" value={role?.loginPath ?? '/login'} />
 			</label>
 			<label class="field">
-				<span>Erfolgreich, wenn URL enthält</span>
+				<span>{i.t('repo.successUrl')}</span>
 				<input type="text" name="successUrlContains" value={role?.successUrlContains ?? ''} placeholder="/dashboard" />
 			</label>
 		</div>
 		<label class="field">
-			<span>Login-Rezept (optional)</span>
+			<span>{i.t('repo.recipe')}</span>
 			<textarea name="recipe" rows="3" class="code" placeholder={'[{ "action": "goto", "url": "/login" }, …]'}>{role?.recipe ?? ''}</textarea>
-			<small>Nur nötig, wenn die automatische Anmeldung das Formular nicht findet. $USER und $PASSWORD werden ersetzt.</small>
+			<small>{i.t('repo.recipeHint')}</small>
 		</label>
-		<div class="actions"><button class="btn primary" type="submit">{role ? 'Rolle speichern' : 'Rolle anlegen'}</button></div>
+		<div class="actions"><button class="btn primary" type="submit">{role ? i.t('repo.saveRole') : i.t('repo.createRole')}</button></div>
 	</form>
 {/snippet}
 

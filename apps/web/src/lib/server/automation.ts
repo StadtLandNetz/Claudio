@@ -24,10 +24,11 @@ import {
 	setCommitStatus,
 	type AutomationSettings
 } from '@claudio/github';
-import { NO_KEY_MESSAGE, keyOptional } from './anthropic.js';
+import { keyOptional, noKeyMessage } from './anthropic.js';
 import { db } from './db.js';
 import { DEMO_FIXTURE, DEMO_REPO } from './demo.js';
 import { devFixtures } from './env.js';
+import { requestI18n } from './i18n.js';
 
 export const DEFAULT_AUTOMATION: AutomationSettings = {
 	instanceUrlTemplate: '',
@@ -71,7 +72,7 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 	// Every model call of this repo runs on its own key; without one, nothing starts.
 	if (!repo.anthropicKeyEnc && !keyOptional(repo)) {
 		if (github && decision.kind === 'review' && decision.trigger === 'comment') {
-			await postPullRequestComment(github, repo.fullName, decision.prNumber, `Claudio kann diesen PR nicht prüfen: ${NO_KEY_MESSAGE}`).catch(() => undefined);
+			await postPullRequestComment(github, repo.fullName, decision.prNumber, requestI18n().t('system.cannotReview', { reason: noKeyMessage() })).catch(() => undefined);
 		}
 		return { action: 'ignored', reason: 'no Anthropic API key for this repository' };
 	}
@@ -118,7 +119,7 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 	const resolved = await resolveInstanceUrl(repo, settings, github, fixture, { prNumber: decision.prNumber, headSha, branch });
 	if ('missing' in resolved) {
 		if (github && decision.trigger === 'comment') {
-			await postPullRequestComment(github, repo.fullName, decision.prNumber, `Claudio kann diesen PR nicht prüfen: ${resolved.missing}`).catch(() => undefined);
+			await postPullRequestComment(github, repo.fullName, decision.prNumber, requestI18n().t('system.cannotReview', { reason: resolved.missing })).catch(() => undefined);
 		}
 		return { action: 'ignored', reason: resolved.reason };
 	}
@@ -148,6 +149,7 @@ export async function resolveInstanceUrl(
 	fixture: string | null,
 	pr: { prNumber: number; headSha: string | null; branch: string | null }
 ): Promise<{ url: string; source: 'deployment' | 'template'; environment?: string; note?: string } | { missing: string; reason: string }> {
+	const { t } = requestI18n();
 	const env = settings.deploymentEnvironment?.trim();
 	if (env && github && pr.headSha) {
 		const lookup = (environment?: string) =>
@@ -157,17 +159,17 @@ export async function resolveInstanceUrl(
 		if (found) {
 			const notes = [
 				found.environment.toLowerCase() !== env.toLowerCase()
-					? `Im Environment „${env}“ gibt es für diesen PR keine Bereitstellung; genutzt wird die aus „${found.environment}“. Prüfe die Einstellung in den Repo-Einstellungen.`
+					? t('system.instanceOtherEnvironment', { env, found: found.environment })
 					: null,
-				found.exact ? null : `Für den neuesten Commit gibt es noch keine Instanz; geprüft wird die von ${found.sha.slice(0, 7)}.`
+				found.exact ? null : t('system.instanceEarlierCommit', { sha: found.sha.slice(0, 7) })
 			].filter(Boolean);
 			return { url: found.url, source: 'deployment', environment: found.environment, note: notes.join(' ') || undefined };
 		}
 	}
 	const template = settings.instanceUrlTemplate || (fixture ? (repo.defaultInstanceUrl ?? '') : '');
 	if (template) return { url: renderInstanceUrl(template, { number: pr.prNumber, branch: pr.branch ?? '', sha: pr.headSha ?? '' }), source: 'template' };
-	if (env) return { missing: `Für diesen PR gibt es noch keine erfolgreiche Bereitstellung im Environment „${env}“.`, reason: `no ${env} deployment for this pull request` };
-	return { missing: 'In den Repo-Einstellungen fehlt die URL-Vorlage für die PR-Instanzen.', reason: 'no instance URL template' };
+	if (env) return { missing: t('system.instanceNoDeployment', { env }), reason: `no ${env} deployment for this pull request` };
+	return { missing: t('system.instanceNoTemplate'), reason: 'no instance URL template' };
 }
 
 async function queueReview(

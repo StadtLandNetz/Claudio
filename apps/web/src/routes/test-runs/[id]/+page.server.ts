@@ -4,13 +4,15 @@ import { eventsSince, getTestRun, openHumanRequest, requestTestRunAbort } from '
 import type { AccessLevel } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
+import { serverI18n } from '#lib/i18n/index.js';
 import { withAvailability } from '#lib/server/run-files.js';
 import type { Actions, PageServerLoad } from './$types';
 
-async function loadRun(idParam: string, user: App.Locals['user'], min: AccessLevel = 'read') {
+async function loadRun(idParam: string, locals: App.Locals, min: AccessLevel = 'read') {
+	const user = locals.user;
 	const id = Number(idParam);
 	const run = Number.isInteger(id) ? await getTestRun(db(), id) : undefined;
-	if (!run) error(404, 'Diesen Testlauf gibt es nicht.');
+	if (!run) error(404, serverI18n(locals.locale).t('test.runNotFound'));
 	// Visible only with access to its repository on GitHub.
 	await requireRepo(user, run.repoId, min);
 	return run;
@@ -20,7 +22,7 @@ async function loadRun(idParam: string, user: App.Locals['user'], min: AccessLev
 const runTagOf = (runId: string) => runId.split('-').slice(-2).join('');
 
 export const load: PageServerLoad = async ({ params, locals }) => {
-	const run = await loadRun(params.id, locals.user, 'read');
+	const run = await loadRun(params.id, locals, 'read');
 	const events = await eventsSince(db(), { testRunId: run.id }, 0, 5000);
 	const r = run.report;
 	const tplCtx = r ? { runTag: runTagOf(r.runId), now: new Date(r.createdAt) } : null;
@@ -80,7 +82,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 export const actions: Actions = {
 	abort: async ({ params, locals }) => {
-		const run = await loadRun(params.id, locals.user, 'write');
+		const run = await loadRun(params.id, locals, 'write');
 		await requestTestRunAbort(db(), run.id);
 		return { aborted: true };
 	}

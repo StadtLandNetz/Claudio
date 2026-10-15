@@ -1,21 +1,23 @@
 <script lang="ts">
 	import { liveFrames } from '#lib/live-frames.svelte.js';
+	import { i18n } from '#lib/i18n/index.js';
 
 	let { src, url }: { src: string; url: string } = $props();
+	const i = i18n();
 	const frames = liveFrames(() => src);
 </script>
 
-<section class="live sheet" aria-label="Live-Ansicht des Browsers">
+<section class="live sheet" aria-label={i.t('common.liveViewLabel')}>
 	<header>
 		<span class="dot" aria-hidden="true"></span>
-		<h2>Live-Ansicht</h2>
+		<h2>{i.t('common.liveView')}</h2>
 		<span class="url faint">{url}</span>
 	</header>
 	<div class="screen">
 		{#if frames.url}
-			<img src={frames.url} alt="Aktueller Bildschirm des Browsers, den Claudio steuert" class="show" />
+			<img src={frames.url} alt={i.t('common.liveImageAlt')} class="show" />
 		{:else}
-			<p class="wait faint">Wartet auf das erste Bild, sobald der Browser startet …</p>
+			<p class="wait faint">{i.t('common.waitingFirstFrame')}</p>
 		{/if}
 	</div>
 </section>
