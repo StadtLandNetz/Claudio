@@ -1,4 +1,4 @@
-import { blockingFindings, renderCommitStatus, renderPrComment, verdict, withTests, type Verdict } from "@claudio/core";
+import { REVIEW_SUPERSEDED, blockingFindings, renderCommitStatus, renderPrComment, verdict, withTests, type Verdict } from "@claudio/core";
 import {
   dismissedFindingIds,
   getRepoById,
@@ -9,11 +9,9 @@ import {
   freshAccessToken,
   type Db,
 } from "@claudio/db";
-import { createGithubClient, postPullRequestComment, setCommitStatus, type CommitState } from "@claudio/github";
+import { createGithubClient, postPullRequestReview, setCommitStatus } from "@claudio/github";
 
 const ACTIVE = new Set(["queued", "running"]);
-
-const STATE: Record<Verdict, CommitState> = { approve: "success", request_changes: "failure", inconclusive: "error" };
 
 /**
  * Reports a review back to GitHub once it and its regression tests are done:
@@ -62,17 +60,20 @@ export async function finalizeReview(db: Db, reviewId: number, publicBaseUrl: st
           tests: tests.length ? { passed: tests.filter((t) => t.outcome === "passed").length, total: tests.length } : undefined,
         })
       : renderCommitStatus(language, { kind: "failed", verdict: v, reason: review.error ?? review.status });
-    await setCommitStatus(github, repo.fullName, sha!, STATE[v], description, url)
-      .then(() => log(`review ${reviewId}: commit status ${STATE[v]}`))
+    // A finished review is a green check whatever it found: the verdict is in the description, and
+    // blocking findings come as a "changes requested" review. Only a run that crashed without a report is an error.
+    const state = report ? "success" : "error";
+    await setCommitStatus(github, repo.fullName, sha!, state, description, url)
+      .then(() => log(`review ${reviewId}: commit status ${state}`))
       .catch((e) => log(`commit status failed: ${(e as Error).message}`));
   }
 
   if (report && review.request.postComment && !review.commentUrl) {
     try {
       const body = renderPrComment(report, url, { dismissedIds: dismissed, tests: results });
-      const commentUrl = await postPullRequestComment(github, repo.fullName, review.prNumber, body);
-      await setReviewCommentUrl(db, reviewId, commentUrl);
-      log(`review ${reviewId}: PR comment ${commentUrl}`);
+      const posted = await postPullRequestReview(github, repo.fullName, review.prNumber, body, v === "request_changes", REVIEW_SUPERSEDED[language]);
+      await setReviewCommentUrl(db, reviewId, posted.url);
+      log(`review ${reviewId}: PR review ${posted.requestedChanges ? "requesting changes" : "comment"} ${posted.url}`);
     } catch (e) {
       log(`PR comment failed: ${(e as Error).message}`);
     }

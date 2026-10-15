@@ -147,6 +147,12 @@ export function renderCommitStatus(
   }
 }
 
+/** Note on Claudio's earlier change request when a newer review no longer requests changes. */
+export const REVIEW_SUPERSEDED: Record<Language, string> = {
+  de: "Durch ein neueres Claudio-Review ersetzt.",
+  en: "Superseded by a newer Claudio review.",
+};
+
 /** Regression tests that ran with the review. */
 export type ReviewTestResult = { name: string; outcome: "passed" | "failed" | "inconclusive" | null };
 

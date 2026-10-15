@@ -1,5 +1,5 @@
 import { error, fail } from '@sveltejs/kit';
-import { StrictnessSchema, blockingFindings, renderPrComment, sortBySeverity, verdict, withTests, type FindingNote, type ReviewTestResult } from '@claudio/core';
+import { REVIEW_SUPERSEDED, StrictnessSchema, blockingFindings, renderPrComment, sortBySeverity, verdict, withTests, type FindingNote, type ReviewTestResult } from '@claudio/core';
 import {
 	addLesson,
 	eventsSince,
@@ -14,7 +14,7 @@ import {
 	FINDING_STATUSES
 } from '@claudio/db';
 import type { AccessLevel } from '@claudio/db';
-import { createGithubClient, postPullRequestComment } from '@claudio/github';
+import { createGithubClient, postPullRequestReview } from '@claudio/github';
 import { userToken } from '#lib/server/auth.js';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
@@ -153,9 +153,12 @@ export const actions: Actions = {
 		const tests = (await listTestRuns(db(), { reviewId: review.id }, 100)).map((t) => ({ name: t.scriptName, outcome: t.outcome }));
 		const body = renderPrComment(review.report, `${publicBaseUrl(url)}/reviews/${review.id}`, { strictness, dismissedIds: dismissed, tests, notes });
 		try {
-			const commentUrl = await postPullRequestComment(createGithubClient(token), review.repoFullName, review.prNumber, body);
-			await setReviewCommentUrl(db(), review.id, commentUrl);
-			return { commented: commentUrl };
+			// Blocking findings become a "changes requested" review, like after automated runs.
+			const requestChanges = withTests(verdict(review.report, strictness, dismissed), tests) === 'request_changes';
+			const lang = review.report.request.language;
+			const posted = await postPullRequestReview(createGithubClient(token), review.repoFullName, review.prNumber, body, requestChanges, REVIEW_SUPERSEDED[lang]);
+			await setReviewCommentUrl(db(), review.id, posted.url);
+			return { commented: posted.url };
 		} catch (e) {
 			return fail(400, { error: t('review.commentRejected', { message: (e as Error).message }), form: 'comment' });
 		}

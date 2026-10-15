@@ -12,6 +12,8 @@ import {
   nowIso,
   renderMarkdown,
   renderPrComment,
+  REVIEW_SUPERSEDED,
+  verdict,
   KNOWLEDGE_DOCS,
   type KnowledgeBase,
   type RepoConfig,
@@ -19,7 +21,7 @@ import {
   type ReviewRequest,
   type RunStatus,
 } from "@claudio/core";
-import { createGithubClient, fetchPullRequestContext, postPullRequestComment, type PullRequestContext } from "@claudio/github";
+import { createGithubClient, fetchPullRequestContext, postPullRequestReview, type PullRequestContext } from "@claudio/github";
 import { createBrowserGuard, createCaptchaHook, createStopHook } from "./hooks.js";
 import { SYSTEM_APPEND, buildReviewPrompt, extractAffectedAreas } from "./prompts.js";
 import { createClaudioSdkServer } from "./sdk-tools.js";
@@ -242,10 +244,12 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
 
   if (request.postComment) {
     try {
-      const url = await postPullRequestComment(createGithubClient(token), request.repo, request.pr, renderPrComment(report, deps.reportUrl));
-      report.commentUrl = url;
+      // Blocking findings request changes on the PR instead of failing a check.
+      const requestChanges = verdict(report) === "request_changes";
+      const posted = await postPullRequestReview(createGithubClient(token), request.repo, request.pr, renderPrComment(report, deps.reportUrl), requestChanges, REVIEW_SUPERSEDED[request.language]);
+      report.commentUrl = posted.url;
       writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2));
-      log(`PR comment posted: ${url}`);
+      log(`PR review posted (${posted.requestedChanges ? "changes requested" : "comment"}): ${posted.url}`);
     } catch (e) {
       const msg = `PR comment failed: ${(e as Error).message}`;
       report.errors.push(msg);

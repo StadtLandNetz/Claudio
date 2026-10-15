@@ -100,6 +100,49 @@ export async function postPullRequestComment(octokit: Octokit, repoFullName: str
   return data.html_url;
 }
 
+/** Claudio's PR texts start with this, so its own earlier reviews can be told apart from people's. */
+const CLAUDIO_MARKER = "Claudio Review";
+
+/**
+ * Posts Claudio's result as a pull request review. With blocking findings it
+ * requests changes (GitHub then shows "Changes requested" instead of a failed
+ * check); otherwise it is a plain review comment, and Claudio's own earlier change
+ * requests on the PR are dismissed so they no longer block. GitHub forbids
+ * requesting changes on your own PR; then the review is posted as a comment.
+ */
+export async function postPullRequestReview(
+  octokit: Octokit,
+  repoFullName: string,
+  number: number,
+  body: string,
+  requestChanges: boolean,
+  dismissMessage = "Superseded by a newer Claudio review.",
+): Promise<{ url: string; requestedChanges: boolean }> {
+  const { owner, repo } = parseRepo(repoFullName);
+  const post = async (event: "REQUEST_CHANGES" | "COMMENT") =>
+    (await octokit.rest.pulls.createReview({ owner, repo, pull_number: number, body, event })).data.html_url;
+  if (!requestChanges) {
+    await dismissOwnChangeRequests(octokit, owner, repo, number, dismissMessage).catch(() => undefined);
+    return { url: await post("COMMENT"), requestedChanges: false };
+  }
+  try {
+    return { url: await post("REQUEST_CHANGES"), requestedChanges: true };
+  } catch (e) {
+    if ((e as { status?: number }).status !== 422) throw e;
+    return { url: await post("COMMENT"), requestedChanges: false };
+  }
+}
+
+async function dismissOwnChangeRequests(octokit: Octokit, owner: string, repo: string, number: number, message: string): Promise<void> {
+  const { data: me } = await octokit.rest.users.getAuthenticated();
+  const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, { owner, repo, pull_number: number, per_page: 100 });
+  for (const r of reviews) {
+    if (r.state === "CHANGES_REQUESTED" && r.user?.login === me.login && r.body?.includes(CLAUDIO_MARKER)) {
+      await octokit.rest.pulls.dismissReview({ owner, repo, pull_number: number, review_id: r.id, message });
+    }
+  }
+}
+
 function truncate(text: string, max: number): string {
   return text.length <= max ? text : text.slice(0, max) + `\n... [truncated ${text.length - max} chars]`;
 }
