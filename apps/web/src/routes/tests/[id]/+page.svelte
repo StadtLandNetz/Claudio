@@ -19,17 +19,23 @@
 
 <svelte:head><title>{i.t('test.pageTitle', { name: s.name })}</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{s.repo}?tab=tests">{i.t('test.allTests')}</a></p>
-<h1>{s.name}</h1>
-<p class="kind">
-	{#if s.determinism}
-		<strong>{i.labels.determinism[s.determinism]}.</strong> <span class="muted">{i.labels.determinismHelp[s.determinism]}</span>
-	{:else}
-		<span class="muted">{i.t('test.notRecordedYet')}</span>
-	{/if}
-	{#if s.runInReviews}<span class="tag">{i.t('test.tagRunInReviews')}</span>{/if}
-	{#if s.allowAnyHost}<span class="tag">{i.t('test.tagAnyHost')}</span>{:else if s.allowedHosts.length}<span class="tag">{i.t('test.tagAllowedHosts', { hosts: s.allowedHosts.join(', ') })}</span>{/if}
-</p>
+<div class="page-title">
+	<div>
+		<p class="crumbs">
+			<a href="/repos/{s.repo}">{s.repo}</a><span class="sep"></span><a href="/repos/{s.repo}?tab=tests">{i.t('test.allTests')}</a>
+		</p>
+		<h1>{s.name}</h1>
+		<p class="lead kind">
+			{#if s.determinism}
+				<strong>{i.labels.determinism[s.determinism]}.</strong> <span class="muted">{i.labels.determinismHelp[s.determinism]}</span>
+			{:else}
+				<span class="muted">{i.t('test.notRecordedYet')}</span>
+			{/if}
+			{#if s.runInReviews}<span class="tag">{i.t('test.tagRunInReviews')}</span>{/if}
+			{#if s.allowAnyHost}<span class="tag">{i.t('test.tagAnyHost')}</span>{:else if s.allowedHosts.length}<span class="tag">{i.t('test.tagAllowedHosts', { hosts: s.allowedHosts.join(', ') })}</span>{/if}
+		</p>
+	</div>
+</div>
 
 {#if data.isNew}
 	<p class="notice ok">{i.t('test.created')}</p>
@@ -54,10 +60,13 @@
 			{#if s.steps.length}
 				<ol class="steps sheet">
 					{#each s.steps as step, i (i)}
-						<li class:assert={step.assertion}>{step.text}</li>
+						<li class:assert={step.assertion}>
+							<span class="mark" aria-hidden="true"></span>
+							{step.text}
+						</li>
 					{/each}
 				</ol>
-				<form method="POST" action="?/reset" use:enhance>
+				<form method="POST" action="?/reset" class="reset" use:enhance>
 					<button class="btn small" type="submit">{i.t('test.discardRecording')}</button>
 					<span class="faint">{i.t('test.discardRecordingHint')}</span>
 				</form>
@@ -96,7 +105,7 @@
 						<tbody>
 							{#each data.runs as run (run.id)}
 								<tr>
-									<td>
+									<td class="pick">
 										<input
 											type="checkbox"
 											aria-label={i.t('test.compareRunLabel', { date: i.formatDate(run.createdAt) })}
@@ -201,31 +210,34 @@
 </details>
 
 <style>
-	.crumb {
-		font-size: 0.875rem;
-		margin-bottom: 0.25rem;
+	.page-title h1 {
+		max-width: 46rem;
 	}
-	.kind {
-		margin: 0.4rem 0 1.5rem;
-		max-width: 52rem;
+	.kind strong {
+		font-weight: 500;
+		color: var(--ink);
 	}
-	.tag {
-		font-size: 0.8125rem;
-		border: 1px solid var(--rule-strong);
-		border-radius: 999px;
-		padding: 0.05rem 0.5rem;
-		margin-left: 0.4rem;
-		white-space: nowrap;
+	.kind .tag {
+		margin-left: 0.3rem;
 	}
+	/* Only the notice above the layout needs its own spacing; the forms space theirs. */
+	.notice {
+		margin-bottom: 1.25rem;
+	}
+	.run .notice,
+	.fields .notice {
+		margin-bottom: 0;
+	}
+
 	.layout {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 18rem;
+		grid-template-columns: minmax(0, 1fr) 16rem;
 		gap: 2.5rem;
 		align-items: start;
 	}
 	.main {
 		display: grid;
-		gap: 2rem;
+		gap: 1.75rem;
 		min-width: 0;
 	}
 	.block {
@@ -235,10 +247,6 @@
 	.block h3 {
 		margin-top: 0.4rem;
 	}
-	.pre {
-		white-space: pre-wrap;
-		max-width: 46rem;
-	}
 	.row {
 		display: flex;
 		justify-content: space-between;
@@ -246,76 +254,124 @@
 		gap: 1rem;
 		flex-wrap: wrap;
 	}
+	.pre {
+		white-space: pre-wrap;
+		max-width: 46rem;
+		font-size: var(--text-md);
+		line-height: 1.6;
+	}
+
+	/* Recorded steps: number, assertion dot, text */
 	.steps {
+		list-style: none;
 		margin: 0;
-		padding: 0.75rem 1rem 0.75rem 2.5rem;
+		padding: 0;
+		counter-reset: step;
+	}
+	.steps li {
 		display: grid;
-		gap: 0.3rem;
-		font-size: 0.9375rem;
+		grid-template-columns: 1.5rem 0.5rem minmax(0, 1fr);
+		gap: 0.5rem;
+		padding: 0.35rem 0.75rem;
+		border-bottom: 1px solid var(--rule);
+		counter-increment: step;
+		overflow-wrap: anywhere;
 	}
-	.steps li.assert {
-		color: var(--pass);
-		font-weight: 600;
+	.steps li:last-child {
+		border-bottom: 0;
 	}
+	.steps li::before {
+		content: counter(step);
+		text-align: right;
+		font-size: var(--text-xs);
+		line-height: 1.625;
+		color: var(--ink-3);
+	}
+	.mark {
+		align-self: start;
+		width: 0.5rem;
+		height: 0.5rem;
+		margin-top: 0.35rem;
+		border-radius: 50%;
+	}
+	/* Assertions were green before; a dot carries that now. */
+	.assert {
+		font-weight: 500;
+	}
+	.assert .mark {
+		background: var(--pass);
+	}
+	.reset {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		flex-wrap: wrap;
+	}
+
 	.btn.disabled {
 		opacity: 0.5;
 		pointer-events: none;
 	}
-	.table {
-		padding: 0.25rem 0.5rem;
-		overflow-x: auto;
+	.pick {
+		width: 1.5rem;
+		padding-right: 0;
 	}
+	.pick input {
+		display: block;
+		margin: 0.15rem 0 0;
+		accent-color: var(--accent);
+	}
+	table.list td > a {
+		color: var(--ink);
+		font-weight: 500;
+	}
+	table.list td > .faint {
+		display: block;
+	}
+
+	/* Side column */
 	.side {
 		position: sticky;
 		top: 1.5rem;
 	}
 	.run {
-		padding: 1.25rem;
+		padding: 1rem;
 		display: grid;
 		gap: 0.9rem;
 	}
-	.run h2 {
-		font-size: 1.0625rem;
-	}
+
 	.edit {
-		margin-top: 2.5rem;
+		margin-top: 1.75rem;
 		max-width: 46rem;
 	}
-	.edit summary {
-		padding: 0.8rem 1rem;
-		cursor: pointer;
-	}
-	.edit[open] summary {
-		border-bottom: 1px solid var(--rule);
+	.edit summary strong {
+		font-weight: 500;
 	}
 	.fields {
 		display: grid;
-		gap: 1rem;
-		padding: 1.25rem;
+		gap: 0.9rem;
+		padding: 1rem;
 	}
 	.danger {
-		padding: 0 1.25rem 1.25rem;
+		padding: 0 1rem 1rem;
 	}
 	fieldset {
-		border: 0;
-		padding: 0;
-		margin: 0;
+		display: grid;
+		gap: 0.4rem;
 	}
 	legend {
-		font-weight: 600;
-		font-size: 0.9375rem;
 		margin-bottom: 0.4rem;
-		padding: 0;
 	}
 	.options {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem 1.5rem;
+		gap: 0.4rem 1.25rem;
 	}
 	.actions {
 		display: flex;
-		gap: 0.75rem;
+		gap: 0.6rem;
 	}
+
 	@media (max-width: 980px) {
 		.layout {
 			grid-template-columns: 1fr;

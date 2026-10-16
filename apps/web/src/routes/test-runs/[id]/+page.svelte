@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import LiveLog from '#lib/components/LiveLog.svelte';
 	import HumanTakeover from '#lib/components/HumanTakeover.svelte';
+	import Icon from '#lib/components/Icon.svelte';
 	import LiveView from '#lib/components/LiveView.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import Severity from '#lib/components/Severity.svelte';
@@ -21,9 +22,13 @@
 
 <svelte:head><title>{i.t('test.runPageTitle', { name: run.scriptName })}</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{run.repo}?tab=tests">{i.t('test.tests')}</a> / <a href="/tests/{run.scriptId}">{run.scriptName}</a></p>
-<div class="title">
-	<h1>{i.t('test.runHeading', { name: run.scriptName })}</h1>
+<div class="page-title">
+	<div>
+		<p class="crumbs">
+			<a href="/repos/{run.repo}">{run.repo}</a><span class="sep"></span><a href="/repos/{run.repo}?tab=tests">{i.t('test.tests')}</a><span class="sep"></span><a href="/tests/{run.scriptId}">{run.scriptName}</a>
+		</p>
+		<h1>{i.t('test.runHeading', { name: run.scriptName })}</h1>
+	</div>
 	{#if active}
 		<form method="POST" action="?/abort" use:enhance>
 			<button class="btn danger" type="submit" disabled={run.abortRequested}>{run.abortRequested ? i.t('test.aborting') : i.t('test.abort')}</button>
@@ -32,14 +37,20 @@
 </div>
 
 {#if r && !active}
+	<!-- The outcome: the one loud element on the page. -->
 	<section class="stamp {tone}" aria-label={i.t('test.result')}>
-		<p class="word">{run.outcome ? i.labels.outcome[run.outcome] : i.labels.status[run.status]}</p>
-		<p class="why">
-			{i.labels.mode[r.mode]}{r.mode === 'replay' && run.stepsVersion ? i.t('test.fromVersion', { version: run.stepsVersion }) : ''},
-			{i.t('test.stepsRun', { ok: r.steps.filter((s) => s.ok).length, total: r.steps.length })}, {i.formatDuration(r.cost.durationMs)},
-			{r.cost.usd > 0 ? i.formatUsd(r.cost.usd) : i.t('test.withoutModel')}.
-		</p>
-		{#if r.summary}<p class="sum">{r.summary}</p>{/if}
+		<span class="glyph" aria-hidden="true">
+			{#if tone === 'approve'}<Icon name="check" size={12} />{:else if tone === 'request_changes'}<Icon name="x" size={12} />{/if}
+		</span>
+		<div class="verdict">
+			<p class="word">{run.outcome ? i.labels.outcome[run.outcome] : i.labels.status[run.status]}</p>
+			<p class="why">
+				{i.labels.mode[r.mode]}{r.mode === 'replay' && run.stepsVersion ? i.t('test.fromVersion', { version: run.stepsVersion }) : ''},
+				{i.t('test.stepsRun', { ok: r.steps.filter((s) => s.ok).length, total: r.steps.length })}, {i.formatDuration(r.cost.durationMs)},
+				{r.cost.usd > 0 ? i.formatUsd(r.cost.usd) : i.t('test.withoutModel')}.
+			</p>
+			{#if r.summary}<p class="sum">{r.summary}</p>{/if}
+		</div>
 	</section>
 {:else if !active}
 	<p class="notice error">{run.error ?? i.t('test.noResult')}</p>
@@ -96,7 +107,7 @@
 				<ol class="steps sheet">
 					{#each r.steps as step (step.index)}
 						<li class:fail={!step.ok} class:assert={step.assertion}>
-							<span class="mark" aria-label={step.ok ? i.t('test.stepOk') : i.t('test.stepFailed')}>{step.ok ? '✓' : '✗'}</span>
+							<span class="mark" aria-label={step.ok ? i.t('test.stepOk') : i.t('test.stepFailed')}><span class="dot {step.ok ? 'pass' : 'block'}" aria-hidden="true"></span></span>
 							<span class="txt">
 								{step.text}
 								{#if step.healed}<span class="tag">{i.t('test.healed')}</span>{/if}
@@ -182,116 +193,147 @@
 </div>
 
 <style>
-	.crumb {
-		font-size: 0.875rem;
-		margin-bottom: 0.25rem;
+	.page-title h1 {
+		max-width: 46rem;
 	}
-	.title {
-		display: flex;
-		gap: 1rem;
-		align-items: flex-start;
-		justify-content: space-between;
-		flex-wrap: wrap;
-		margin-bottom: 1.25rem;
-	}
+
+	/* Outcome: the one loud element on the page */
 	.stamp {
 		--tone: var(--hint);
-		--tone-soft: var(--hint-soft);
-		display: grid;
-		gap: 0.35rem;
-		padding: 1.1rem 1.5rem;
-		border: 2px solid var(--tone);
-		border-left-width: 10px;
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		padding: 0.875rem 1rem;
+		border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
 		border-radius: var(--radius-m);
-		background: var(--tone-soft);
-		margin-bottom: 2rem;
+		background: color-mix(in srgb, var(--tone) 6%, var(--sheet));
+		margin-bottom: 1.5rem;
 	}
 	.stamp.approve {
 		--tone: var(--pass);
-		--tone-soft: var(--pass-soft);
 	}
 	.stamp.request_changes {
 		--tone: var(--block);
-		--tone-soft: var(--block-soft);
+	}
+	.glyph {
+		display: inline-grid;
+		place-items: center;
+		width: 1.25rem;
+		height: 1.25rem;
+		border-radius: 50%;
+		background: var(--tone);
+		color: #fff;
+		flex: none;
+	}
+	.verdict {
+		flex: 1;
+		min-width: 0;
+		display: grid;
+		gap: 0.15rem;
 	}
 	.word {
-		font-size: clamp(1.6rem, 3.5vw, 2.25rem);
-		font-weight: 800;
-		letter-spacing: -0.02em;
-		line-height: 1.05;
+		font-size: 1rem;
+		font-weight: 600;
+		letter-spacing: -0.01em;
+		line-height: 1.3;
 		color: var(--tone);
 	}
-	.sum {
-		max-width: 52rem;
+	.why {
+		color: var(--ink-2);
 	}
+	.sum {
+		max-width: 46rem;
+	}
+	/* Only the notice above the layout needs its own spacing; the grid spaces the others. */
+	.notice {
+		margin-bottom: 1.25rem;
+	}
+	.main .notice {
+		margin-bottom: 0;
+	}
+
 	.layout {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 15rem;
+		grid-template-columns: minmax(0, 1fr) 16rem;
 		gap: 2.5rem;
 		align-items: start;
 	}
 	.main {
 		display: grid;
-		gap: 2rem;
+		gap: 1.75rem;
 		min-width: 0;
 	}
 	.block {
 		display: grid;
 		gap: 0.6rem;
 	}
+
 	.judge {
-		padding: 1rem 1.25rem;
+		padding: 0.875rem 1rem;
 		display: grid;
-		gap: 0.5rem;
+		gap: 0.4rem;
+	}
+	.judge strong {
+		font-weight: 500;
 	}
 	.judge ul {
 		margin: 0;
 		padding-left: 1.25rem;
 	}
+
+	/* Executed steps: number, status dot, text, duration */
 	.steps {
 		list-style: none;
 		margin: 0;
-		padding: 0.4rem 0;
+		padding: 0;
+		counter-reset: step;
 	}
 	.steps li {
 		display: grid;
-		grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+		grid-template-columns: 1.5rem 0.5rem minmax(0, 1fr) auto;
 		gap: 0.5rem;
-		padding: 0.4rem 1rem;
-		font-size: 0.9375rem;
+		padding: 0.35rem 0.75rem;
+		border-bottom: 1px solid var(--rule);
+		counter-increment: step;
 	}
-	.steps li + li {
-		border-top: 1px solid var(--rule);
+	.steps li:last-child {
+		border-bottom: 0;
+	}
+	.steps li::before {
+		content: counter(step);
+		text-align: right;
+		font-size: var(--text-xs);
+		line-height: 1.625;
+		color: var(--ink-3);
 	}
 	.mark {
-		font-weight: 800;
-		color: var(--pass);
+		display: flex;
+		align-items: center;
+		height: 1.5em;
 	}
-	.fail .mark {
-		color: var(--block);
+	.txt {
+		overflow-wrap: anywhere;
 	}
 	.assert .txt {
-		font-weight: 600;
+		font-weight: 500;
 	}
 	.err {
 		display: block;
 		color: var(--block);
-		font-size: 0.8125rem;
+		font-size: var(--text-xs);
 		font-weight: 400;
 		word-break: break-word;
 	}
 	.tag {
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: var(--major);
-		border: 1px solid currentColor;
-		border-radius: 999px;
-		padding: 0 0.4rem;
 		margin-left: 0.3rem;
+		color: var(--major);
+		border-color: color-mix(in srgb, var(--major) 40%, transparent);
 	}
 	.ms {
 		white-space: nowrap;
+		padding-top: 0.1rem;
 	}
+
 	.findings {
 		list-style: none;
 		margin: 0;
@@ -301,7 +343,7 @@
 		display: flex;
 		gap: 0.75rem;
 		align-items: flex-start;
-		padding: 0.8rem 1rem;
+		padding: 0.6rem 0.75rem;
 		border-bottom: 1px solid var(--rule);
 	}
 	.findings li:last-child {
@@ -310,69 +352,86 @@
 	.findings li div {
 		display: grid;
 		gap: 0.15rem;
+		min-width: 0;
 	}
+	.findings strong {
+		font-weight: 500;
+	}
+
 	.shots {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
-		gap: 0.75rem;
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
 	}
 	.shot {
 		display: grid;
-		gap: 0.3rem;
+		gap: 0.25rem;
+		width: 10rem;
 		border: 1px solid var(--rule);
 		border-radius: var(--radius-s);
 		background: var(--sheet);
 		color: var(--ink-2);
-		font-size: 0.8125rem;
+		font-size: var(--text-xs);
 		text-decoration: none;
 		overflow: hidden;
+	}
+	.shot:hover {
+		border-color: var(--rule-strong);
+		text-decoration: none;
 	}
 	.shot img {
 		width: 100%;
 		aspect-ratio: 16 / 10;
 		object-fit: cover;
 		object-position: top;
+		display: block;
 		border-bottom: 1px solid var(--rule);
 	}
 	.shot span {
-		padding: 0 0.5rem 0.4rem;
+		padding: 0 0.45rem 0.35rem;
 	}
 	.errors {
 		margin: 0;
 		padding-left: 1.25rem;
 		color: var(--block);
 	}
+
+	/* Meta column */
 	.meta {
 		position: sticky;
 		top: 1.5rem;
-		font-size: 0.9375rem;
 	}
 	.meta dl {
 		margin: 0;
 		display: grid;
-		gap: 0.2rem;
+		grid-template-columns: 5.5rem minmax(0, 1fr);
+		gap: 0.5rem 0.75rem;
+		align-items: start;
 	}
 	.meta dt {
-		font-size: 0.8125rem;
-		font-weight: 600;
+		font-size: var(--text-xs);
 		color: var(--ink-3);
-		margin-top: 0.6rem;
-	}
-	.meta dt:first-child {
-		margin-top: 0;
+		padding-top: 0.1rem;
 	}
 	.meta dd {
 		margin: 0;
+		min-width: 0;
 	}
 	.break {
 		word-break: break-all;
+		font-family: var(--mono);
+		font-size: var(--text-xs);
 	}
+
 	@media (max-width: 980px) {
 		.layout {
 			grid-template-columns: 1fr;
 		}
 		.meta {
 			position: static;
+		}
+		.meta dl {
+			grid-template-columns: 7rem minmax(0, 1fr);
 		}
 	}
 </style>

@@ -2,7 +2,9 @@
 	import '../app.css';
 	import favicon from '#lib/assets/favicon.svg';
 	import { page } from '$app/state';
+	import Icon from '#lib/components/Icon.svelte';
 	import LocaleSwitch from '#lib/components/LocaleSwitch.svelte';
+	import ThemeSwitch from '#lib/components/ThemeSwitch.svelte';
 	import { provideI18n } from '#lib/i18n/index.js';
 	import type { LayoutProps } from './$types';
 
@@ -19,9 +21,8 @@
 	});
 
 	const nav = [
-		{ href: '/', label: 'common.navOverview', match: (p: string) => p === '/' || p.startsWith('/reviews') },
-		{ href: '/kosten', label: 'common.navCosts', match: (p: string) => p === '/kosten' },
-		{ href: '/repos', label: 'common.navRepos', match: (p: string) => p === '/repos' }
+		{ href: '/', icon: 'overview', label: 'common.navOverview', match: (p: string) => p === '/' || p.startsWith('/reviews') },
+		{ href: '/kosten', icon: 'costs', label: 'common.navCosts', match: (p: string) => p === '/kosten' }
 	] as const;
 </script>
 
@@ -34,66 +35,71 @@
 	<div class="shell">
 		<header class="side">
 			<a class="mark" href="/" aria-label={i.t('common.homeLabel')}>
-				<img src={favicon} alt="" width="26" height="26" />
+				<img src={favicon} alt="" width="20" height="20" />
 				<span>Claudio</span>
 			</a>
 			<nav aria-label={i.t('common.mainNav')}>
 				{#each nav as item (item.href)}
-					<a href={item.href} aria-current={item.match(page.url.pathname) ? 'page' : undefined}>{i.t(item.label)}</a>
+					<a href={item.href} aria-current={item.match(page.url.pathname) ? 'page' : undefined}>
+						<Icon name={item.icon} />
+						{i.t(item.label)}
+					</a>
 				{/each}
 			</nav>
-			{#if repos.length}
-				<ul class="repo-list" aria-label={i.t('common.setUpRepos')}>
-					{#each repos as repo (repo.fullName)}
-						{@const [owner, name] = repo.fullName.split('/')}
-						<li>
-							<a href="/repos/{repo.fullName}" aria-current={currentRepo === repo.fullName ? 'page' : undefined} title={repo.fullName}>
-								<span class="owner">{owner}/</span>{name}
-							</a>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-			<a class="btn add" href="/repos#hinzufuegen">{i.t('common.addRepo')}</a>
-			<div class="prefs"><LocaleSwitch /></div>
-			<div class="me">
-				{#if data.user.avatarUrl}
-					<img src={data.user.avatarUrl} alt="" width="28" height="28" />
+			<section class="repos" aria-label={i.t('common.setUpRepos')}>
+				<div class="section">
+					<a href="/repos" aria-current={page.url.pathname === '/repos' ? 'page' : undefined}>{i.t('common.navRepos')}</a>
+					<a class="plus" href="/repos#hinzufuegen" title={i.t('common.addRepo')} aria-label={i.t('common.addRepo')}><Icon name="plus" size={14} /></a>
+				</div>
+				{#if repos.length}
+					<ul class="repo-list">
+						{#each repos as repo (repo.fullName)}
+							{@const [owner, name] = repo.fullName.split('/')}
+							<li>
+								<a href="/repos/{repo.fullName}" aria-current={currentRepo === repo.fullName ? 'page' : undefined} title={repo.fullName}>
+									<span class="avatar" aria-hidden="true">{name?.[0]?.toUpperCase() ?? '?'}</span>
+									<span class="label"><span class="owner">{owner}/</span>{name}</span>
+								</a>
+							</li>
+						{/each}
+					</ul>
 				{/if}
-				<span class="who" title={data.user.name ?? data.user.login}>{data.user.login}</span>
-				<form method="POST" action="/auth/logout">
-					<button class="logout" type="submit">{i.t('common.signOut')}</button>
-				</form>
+			</section>
+			<div class="foot">
+				<div class="prefs">
+					<LocaleSwitch />
+					<ThemeSwitch />
+				</div>
+				<div class="me">
+					{#if data.user.avatarUrl}
+						<img src={data.user.avatarUrl} alt="" width="20" height="20" />
+					{:else}
+						<span class="avatar" aria-hidden="true">{data.user.login[0]?.toUpperCase()}</span>
+					{/if}
+					<span class="who" title={data.user.name ?? data.user.login}>{data.user.login}</span>
+					<form method="POST" action="/auth/logout">
+						<button class="logout" type="submit">{i.t('common.signOut')}</button>
+					</form>
+				</div>
 			</div>
 		</header>
 		<main>
-			{#if data.authExpired}
-				<div class="notice error expired" role="alert">
-					{i.t('common.authExpired')}
-					<form method="POST" action="/auth/logout"><button class="btn small" type="submit">{i.t('common.signInAgain')}</button></form>
-				</div>
-			{/if}
-			{#each (data.waiting ?? []).filter((w) => w.href !== page.url.pathname) as w (w.id)}
-				<a class="waiting" href={w.href}>
-					<span class="pulse" aria-hidden="true"></span>
-					<span><strong>{i.t('common.waitingForYou')}</strong> {w.reason} <span class="faint">({w.repo})</span></span>
-					<span class="go">{i.t('common.open')}</span>
-				</a>
-			{/each}
-			{#if currentRepo}
-				{@const info = repos.find((r) => r.fullName === currentRepo)}
-				{@const onRepoPage = Boolean(page.params.owner)}
-				<!-- On the repo page the heading already names the repo; the bar then only carries the GitHub link. -->
-				{#if !onRepoPage || info?.onGithub}
-				<div class="repobar">
-					{#if !onRepoPage}<a class="repo-name" href="/repos/{currentRepo}">{currentRepo}</a>{/if}
-					{#if info?.onGithub}
-						<a class="btn small" href="https://github.com/{currentRepo}" target="_blank" rel="noopener noreferrer">{i.t('common.onGithub')}</a>
-					{/if}
-				</div>
+			<div class="content">
+				{#if data.authExpired}
+					<div class="notice error expired" role="alert">
+						{i.t('common.authExpired')}
+						<form method="POST" action="/auth/logout"><button class="btn small" type="submit">{i.t('common.signInAgain')}</button></form>
+					</div>
 				{/if}
-			{/if}
-			{@render children()}
+				{#each (data.waiting ?? []).filter((w) => w.href !== page.url.pathname) as w (w.id)}
+					<a class="waiting" href={w.href}>
+						<span class="dot major live" aria-hidden="true"></span>
+						<span><strong>{i.t('common.waitingForYou')}</strong> {w.reason} <span class="faint">({w.repo})</span></span>
+						<span class="go">{i.t('common.open')}</span>
+					</a>
+				{/each}
+				{@render children()}
+			</div>
 		</main>
 	</div>
 {:else}
@@ -103,7 +109,7 @@
 <style>
 	.shell {
 		display: grid;
-		grid-template-columns: 13.5rem minmax(0, 1fr);
+		grid-template-columns: 15rem minmax(0, 1fr);
 		min-height: 100dvh;
 	}
 	.side {
@@ -112,78 +118,187 @@
 		height: 100dvh;
 		display: flex;
 		flex-direction: column;
-		gap: 1.75rem;
-		padding: 1.25rem 1rem;
-		border-right: 1px solid var(--rule);
-		background: var(--sheet);
+		gap: 1rem;
+		padding: 0.75rem 0.625rem;
+		overflow-y: auto;
 	}
 	.mark {
 		display: flex;
 		align-items: center;
-		gap: 0.55rem;
-		font-weight: 800;
-		font-size: 1.125rem;
-		color: var(--ink);
-		text-decoration: none;
+		gap: 0.5rem;
+		height: 1.75rem;
 		padding: 0 0.5rem;
-	}
-	nav {
-		display: grid;
-		gap: 0.15rem;
-	}
-	nav a {
-		color: var(--ink-2);
-		text-decoration: none;
 		font-weight: 600;
-		padding: 0.45rem 0.6rem;
-		border-radius: var(--radius-s);
+		font-size: var(--text-sm);
+		color: var(--ink);
+		text-decoration: none;
 	}
-	nav a:hover {
-		background: var(--sunken);
+	.mark:hover {
+		text-decoration: none;
+	}
+	.mark img {
+		border-radius: 5px;
+	}
+	nav,
+	.repo-list {
+		display: grid;
+		gap: 1px;
+	}
+	nav a,
+	.repo-list a {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		height: 1.75rem;
+		padding: 0 0.5rem;
+		border-radius: var(--radius-s);
+		color: var(--ink-2);
+		font-weight: 500;
+		font-size: var(--text-sm);
+		text-decoration: none;
+		min-width: 0;
+	}
+	nav a :global(svg) {
+		color: var(--ink-3);
+	}
+	nav a:hover,
+	.repo-list a:hover {
+		background: color-mix(in srgb, var(--ink) 5%, transparent);
+		color: var(--ink);
+		text-decoration: none;
+	}
+	nav a[aria-current='page'],
+	.repo-list a[aria-current='page'] {
+		background: color-mix(in srgb, var(--ink) 8%, transparent);
 		color: var(--ink);
 	}
-	nav a[aria-current='page'] {
-		background: var(--petrol-soft);
-		color: var(--petrol);
+	nav a[aria-current='page'] :global(svg) {
+		color: var(--ink);
 	}
-	.add {
+	.repos {
+		display: grid;
+		gap: 0.25rem;
+		align-content: start;
+		min-height: 0;
+	}
+	.section {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		height: 1.5rem;
+		padding: 0 0.25rem 0 0.5rem;
+		font-size: var(--text-xs);
+		font-weight: 500;
+		color: var(--ink-3);
+	}
+	.section > a:first-child {
+		color: inherit;
+	}
+	.section > a:first-child:hover,
+	.section > a:first-child[aria-current='page'] {
+		color: var(--ink);
+		text-decoration: none;
+	}
+	.plus {
+		display: inline-flex;
+		align-items: center;
 		justify-content: center;
-		font-size: 0.875rem;
+		width: 1.25rem;
+		height: 1.25rem;
+		border-radius: 3px;
+		color: var(--ink-3);
+	}
+	.plus:hover {
+		background: color-mix(in srgb, var(--ink) 6%, transparent);
+		color: var(--ink);
+		text-decoration: none;
 	}
 	.repo-list {
 		list-style: none;
-		margin: -1.25rem 0 0;
-		padding: 0 0 0 0.6rem;
-		display: grid;
-		gap: 0.1rem;
-		max-height: 40vh;
-		overflow-y: auto;
-		border-left: 1px solid var(--rule);
-		margin-left: 0.6rem;
+		margin: 0;
+		padding: 0;
 	}
-	.repo-list a {
-		display: block;
-		padding: 0.3rem 0.5rem;
-		border-radius: var(--radius-s);
-		color: var(--ink-2);
-		text-decoration: none;
-		font-size: 0.875rem;
+	.repo-list .label {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.repo-list a:hover {
-		background: var(--sunken);
-		color: var(--ink);
-	}
-	.repo-list a[aria-current='page'] {
-		background: var(--petrol-soft);
-		color: var(--petrol);
-		font-weight: 600;
-	}
 	.owner {
 		color: var(--ink-3);
 		font-weight: 400;
+	}
+	.avatar {
+		display: inline-grid;
+		place-items: center;
+		flex: none;
+		width: 1rem;
+		height: 1rem;
+		border-radius: 3px;
+		background: var(--accent-soft);
+		color: var(--accent);
+		font-size: 0.625rem;
+		font-weight: 600;
+		line-height: 1;
+	}
+	.foot {
+		margin-top: auto;
+		display: grid;
+		gap: 0.5rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid var(--rule);
+	}
+	.prefs {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		padding: 0 0.25rem;
+	}
+	.me {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		height: 1.75rem;
+		padding: 0 0.5rem;
+		font-size: var(--text-sm);
+	}
+	.me img {
+		border-radius: 50%;
+	}
+	.who {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		font-weight: 500;
+	}
+	.logout {
+		font: inherit;
+		font-size: var(--text-xs);
+		background: none;
+		border: 0;
+		color: var(--ink-3);
+		cursor: pointer;
+		padding: 0.2rem 0.25rem;
+		border-radius: 3px;
+	}
+	.logout:hover {
+		color: var(--ink);
+		background: color-mix(in srgb, var(--ink) 6%, transparent);
+	}
+
+	/* The content area: a raised panel inset from the sidebar */
+	main {
+		min-width: 0;
+		margin: 0.5rem 0.5rem 0.5rem 0;
+		background: var(--panel);
+		border: 1px solid var(--rule);
+		border-radius: var(--radius-l);
+		box-shadow: var(--shadow);
+	}
+	.content {
+		max-width: 72rem;
+		padding: 1.5rem 2rem 4rem;
 	}
 	.expired {
 		display: flex;
@@ -195,92 +310,24 @@
 	.waiting {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		padding: 0.7rem 1rem;
+		gap: 0.6rem;
+		padding: 0.5rem 0.75rem;
 		margin-bottom: 1rem;
-		border: 1px solid var(--major);
-		border-left-width: 6px;
-		border-radius: var(--radius-s);
+		border: 1px solid color-mix(in srgb, var(--major) 40%, transparent);
+		border-radius: var(--radius-m);
 		background: var(--major-soft);
 		color: var(--ink);
 		text-decoration: none;
 	}
+	.waiting:hover {
+		text-decoration: none;
+		border-color: var(--major);
+	}
 	.waiting .go {
 		margin-left: auto;
-		font-weight: 600;
+		font-weight: 500;
 		color: var(--major);
 	}
-	.waiting .pulse {
-		width: 0.6rem;
-		height: 0.6rem;
-		border-radius: 50%;
-		background: var(--major);
-		flex: none;
-		animation: pulse 1.2s ease-in-out infinite;
-	}
-	@keyframes pulse {
-		50% {
-			opacity: 0.3;
-		}
-	}
-	.repobar {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		flex-wrap: wrap;
-		margin-bottom: 0.75rem;
-	}
-	.repo-name {
-		font-size: 0.9375rem;
-		font-weight: 600;
-		color: var(--ink-2);
-		text-decoration: none;
-	}
-	.repo-name:hover {
-		color: var(--petrol);
-		text-decoration: underline;
-	}
-	.prefs {
-		margin-top: auto;
-		padding: 0 0.5rem;
-	}
-	.me {
-		margin-top: -0.75rem;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.875rem;
-		padding: 0 0.5rem;
-	}
-	.me img {
-		border-radius: 50%;
-	}
-	.who {
-		flex: 1;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		font-weight: 600;
-	}
-	.logout {
-		font: inherit;
-		font-size: 0.8125rem;
-		background: none;
-		border: 0;
-		color: var(--ink-3);
-		cursor: pointer;
-		padding: 0.2rem;
-	}
-	.logout:hover {
-		color: var(--ink);
-		text-decoration: underline;
-	}
-	main {
-		padding: 2rem clamp(1rem, 4vw, 3rem) 4rem;
-		max-width: 72rem;
-		width: 100%;
-	}
-
 	@media (max-width: 760px) {
 		.shell {
 			grid-template-columns: 1fr;
@@ -291,42 +338,39 @@
 			flex-direction: row;
 			flex-wrap: wrap;
 			align-items: center;
-			gap: 0.75rem 1rem;
-			padding: 0.75rem 1rem;
-			border-right: 0;
-			border-bottom: 1px solid var(--rule);
+			gap: 0.5rem 0.75rem;
+			padding: 0.5rem 0.75rem;
 		}
 		nav {
 			display: flex;
 			order: 3;
 			width: 100%;
 		}
-		.add {
-			order: 5;
-		}
-		.repo-list {
+		.repos {
 			order: 4;
 			width: 100%;
-			max-height: none;
-			margin: 0;
-			border-left: 0;
-			padding: 0;
+		}
+		.repo-list {
 			display: flex;
 			flex-wrap: wrap;
 			gap: 0.25rem;
 		}
-		.prefs {
+		.foot {
+			order: 2;
 			margin: 0 0 0 auto;
 			padding: 0;
-		}
-		.me {
-			margin: 0;
+			border: 0;
+			display: flex;
+			align-items: center;
 		}
 		.who {
 			display: none;
 		}
 		main {
-			padding: 1.25rem 1rem 3rem;
+			margin: 0 0.5rem 0.5rem;
+		}
+		.content {
+			padding: 1rem 1rem 3rem;
 		}
 	}
 </style>

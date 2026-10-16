@@ -10,10 +10,12 @@
 
 <svelte:head><title>{i.t('common.costsTitle')}</title></svelte:head>
 
-<h1>{i.t('common.costs')}</h1>
-<p class="muted lead">
-	{i.t('common.costsIntro')}
-</p>
+<div class="page-title">
+	<div>
+		<h1>{i.t('common.costs')}</h1>
+		<p class="lead">{i.t('common.costsIntro')}</p>
+	</div>
+</div>
 
 {#if data.months.length === 0}
 	<p class="muted">{i.t('common.noRuns')}</p>
@@ -46,37 +48,49 @@
 {/if}
 
 <style>
-	.lead {
-		margin: 0.25rem 0 1.5rem;
-		max-width: 46rem;
+	/* Amounts are emphasised by weight 500, never bold */
+	strong {
+		font-weight: 500;
 	}
 	.year {
-		margin-bottom: 1.5rem;
-		font-size: 1.0625rem;
+		margin-bottom: 1.25rem;
+		font-size: var(--text-md);
+		color: var(--ink-2);
+	}
+	.year strong {
+		color: var(--ink);
 	}
 	.month {
 		display: grid;
 		gap: 0.6rem;
-		margin-bottom: 2rem;
+		margin-bottom: 1.75rem;
+	}
+	.month:last-of-type {
+		margin-bottom: 0.75rem;
 	}
 	h2 {
 		display: flex;
 		align-items: baseline;
-		gap: 0.75rem;
+		gap: 0.6rem;
 		flex-wrap: wrap;
 	}
 	.sum {
-		font-weight: 800;
+		font-weight: 500;
+		color: var(--ink-2);
 	}
-	.table {
-		padding: 0.25rem 0.5rem;
-		overflow-x: auto;
+	h2 .faint {
+		font-weight: 400;
 	}
+	table a {
+		color: var(--ink);
+		font-weight: 500;
+	}
+	/* The run count next to an amount; a fixed width keeps the amounts aligned */
 	.runs {
 		display: inline-block;
 		min-width: 1.6rem;
 		margin-left: 0.35rem;
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		color: var(--ink-3);
 		text-align: left;
 	}

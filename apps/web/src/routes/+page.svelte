@@ -11,10 +11,10 @@
 
 <svelte:head><title>{i.t('common.overviewTitle')}</title></svelte:head>
 
-<div class="head">
+<div class="page-title">
 	<div>
 		<h1>{i.t('common.reviews')}</h1>
-		<p class="muted">
+		<p class="lead">
 			{#if running > 0}
 				{i.t('common.reviewsRunning', { n: running })}
 			{:else}
@@ -49,27 +49,13 @@
 {/if}
 
 <style>
-	.head {
-		display: flex;
-		align-items: flex-end;
-		justify-content: space-between;
-		gap: 1rem;
-		flex-wrap: wrap;
-		margin-bottom: 1.5rem;
-	}
-	.head h1 {
-		margin-bottom: 0.25rem;
-	}
 	.analysis {
 		margin-bottom: 1rem;
 	}
-	.table {
-		padding: 0.25rem 0.5rem;
-	}
 	.empty {
-		padding: 2rem;
+		padding: 1.5rem;
 		display: grid;
-		gap: 0.75rem;
+		gap: 0.6rem;
 		justify-items: start;
 		max-width: 36rem;
 	}

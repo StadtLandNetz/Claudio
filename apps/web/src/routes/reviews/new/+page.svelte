@@ -9,14 +9,20 @@
 
 <svelte:head><title>{i.t('review.start')} · Claudio</title></svelte:head>
 
-<h1>{i.t('review.start')}</h1>
+<div class="page-title">
+	<div>
+		<p class="crumbs"><a href="/repos/{data.repo}?tab=pulls">{data.repo}</a></p>
+		<h1>{i.t('review.start')}</h1>
+		{#if data.pr}
+			<p class="lead pr">
+				<a href={data.pr.url} target="_blank" rel="noopener noreferrer">#{data.prNumber} {data.pr.title}</a>
+				<span class="faint">{i.t('review.branch', { ref: data.pr.headRef })}</span>
+			</p>
+		{/if}
+	</div>
+</div>
 
-{#if data.pr}
-	<p class="pr">
-		<a href={data.pr.url} target="_blank" rel="noopener noreferrer">#{data.prNumber} {data.pr.title}</a>
-		<span class="faint">{i.t('review.branch', { ref: data.pr.headRef })}</span>
-	</p>
-{:else}
+{#if !data.pr}
 	<p class="notice error">{data.prError ?? i.t('review.prNotFound', { n: data.prNumber })}</p>
 {/if}
 
@@ -111,51 +117,56 @@
 
 <style>
 	.pr {
-		margin: 0.5rem 0 1.5rem;
-		display: grid;
+		display: flex;
+		align-items: baseline;
+		gap: 0.25rem 0.6rem;
+		flex-wrap: wrap;
 	}
 	.pr a {
-		font-weight: 700;
-		font-size: 1.0625rem;
 		color: var(--ink);
+		font-weight: 500;
+	}
+	.notice {
+		margin-bottom: 1rem;
 	}
 	.form {
-		padding: 1.5rem;
 		display: grid;
-		gap: 1.25rem;
+		gap: 0.9rem;
+		padding: 1rem;
 		max-width: 46rem;
 	}
-	fieldset {
-		border: 0;
-		padding: 0;
+	.form .notice {
 		margin: 0;
+	}
+	fieldset {
 		display: grid;
 		gap: 0.4rem;
 	}
 	legend {
-		font-weight: 600;
-		font-size: 0.9375rem;
 		margin-bottom: 0.4rem;
-		padding: 0;
 	}
 	fieldset small {
 		color: var(--ink-3);
-		font-size: 0.8125rem;
+		font-size: var(--text-xs);
 	}
 	.options {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem 1.5rem;
+		gap: 0.4rem 1.25rem;
 	}
 	.grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-		gap: 1rem;
+		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+		gap: 0.9rem;
 	}
 	.actions {
 		display: flex;
 		align-items: center;
-		gap: 1rem;
+		gap: 0.6rem;
 		flex-wrap: wrap;
+	}
+	/* The role description follows the name inline */
+	.options .faint {
+		margin-left: 0.3rem;
 	}
 </style>

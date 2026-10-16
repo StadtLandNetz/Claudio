@@ -100,28 +100,30 @@
 
 <style>
 	.takeover {
-		border: 2px solid var(--major);
+		border: 1px solid color-mix(in srgb, var(--major) 55%, transparent);
 		border-radius: var(--radius-m);
 		background: var(--sheet);
 		overflow: hidden;
 	}
 	header {
 		display: flex;
-		gap: 0.75rem;
+		gap: 0.6rem;
 		align-items: flex-start;
-		padding: 0.9rem 1.1rem;
+		padding: 0.6rem 0.75rem;
 		background: var(--major-soft);
+		border-bottom: 1px solid color-mix(in srgb, var(--major) 35%, transparent);
 	}
 	h2 {
-		font-size: 1.0625rem;
+		font-size: var(--text-sm);
 		color: var(--major);
 	}
 	header p {
-		margin-top: 0.2rem;
+		margin-top: 0.1rem;
+		color: var(--ink-2);
 	}
 	.dot {
-		width: 0.7rem;
-		height: 0.7rem;
+		width: 0.5rem;
+		height: 0.5rem;
 		margin-top: 0.35rem;
 		border-radius: 50%;
 		background: var(--major);
@@ -156,7 +158,7 @@
 		height: 26px;
 		margin: -13px 0 0 -13px;
 		border-radius: 50%;
-		border: 3px solid var(--major);
+		border: 2px solid var(--major);
 		pointer-events: none;
 		animation: ripple 0.6s ease-out forwards;
 	}
@@ -174,27 +176,27 @@
 	}
 	.controls {
 		display: grid;
-		gap: 0.75rem;
-		padding: 0.9rem 1.1rem 1.1rem;
+		gap: 0.6rem;
+		padding: 0.75rem;
 		border-top: 1px solid var(--rule);
 	}
 	.type {
 		display: flex;
-		gap: 0.5rem;
+		gap: 0.4rem;
 	}
 	.keys,
 	.finish {
 		display: flex;
-		gap: 0.4rem;
+		gap: 0.35rem;
 		flex-wrap: wrap;
 		align-items: center;
 	}
 	.finish .faint {
 		margin-left: auto;
 		word-break: break-all;
+		font-family: var(--mono);
 	}
 	.err {
 		color: var(--block);
-		font-size: 0.875rem;
 	}
 </style>

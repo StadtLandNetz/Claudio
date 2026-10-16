@@ -22,11 +22,13 @@
 
 <svelte:head><title>{i.t('analysis.pageTitle', { repo: a.repo })}</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{a.repo}?tab=knowledge">{i.t('analysis.crumbKnowledge')}</a></p>
-<div class="title">
+<div class="page-title">
 	<div>
+		<p class="crumbs">
+			<a href="/repos/{a.repo}">{a.repo}</a><span class="sep"></span><a href="/repos/{a.repo}?tab=knowledge">{i.t('analysis.crumbKnowledge')}</a>
+		</p>
 		<h1>{isUpdate ? i.t('analysis.titleUpdate') : i.t('analysis.titleAnalyse')}</h1>
-		<p class="muted">
+		<p class="lead">
 			{#if a.commitSha}
 				{i.t('analysis.commit')} <code>{a.commitSha.slice(0, 7)}</code>{a.branch ? i.t('analysis.onBranch', { branch: a.branch }) : ''}{#if isUpdate}{i.t('analysis.buildingOn')} <code>{a.previousCommitSha?.slice(0, 7)}</code>{/if}
 			{:else}
@@ -167,40 +169,23 @@
 </div>
 
 <style>
-	.crumb {
-		font-size: 0.875rem;
-		margin-bottom: 0.25rem;
-	}
-	.title {
-		display: flex;
-		gap: 1rem;
-		align-items: flex-start;
-		justify-content: space-between;
-		flex-wrap: wrap;
-		margin-bottom: 1.5rem;
-	}
-	.title p {
-		margin-top: 0.25rem;
-	}
-	code {
-		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-		font-size: 0.875em;
-	}
 	.layout {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 15rem;
+		grid-template-columns: minmax(0, 1fr) 16rem;
 		gap: 2.5rem;
 		align-items: start;
 	}
 	.main {
 		display: grid;
-		gap: 2rem;
+		gap: 1.75rem;
 		min-width: 0;
 	}
 	.block {
 		display: grid;
-		gap: 0.75rem;
+		gap: 0.6rem;
 	}
+
+	/* Findings noticed on the side: a plain list, nothing to rate */
 	.findings {
 		list-style: none;
 		margin: 0;
@@ -210,7 +195,7 @@
 		display: flex;
 		gap: 0.75rem;
 		align-items: flex-start;
-		padding: 0.8rem 1rem;
+		padding: 0.6rem 0.75rem;
 		border-bottom: 1px solid var(--rule);
 	}
 	.findings li:last-child {
@@ -219,69 +204,86 @@
 	.findings li div {
 		display: grid;
 		gap: 0.15rem;
+		min-width: 0;
 	}
+	.findings strong {
+		font-weight: 500;
+	}
+
 	.shots {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-		gap: 0.75rem;
+		grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+		gap: 0.5rem;
 	}
 	.shot {
 		display: grid;
-		gap: 0.3rem;
+		gap: 0.25rem;
 		border: 1px solid var(--rule);
 		border-radius: var(--radius-s);
 		background: var(--sheet);
 		color: var(--ink-2);
-		font-size: 0.8125rem;
-		text-decoration: none;
+		font-size: var(--text-xs);
 		overflow: hidden;
+	}
+	.shot:hover {
+		border-color: var(--rule-strong);
+		text-decoration: none;
 	}
 	.shot img {
 		width: 100%;
 		aspect-ratio: 16 / 10;
 		object-fit: cover;
 		object-position: top;
+		display: block;
 		border-bottom: 1px solid var(--rule);
 	}
 	.shot span {
-		padding: 0 0.5rem 0.4rem;
+		padding: 0 0.45rem 0.35rem;
 	}
 	.errors {
 		margin: 0;
 		padding-left: 1.25rem;
 		color: var(--block);
 	}
+
+	/* Meta column */
 	.meta {
 		position: sticky;
 		top: 1.5rem;
-		font-size: 0.9375rem;
+		display: grid;
+		gap: 1rem;
 	}
 	.meta dl {
 		margin: 0;
 		display: grid;
-		gap: 0.2rem;
+		grid-template-columns: 5.5rem minmax(0, 1fr);
+		gap: 0.5rem 0.75rem;
+		align-items: start;
 	}
 	.meta dt {
-		font-size: 0.8125rem;
-		font-weight: 600;
+		font-size: var(--text-xs);
 		color: var(--ink-3);
-		margin-top: 0.6rem;
-	}
-	.meta dt:first-child {
-		margin-top: 0;
+		padding-top: 0.1rem;
 	}
 	.meta dd {
 		margin: 0;
+		min-width: 0;
 	}
 	.break {
 		word-break: break-all;
+		font-family: var(--mono);
+		font-size: var(--text-xs);
 	}
+
 	@media (max-width: 980px) {
 		.layout {
 			grid-template-columns: 1fr;
 		}
 		.meta {
 			position: static;
+		}
+		.meta dl {
+			grid-template-columns: 7rem minmax(0, 1fr);
 		}
 	}
 </style>

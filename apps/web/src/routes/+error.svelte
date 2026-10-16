@@ -16,9 +16,12 @@
 <style>
 	.err {
 		display: grid;
-		gap: 0.75rem;
+		gap: 0.5rem;
 		justify-items: start;
 		max-width: 36rem;
-		padding: 2rem 1rem;
+		padding: 1.5rem 0;
+	}
+	.err .btn {
+		margin-top: 0.5rem;
 	}
 </style>

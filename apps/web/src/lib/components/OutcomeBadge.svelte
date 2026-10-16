@@ -9,49 +9,15 @@
 	const label = $derived(live || !outcome ? (i.labels.status[status] ?? status) : i.labels.outcome[outcome]);
 </script>
 
-<span class="badge {tone}">
-	{#if live}<span class="pulse" aria-hidden="true"></span>{/if}
+<!-- Styled by .status and .dot in app.css -->
+<span class="status">
+	<span class="dot {tone}" aria-hidden="true"></span>
 	{label}{#if healed && !live}<span class="healed" title={i.t('test.healedTitle')}>{i.t('test.healedSuffix')}</span>{/if}
 </span>
 
 <style>
-	.badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4rem;
-		font-size: 0.8125rem;
-		font-weight: 600;
-		padding: 0.15rem 0.55rem;
-		border-radius: 999px;
-		white-space: nowrap;
-		background: var(--hint-soft);
-		color: var(--hint);
-	}
-	.pass {
-		background: var(--pass-soft);
-		color: var(--pass);
-	}
-	.block {
-		background: var(--block-soft);
-		color: var(--block);
-	}
-	.live {
-		background: var(--petrol-soft);
-		color: var(--petrol);
-	}
 	.healed {
-		font-weight: 500;
-	}
-	.pulse {
-		width: 0.5rem;
-		height: 0.5rem;
-		border-radius: 50%;
-		background: currentColor;
-		animation: pulse 1.4s ease-in-out infinite;
-	}
-	@keyframes pulse {
-		50% {
-			opacity: 0.25;
-		}
+		font-weight: 400;
+		color: var(--ink-3);
 	}
 </style>

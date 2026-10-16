@@ -6,31 +6,49 @@
 	const i = i18n();
 </script>
 
-<span class="sev {severity}">{i.labels.severity[severity]}</span>
+<span class="sev {severity}">
+	<span class="mark" aria-hidden="true"></span>
+	{i.labels.severity[severity]}
+</span>
 
 <style>
 	.sev {
-		display: inline-block;
-		font-size: 0.8125rem;
-		font-weight: 700;
-		padding: 0.1rem 0.5rem;
-		border-radius: var(--radius-s);
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: var(--text-xs);
+		font-weight: 500;
+		line-height: 1.3;
+		padding: 0.1rem 0.4rem 0.1rem 0.3rem;
+		border: 1px solid var(--rule-strong);
+		border-radius: 3px;
+		color: var(--ink-2);
 		white-space: nowrap;
 	}
+	.mark {
+		width: 0.45rem;
+		height: 0.45rem;
+		border-radius: 50%;
+		background: var(--hint);
+	}
 	.blocker {
+		color: var(--block);
+		border-color: color-mix(in srgb, var(--block) 45%, transparent);
+		background: var(--block-soft);
+	}
+	.blocker .mark {
 		background: var(--block);
-		color: var(--sheet);
 	}
 	.major {
-		background: var(--major-soft);
 		color: var(--major);
 	}
-	.minor {
-		background: var(--minor-soft);
-		color: var(--minor);
+	.major .mark {
+		background: var(--major);
 	}
-	.suggestion {
-		background: var(--hint-soft);
-		color: var(--hint);
+	.minor .mark {
+		background: var(--minor);
+	}
+	.suggestion .mark {
+		background: var(--hint);
 	}
 </style>

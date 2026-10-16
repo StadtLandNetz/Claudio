@@ -29,12 +29,12 @@
 	header {
 		display: flex;
 		align-items: center;
-		gap: 0.6rem;
-		padding: 0.65rem 1rem;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
 		border-bottom: 1px solid var(--rule);
 	}
 	h2 {
-		font-size: 1rem;
+		font-size: var(--text-sm);
 	}
 	.url {
 		margin-left: auto;
@@ -42,10 +42,11 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		min-width: 0;
+		font-family: var(--mono);
 	}
 	.dot {
-		width: 0.55rem;
-		height: 0.55rem;
+		width: 0.45rem;
+		height: 0.45rem;
 		border-radius: 50%;
 		background: var(--block);
 		animation: pulse 1.6s ease-in-out infinite;

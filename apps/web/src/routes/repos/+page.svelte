@@ -15,8 +15,12 @@
 
 <svelte:head><title>{i.t('common.reposTitle')}</title></svelte:head>
 
-<h1>{i.t('common.repositories')}</h1>
-<p class="muted lead">{i.t('common.reposIntro')}</p>
+<div class="page-title">
+	<div>
+		<h1>{i.t('common.repositories')}</h1>
+		<p class="lead">{i.t('common.reposIntro')}</p>
+	</div>
+</div>
 
 {#if form?.error}
 	<p class="notice error" role="alert">{form.error}</p>
@@ -105,13 +109,18 @@
 </section>
 
 <style>
-	.lead {
-		margin: 0.25rem 0 1.75rem;
+	.notice {
+		margin-bottom: 1rem;
+	}
+	.block .notice {
+		margin-bottom: 0;
 	}
 	.block {
-		margin-bottom: 2.25rem;
 		display: grid;
-		gap: 0.75rem;
+		gap: 0.6rem;
+	}
+	.block + .block {
+		margin-top: 1.75rem;
 	}
 	ul {
 		list-style: none;
@@ -122,27 +131,34 @@
 	.gh li {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem 1rem;
-		padding: 0.75rem 1rem;
+		gap: 0.5rem 1rem;
+		padding: 0.6rem 0.75rem;
 		border-bottom: 1px solid var(--rule);
 		flex-wrap: wrap;
 	}
 	li:last-child {
 		border-bottom: 0;
 	}
+	/* Set-up rows lead to the repo; the GitHub rows only carry a button */
+	.repos li:hover {
+		background: var(--sunken);
+	}
 	.repos a:first-child {
-		font-weight: 700;
+		font-weight: 500;
+		color: var(--ink);
 	}
 	.setup {
 		margin-left: auto;
-		font-size: 0.875rem;
+		font-size: var(--text-xs);
+		font-weight: 500;
 		color: var(--major);
 	}
 	.demo {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.6rem;
 		flex-wrap: wrap;
+		margin-top: 0.25rem;
 	}
 	.gh-head {
 		display: flex;
@@ -152,30 +168,28 @@
 		flex-wrap: wrap;
 	}
 	.search {
-		width: min(20rem, 100%);
+		width: min(18rem, 100%);
 	}
 	.name {
 		flex: 1;
 		min-width: 12rem;
 	}
-	.tag {
-		font-size: 0.75rem;
-		color: var(--ink-3);
-		border: 1px solid var(--rule-strong);
-		border-radius: 999px;
-		padding: 0 0.45rem;
-		margin-left: 0.35rem;
+	.name strong {
+		font-weight: 500;
 	}
-	.more {
-		margin-top: 0.25rem;
+	.name p {
+		margin-top: 0.1rem;
+	}
+	.tag {
+		margin-left: 0.25rem;
 	}
 	.by-name {
 		display: flex;
 		align-items: flex-end;
-		gap: 0.75rem;
+		gap: 0.6rem;
 		padding: 1rem;
 		flex-wrap: wrap;
-		margin-top: 0.5rem;
+		margin-top: 0.25rem;
 	}
 	.by-name .field {
 		flex: 1;

@@ -11,8 +11,14 @@
 
 <svelte:head><title>{i.t('test.comparePageTitle', { name: data.script.name })}</title></svelte:head>
 
-<p class="crumb"><a href="/repos/{data.script.repo}?tab=tests">{i.t('test.tests')}</a> / <a href="/tests/{data.script.id}">{data.script.name}</a></p>
-<h1>{i.t('test.compareRuns')}</h1>
+<div class="page-title">
+	<div>
+		<p class="crumbs">
+			<a href="/repos/{data.script.repo}">{data.script.repo}</a><span class="sep"></span><a href="/repos/{data.script.repo}?tab=tests">{i.t('test.tests')}</a><span class="sep"></span><a href="/tests/{data.script.id}">{data.script.name}</a>
+		</p>
+		<h1>{i.t('test.compareRuns')}</h1>
+	</div>
+</div>
 
 <div class="sheet table">
 	<table class="list cmp">
@@ -63,7 +69,7 @@
 					{#each [row.a, row.b] as s, k (k)}
 						<td>
 							{#if s}
-								<span class="mark" class:fail={!s.ok}>{s.ok ? '✓' : '✗'}</span>
+								<span class="mark"><span class="dot {s.ok ? 'pass' : 'block'}" aria-hidden="true"></span><span class="visually-hidden">{s.ok ? '✓' : '✗'}</span></span>
 								{s.text}
 								<span class="faint">{s.durationMs} ms</span>
 								{#if s.error}<span class="dev">{s.error}</span>{/if}
@@ -88,46 +94,47 @@
 </div>
 
 <style>
-	.crumb {
-		font-size: 0.875rem;
-		margin-bottom: 0.25rem;
-	}
-	h1 {
-		margin-bottom: 1.5rem;
-	}
 	.h {
-		margin: 2rem 0 0.75rem;
+		margin: 1.75rem 0 0.6rem;
 	}
-	.table {
-		padding: 0.25rem 0.5rem;
-		overflow-x: auto;
+	.cmp thead a {
+		color: var(--ink);
+		font-weight: 500;
 	}
 	.cmp th[scope='row'] {
-		white-space: nowrap;
-		color: var(--ink-2);
-		font-weight: 600;
+		padding: 0.55rem 0.75rem;
+		vertical-align: top;
 	}
 	.cmp td {
 		width: 45%;
 	}
-	.steps td {
-		font-size: 0.9375rem;
+	.steps td.num {
+		width: auto;
+		padding-right: 0;
 	}
-	tr.diff td {
-		background: color-mix(in srgb, var(--major-soft) 60%, transparent);
+	/* Rows that differ between the runs get a thin bar, not a tinted background. */
+	tr.diff td:first-child {
+		box-shadow: inset 2px 0 0 var(--major);
+	}
+	tr.diff td.num {
+		color: var(--major);
+		font-weight: 500;
 	}
 	.mark {
-		font-weight: 800;
-		color: var(--pass);
-		margin-right: 0.3rem;
+		display: inline-flex;
+		align-items: center;
+		height: 1em;
+		vertical-align: -0.15em;
+		margin-right: 0.35rem;
 	}
-	.mark.fail {
-		color: var(--block);
+	.steps .faint {
+		white-space: nowrap;
 	}
 	.dev {
 		display: block;
 		color: var(--block);
-		font-size: 0.8125rem;
+		font-size: var(--text-xs);
+		word-break: break-word;
 	}
 	.shots {
 		display: grid;
@@ -135,6 +142,7 @@
 		gap: 1rem;
 	}
 	.shots img {
+		display: block;
 		width: 100%;
 		border: 1px solid var(--rule);
 		border-radius: var(--radius-s);

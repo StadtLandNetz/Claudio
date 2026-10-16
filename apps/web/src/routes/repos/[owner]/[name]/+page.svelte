@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
+	import Icon from '#lib/components/Icon.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import KnowledgeView from '#lib/components/KnowledgeView.svelte';
 	import ReviewTable from '#lib/components/ReviewTable.svelte';
@@ -42,7 +43,15 @@
 
 <svelte:head><title>{data.repo.fullName} · Claudio</title></svelte:head>
 
-<h1>{data.repo.fullName}</h1>
+<div class="page-title">
+	<h1>{data.repo.fullName}</h1>
+	{#if data.repos.find((r) => r.fullName === data.repo.fullName)?.onGithub}
+		<a class="btn ghost small gh" href="https://github.com/{data.repo.fullName}" target="_blank" rel="noopener noreferrer">
+			{i.t('common.onGithub')}
+			<Icon name="external" size={12} />
+		</a>
+	{/if}
+</div>
 
 <nav class="tabs" aria-label={i.t('repo.tabsLabel')}>
 	{#each tabs.filter((t) => t.id !== 'settings' || isAdmin) as t (t.id)}
@@ -692,10 +701,15 @@
 	h1 {
 		word-break: break-word;
 	}
+	.page-title {
+		align-items: center;
+		margin-bottom: 0.75rem;
+	}
 	.tabs {
 		display: flex;
-		gap: 0.25rem;
-		margin: 1.25rem 0 1.5rem;
+		gap: 0.125rem;
+		margin: 0 0 1.25rem;
+		padding-bottom: 0.5rem;
 		border-bottom: 1px solid var(--rule);
 		overflow-x: auto;
 	}
@@ -703,27 +717,30 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 0.4rem;
-		padding: 0.55rem 0.8rem;
+		height: var(--control-h);
+		padding: 0 0.6rem;
+		border-radius: var(--radius-s);
 		color: var(--ink-2);
-		font-weight: 600;
+		font-weight: 500;
 		text-decoration: none;
-		border-bottom: 2px solid transparent;
-		margin-bottom: -1px;
 		white-space: nowrap;
 	}
-	.tabs a[aria-current='page'] {
+	.tabs a:hover {
+		background: var(--sunken);
 		color: var(--ink);
-		border-color: var(--petrol);
+		text-decoration: none;
+	}
+	.tabs a[aria-current='page'] {
+		background: var(--sunken);
+		color: var(--ink);
 	}
 	.count {
-		font-size: 0.75rem;
-		background: var(--sunken);
-		border-radius: 999px;
-		padding: 0 0.45rem;
+		font-size: var(--text-xs);
+		color: var(--ink-3);
 	}
 	.dot {
-		width: 0.45rem;
-		height: 0.45rem;
+		width: 0.4rem;
+		height: 0.4rem;
 		border-radius: 50%;
 		background: var(--major);
 	}
@@ -738,38 +755,39 @@
 	.pulls li {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem 1rem;
-		padding: 0.8rem 1rem;
+		gap: 0.5rem 1rem;
+		padding: 0.6rem 0.75rem;
 		border-bottom: 1px solid var(--rule);
 		flex-wrap: wrap;
 	}
 	.pulls li:last-child {
 		border-bottom: 0;
 	}
+	.pulls li:hover {
+		background: var(--sunken);
+	}
 	.pr {
 		flex: 1;
 		min-width: 14rem;
 		display: grid;
+		gap: 0.1rem;
 	}
 	.pr .title {
-		font-weight: 700;
+		font-weight: 500;
 		color: var(--ink);
 	}
 	.tag {
-		font-size: 0.75rem;
-		border: 1px solid var(--rule-strong);
-		border-radius: 999px;
-		padding: 0 0.45rem;
-		margin-left: 0.35rem;
+		margin-left: 0.3rem;
 	}
-	.table {
-		padding: 0.25rem 0.5rem;
+	table.list td a {
+		color: var(--ink);
+		font-weight: 500;
 	}
 	.part {
 		display: grid;
-		grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
-		gap: 1.5rem 2.5rem;
-		padding: 1.75rem 0;
+		grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
+		gap: 1rem 2.5rem;
+		padding: 1.5rem 0;
 		border-top: 1px solid var(--rule);
 	}
 	.part:first-of-type {
@@ -777,16 +795,16 @@
 		padding-top: 0;
 	}
 	.intro p {
-		margin-top: 0.35rem;
-		font-size: 0.9375rem;
+		margin-top: 0.3rem;
+		color: var(--ink-2);
 	}
 	.fields {
 		display: grid;
-		gap: 1rem;
+		gap: 0.9rem;
 	}
 	form.sheet,
 	.sheet.hook {
-		padding: 1.25rem;
+		padding: 1rem;
 	}
 	.hook > p,
 	.hook .notice {
@@ -794,48 +812,47 @@
 	}
 	.grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-		gap: 1rem;
+		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+		gap: 0.9rem;
 	}
 	.actions {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.6rem;
 	}
 	.ok {
 		color: var(--pass);
-		font-weight: 600;
-		font-size: 0.875rem;
+		font-weight: 500;
+		font-size: var(--text-xs);
 	}
 	.roles {
 		display: grid;
-		gap: 0.6rem;
+		gap: 0.5rem;
 		align-content: start;
 	}
 	.role summary {
 		cursor: pointer;
-		padding: 0.8rem 1rem;
+		padding: 0.6rem 0.75rem;
 		display: flex;
-		gap: 0.6rem;
+		gap: 0.5rem;
 		align-items: baseline;
 		flex-wrap: wrap;
+	}
+	.role summary strong {
+		font-weight: 500;
 	}
 	.role[open] summary {
 		border-bottom: 1px solid var(--rule);
 	}
 	.role > form {
-		padding: 1rem;
+		padding: 0.875rem 0.75rem;
 	}
 	.role .delete {
 		padding-top: 0;
 	}
 	.code {
-		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-		font-size: 0.8125rem;
-	}
-	input[readonly] {
-		background: var(--sunken);
-		color: var(--ink-2);
+		font-family: var(--mono);
+		font-size: var(--text-xs);
 	}
 	.keybox > p {
 		margin: 0;
@@ -843,7 +860,7 @@
 	.row-form {
 		display: flex;
 		align-items: flex-end;
-		gap: 0.75rem;
+		gap: 0.6rem;
 		flex-wrap: wrap;
 	}
 	.row-form .field {
@@ -851,15 +868,15 @@
 		min-width: 16rem;
 	}
 	.sheet.keybox {
-		padding: 1.25rem;
+		padding: 1rem;
 	}
 	.hook h3 {
-		font-size: 1rem;
+		font-size: var(--text-sm);
 	}
 	.dot-ok {
 		display: inline-block;
-		width: 0.55rem;
-		height: 0.55rem;
+		width: 0.5rem;
+		height: 0.5rem;
 		border-radius: 50%;
 		background: var(--pass);
 		margin-right: 0.3rem;
@@ -869,15 +886,15 @@
 	}
 	.howto summary {
 		cursor: pointer;
-		font-weight: 600;
-		color: var(--petrol);
+		font-weight: 500;
+		color: var(--accent);
 	}
 	.howto-body {
 		display: grid;
-		gap: 0.6rem;
-		margin-top: 0.75rem;
-		font-size: 0.9375rem;
+		gap: 0.5rem;
+		margin-top: 0.6rem;
 		max-width: 46rem;
+		color: var(--ink-2);
 	}
 	.howto-body ul,
 	.howto-body ol {
@@ -897,7 +914,7 @@
 		gap: 1rem;
 		align-items: flex-start;
 		justify-content: space-between;
-		padding: 0.75rem 1rem;
+		padding: 0.6rem 0.75rem;
 		border-bottom: 1px solid var(--rule);
 	}
 	.lessons li:last-child {
@@ -905,80 +922,74 @@
 	}
 	.kb-head {
 		display: grid;
-		gap: 0.75rem;
-		margin-bottom: 1rem;
+		gap: 0.6rem;
+		margin-bottom: 0.9rem;
+		color: var(--ink-2);
 	}
 	.kb-head .notice {
 		margin: 0;
 	}
 	.kb-use {
-		margin-top: 0.75rem;
+		margin-top: 0.6rem;
 	}
 	.empty-kb {
 		display: grid;
-		gap: 0.5rem;
+		gap: 0.4rem;
 		max-width: 46rem;
-		margin-bottom: 1.25rem;
+		margin-bottom: 1rem;
 	}
 	.analyze {
-		margin-top: 1.5rem;
+		margin-top: 1.25rem;
 		max-width: 46rem;
 	}
 	.analyze summary {
-		padding: 0.8rem 1rem;
+		padding: 0.6rem 0.75rem;
 		cursor: pointer;
+	}
+	.analyze summary strong {
+		font-weight: 500;
 	}
 	.analyze[open] summary {
 		border-bottom: 1px solid var(--rule);
 	}
 	.analyze form {
-		padding: 1.25rem;
+		padding: 1rem 0.75rem;
 	}
 	fieldset {
-		border: 0;
-		padding: 0;
-		margin: 0;
 		display: grid;
 		gap: 0.4rem;
 	}
 	legend {
-		font-weight: 600;
-		font-size: 0.9375rem;
 		margin-bottom: 0.4rem;
-		padding: 0;
 	}
 	fieldset small {
 		color: var(--ink-3);
-		font-size: 0.8125rem;
+		font-size: var(--text-xs);
 	}
 	.options {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem 1.5rem;
+		gap: 0.4rem 1.25rem;
 	}
 	.batch {
 		display: grid;
-		gap: 0.6rem;
-		margin-bottom: 2rem;
+		gap: 0.5rem;
+		margin-bottom: 1.75rem;
 	}
 	.history {
-		margin-top: 2rem;
+		margin-top: 1.75rem;
 		display: grid;
-		gap: 0.75rem;
-	}
-	code {
-		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-		font-size: 0.875em;
-	}
-	@media (max-width: 760px) {
-		.part {
-			grid-template-columns: 1fr;
-		}
+		gap: 0.6rem;
 	}
 	.warn {
 		display: block;
 		margin-top: 0.3rem;
 		color: var(--major);
-		font-weight: 600;
+		font-weight: 500;
+	}
+	@media (max-width: 760px) {
+		.part {
+			grid-template-columns: 1fr;
+		}
 	}
 </style>

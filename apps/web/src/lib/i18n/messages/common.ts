@@ -2,6 +2,10 @@ import type { Messages, Translation } from '../index.js';
 
 export const de = {
 	language: 'Sprache',
+	theme: 'Erscheinungsbild',
+	themeSystem: 'Wie das System',
+	themeLight: 'Hell',
+	themeDark: 'Dunkel',
 	navOverview: 'Übersicht',
 	navCosts: 'Kosten',
 	navRepos: 'Repositories',
@@ -137,6 +141,10 @@ export const de = {
 
 export const en: Translation<typeof de> = {
 	language: 'Language',
+	theme: 'Appearance',
+	themeSystem: 'Match the system',
+	themeLight: 'Light',
+	themeDark: 'Dark',
 	navOverview: 'Overview',
 	navCosts: 'Costs',
 	navRepos: 'Repositories',

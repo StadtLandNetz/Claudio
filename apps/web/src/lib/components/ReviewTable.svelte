@@ -60,24 +60,26 @@
 	}
 	.pr a:hover .title {
 		text-decoration: underline;
+		text-underline-offset: 0.15em;
 	}
 	.repo {
-		font-size: 0.8125rem;
+		font-size: var(--text-xs);
 		color: var(--ink-3);
 	}
 	.title {
-		font-weight: 600;
+		font-weight: 500;
 		max-width: 28rem;
 	}
 	.blocking {
 		color: var(--block);
-		font-weight: 600;
+		font-weight: 500;
 	}
 	.when {
 		white-space: nowrap;
 		display: grid;
+		color: var(--ink-2);
 	}
 	tr.active td {
-		background: color-mix(in srgb, var(--petrol-soft) 45%, transparent);
+		background: color-mix(in srgb, var(--accent-soft) 50%, transparent);
 	}
 </style>

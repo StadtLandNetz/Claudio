@@ -63,45 +63,38 @@
 		padding: 1.5rem 1rem;
 	}
 	.card {
-		width: min(30rem, 100%);
-		padding: 2rem;
+		width: min(24rem, 100%);
+		padding: 1.75rem;
 		display: grid;
-		gap: 1.1rem;
+		gap: 1rem;
+		box-shadow: var(--shadow);
 	}
 	.mark {
 		display: flex;
 		align-items: center;
-		gap: 0.6rem;
-		font-weight: 800;
-		font-size: 1.25rem;
+		gap: 0.5rem;
+		font-weight: 600;
+		font-size: var(--text-sm);
+	}
+	.mark img {
+		width: 22px;
+		height: 22px;
+		border-radius: 5px;
 	}
 	.lang {
 		margin-left: auto;
-		font-size: 1rem;
 	}
 	h1 {
-		font-size: 1.5rem;
-		line-height: 1.25;
+		font-size: 1.125rem;
+		line-height: 1.3;
 	}
 	.gh {
-		justify-content: center;
-		padding: 0.7rem 1rem;
-		font-size: 1rem;
-	}
-	.gh[aria-disabled='true'] {
-		opacity: 0.55;
-		pointer-events: none;
+		height: 2rem;
 	}
 	.dev {
 		display: grid;
 		gap: 0.4rem;
 		padding-top: 1rem;
 		border-top: 1px solid var(--rule);
-	}
-	.dev .btn {
-		justify-content: center;
-	}
-	code {
-		font-size: 0.875em;
 	}
 </style>

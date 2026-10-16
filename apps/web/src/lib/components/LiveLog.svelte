@@ -94,23 +94,20 @@
 
 <style>
 	.logsheet summary {
-		display: flex;
 		align-items: baseline;
-		gap: 0.75rem;
-		padding: 0.8rem 1rem;
-		cursor: pointer;
+		gap: 0.6rem;
 	}
 	.logsheet summary h2 {
-		font-size: 1rem;
+		font-size: var(--text-sm);
 	}
 	.log {
 		max-height: 24rem;
 		overflow-y: auto;
 		border-top: 1px solid var(--rule);
-		padding: 0.6rem 1rem;
-		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-		font-size: 0.8125rem;
-		line-height: 1.55;
+		padding: 0.5rem 0.75rem;
+		font-family: var(--mono);
+		font-size: var(--text-xs);
+		line-height: 1.6;
 		background: var(--sunken);
 		border-radius: 0 0 var(--radius-m) var(--radius-m);
 	}
@@ -119,10 +116,10 @@
 		word-break: break-word;
 	}
 	.tool {
-		color: var(--petrol);
+		color: var(--ink);
 	}
 	.thought {
-		color: var(--ink);
+		color: var(--ink-2);
 	}
 	.sys {
 		color: var(--ink-3);
