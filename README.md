@@ -166,7 +166,7 @@ pnpm claudio review \
 | `--headed` | show the browser window | off |
 | `--no-clone` | skip checking out the branch for code analysis | clone |
 
-The results land in `runs/<runId>/`. The folder holds the report as Markdown and JSON, the findings, screenshots, console and network logs, a Playwright trace and the full agent transcript.
+The results land in `runs/<runId>/`. The folder holds the report as Markdown and JSON, the findings, screenshots, console and network logs, a Playwright trace and the full agent transcript. The web app replays the trace as a timeline on the review and test-run pages, with the findings, acceptance criteria, screenshots and the agent's notes marked on it; the worker keeps a compact copy of it in the database for the retention period, so the timeline survives the run directory.
 
 ## Running it in production
 

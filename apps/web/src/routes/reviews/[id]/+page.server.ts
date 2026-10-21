@@ -20,7 +20,7 @@ import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { publicBaseUrl } from '#lib/server/env.js';
 import { fileAvailability, runFileUrl, withAvailability } from '#lib/server/run-files.js';
-import { viewerAvailable } from '#lib/server/trace.js';
+import { TRACE_INDEX_PATH, viewerAvailable } from '#lib/server/trace.js';
 import { renderMarkdown } from '#lib/markdown.js';
 import { serverI18n } from '#lib/i18n/index.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -61,8 +61,10 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
 	const available = await fileAvailability(review.runId);
 	const evidence = report ? await withAvailability(review.runId, report.evidence) : [];
-	// The trace stays only in the (ephemeral) run directory: offered while it is there.
+	// The whole trace stays only in the (ephemeral) run directory: offered for download while it is there.
+	// The timeline also works from the worker's copy in the database, kept like the screenshots.
 	const traceUrl = review.runId && available('trace.zip') ? runFileUrl(review.runId, 'trace.zip') : null;
+	const timeline = Boolean(review.runId && (traceUrl || available(TRACE_INDEX_PATH)));
 
 	return {
 		review: {
@@ -107,9 +109,10 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 						rating: ratings.get(f.id) ?? { status: 'proposed' as const, comment: '', by: null, at: null }
 					})),
 					evidence: Object.fromEntries(evidence.map((e) => [e.id, e])),
+					notes: report.notes,
 					cost: report.cost,
 					errors: report.errors,
-					files: { trace: traceUrl }
+					files: { trace: traceUrl, timeline }
 				}
 			: null,
 		events: events.map((e) => ({ seq: e.seq, line: e.line })),

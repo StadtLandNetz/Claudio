@@ -41,7 +41,7 @@ import {
   type ReviewStatus,
   type TestRun,
 } from "@claudio/db";
-import { persistArtifacts, purgeOldArtifacts } from "./artifacts.js";
+import { persistArtifacts, persistTrace, purgeOldArtifacts } from "./artifacts.js";
 import { finalizeReview } from "./finalize.js";
 import { humanBridge } from "./human.js";
 import { purgeOldRuns } from "./retention.js";
@@ -73,7 +73,7 @@ const NO_KEY = {
 
 /** Soft-stop handles of the runs in progress, so a shutdown (deploy) can end them cleanly. */
 const runningStops = new Set<AbortController>();
-/** Run directories (traces, checkouts) and stored screenshots are deleted after this many days. */
+/** Run directories (traces, checkouts) and stored screenshots and trace frames are deleted after this many days. */
 const retentionDays = Number(process.env.CLAUDIO_RUN_RETENTION_DAYS ?? 14);
 const artifactRetentionDays = Number(process.env.CLAUDIO_ARTIFACT_RETENTION_DAYS ?? 14);
 
@@ -172,7 +172,7 @@ async function prepare(db: Db, job: Job) {
 
 async function execute(db: Db, job: Job): Promise<void> {
   let ctx: Awaited<ReturnType<typeof prepare>> | undefined;
-  // Set once the runner has created the run directory; its screenshots are stored after the run.
+  // Set once the runner has created the run directory; its screenshots and trace are stored after the run.
   let run: RunHandle | undefined;
   const finish = (status: ReviewStatus, error: string | null) =>
     job.kind === "review"
@@ -260,7 +260,10 @@ async function execute(db: Db, job: Job): Promise<void> {
     if (reviewId) await finalizeReview(db, reviewId, publicBaseUrl, log).catch(() => undefined);
   } finally {
     ctx?.stop();
-    if (run) await persistArtifacts(db, run, log).catch((e) => log(`storing screenshots failed: ${(e as Error).message}`));
+    if (run) {
+      await persistArtifacts(db, run, log).catch((e) => log(`storing screenshots failed: ${(e as Error).message}`));
+      await persistTrace(db, run, log).catch((e) => log(`storing trace failed: ${(e as Error).message}`));
+    }
   }
 }
 

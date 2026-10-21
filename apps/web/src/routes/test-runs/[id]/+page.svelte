@@ -30,7 +30,7 @@
 
 	// ---- trace timeline
 	let timeline = $state<ReturnType<typeof TraceTimeline>>();
-	const hasTrace = $derived(Boolean(r?.traceUrl));
+	const hasTrace = $derived(Boolean(r?.timeline));
 	const evidenceAt = $derived(new Map((r?.evidence ?? []).map((e) => [e.id, e.createdAt])));
 	// A finding's first screenshot was taken when it was observed; its own time is when it was written up.
 	const anchorOf = (ids: string[], fallback: string) => ids.map((id) => evidenceAt.get(id)).find((x): x is string => Boolean(x)) ?? fallback;
@@ -38,11 +38,23 @@
 	const markers = $derived.by((): Marker[] =>
 		r
 			? [
-					...r.evidence.map((e) => ({ kind: 'evidence' as const, id: e.id, label: e.label, at: e.createdAt })),
-					...r.findings.map((f) => ({ kind: 'finding' as const, id: f.id, label: f.title, at: anchorOf(f.evidenceIds, f.createdAt), severity: f.severity }))
+					...r.evidence.map((e): Marker => ({ kind: 'evidence', id: e.id, label: e.label, at: e.createdAt, body: e.note, image: e.url ?? undefined })),
+					...r.findings.map(
+						(f): Marker => ({
+							kind: 'finding',
+							id: f.id,
+							label: f.title,
+							at: anchorOf(f.evidenceIds, f.createdAt),
+							severity: f.severity,
+							body: [f.description, f.expected && `${i.t('review.expected')}: ${f.expected}`, f.actual && `${i.t('review.observed')}: ${f.actual}`].filter(Boolean).join('\n')
+						})
+					)
 				]
 			: []
 	);
+	const openMarker = (m: Marker) => {
+		if (m.image) lightbox = { url: m.image, label: `${m.id} ${m.label}` };
+	};
 	// Playwright's viewer runs a service worker, which browsers allow only on HTTPS or localhost.
 	let secure = $state(false);
 	$effect(() => {
@@ -89,8 +101,8 @@
 
 <div class="layout">
 	<div class="main">
-		{#if r?.traceUrl}
-			<TraceTimeline bind:this={timeline} runId={r.runId} {markers} viewerUrl={viewerHref} downloadUrl={r.traceUrl} />
+		{#if r?.timeline}
+			<TraceTimeline bind:this={timeline} runId={r.runId} {markers} viewerUrl={viewerHref} downloadUrl={r.traceUrl} onopen={openMarker} />
 		{/if}
 
 		{#if active && data.human}

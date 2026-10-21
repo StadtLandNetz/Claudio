@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseToolCalls, parseTrace } from '../src/lib/server/trace.js';
+import { parseToolCalls, parseTrace, thinFrames } from '../src/trace/parse.js';
 
 const W = 1_700_000_000_000; // wall clock at context start (epoch ms)
 const M = 500_000; // monotonic clock at context start
@@ -127,5 +127,24 @@ describe('parseToolCalls', () => {
 			{ t: 7000, tool: 'ac', label: 'failed: 2. Das Formular …' },
 			{ t: 8000, tool: 'other', label: 'evaluate () => document.title' }
 		]);
+	});
+});
+
+describe('thinFrames', () => {
+	const frames = Array.from({ length: 1000 }, (_, k) => ({ t: k * 100, file: `f${k}.jpeg`, w: 1, h: 1, page: 'p' }));
+	it('keeps every frame of a short run', () => {
+		expect(thinFrames(frames.slice(0, 50), 600)).toHaveLength(50);
+	});
+	it('spreads the kept frames and keeps the ones before the anchors', () => {
+		const kept = thinFrames(frames, 100, [12_345, 99_900]);
+		expect(kept.length).toBeLessThanOrEqual(100);
+		expect(kept[0]!.file).toBe('f0.jpeg');
+		expect(kept.at(-1)!.file).toBe('f999.jpeg');
+		// the last frame at or before each anchor survives
+		expect(kept.map((f) => f.file)).toContain('f123.jpeg');
+		expect(kept.map((f) => f.file)).toContain('f999.jpeg');
+		// still in time order, no duplicates
+		const ts = kept.map((f) => f.t);
+		expect([...new Set(ts)]).toEqual([...ts].sort((a, b) => a - b));
 	});
 });

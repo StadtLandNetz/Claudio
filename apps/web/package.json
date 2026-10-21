@@ -27,6 +27,7 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"dependencies": {
+		"@claudio/browser": "workspace:*",
 		"@claudio/core": "workspace:*",
 		"@claudio/db": "workspace:*",
 		"@claudio/github": "workspace:*",

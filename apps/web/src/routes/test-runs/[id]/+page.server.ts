@@ -6,7 +6,7 @@ import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { serverI18n } from '#lib/i18n/index.js';
 import { fileAvailability, runFileUrl, withAvailability } from '#lib/server/run-files.js';
-import { viewerAvailable } from '#lib/server/trace.js';
+import { TRACE_INDEX_PATH, viewerAvailable } from '#lib/server/trace.js';
 import type { Actions, PageServerLoad } from './$types';
 
 async function loadRun(idParam: string, locals: App.Locals, min: AccessLevel = 'read') {
@@ -27,7 +27,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const events = await eventsSince(db(), { testRunId: run.id }, 0, 5000);
 	const r = run.report;
 	const tplCtx = r ? { runTag: runTagOf(r.runId), now: new Date(r.createdAt) } : null;
-	// The trace stays only in the (ephemeral) run directory: offered while it is there.
+	// The whole trace stays only in the (ephemeral) run directory: offered for download while it is there.
+	// The timeline also works from the worker's copy in the database, kept like the screenshots.
 	const available = await fileAvailability(r?.runId);
 	return {
 		viewerAvailable: viewerAvailable(),
@@ -54,6 +55,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			? {
 					runId: r.runId,
 					traceUrl: available('trace.zip') ? runFileUrl(r.runId, 'trace.zip') : null,
+					timeline: available('trace.zip') || available(TRACE_INDEX_PATH),
 					mode: r.mode,
 					summary: r.summary,
 					healedAt: r.healedAt ?? null,
@@ -76,6 +78,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 						url: e.url,
 						expired: e.expired,
 						kind: e.kind,
+						note: e.note ?? '',
 						createdAt: e.createdAt
 					})),
 					findings: sortBySeverity(r.findings),

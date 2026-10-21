@@ -1,25 +1,44 @@
 <script module lang="ts">
-	/** A moment of the run worth marking: a finding, a screenshot, an acceptance criterion. */
-	export type Marker = { kind: 'finding' | 'evidence' | 'ac'; id: string; label: string; at: string; severity?: string; status?: string };
+	/** A moment of the run worth marking: a finding, a screenshot, an acceptance criterion, a note of the agent. */
+	export type Marker = {
+		kind: 'finding' | 'evidence' | 'ac' | 'note';
+		id: string;
+		label: string;
+		at: string;
+		severity?: string;
+		status?: string;
+		/** A finding that blocks approval, or one a person has dismissed. */
+		blocking?: boolean;
+		dismissed?: boolean;
+		/** The description, the criterion's notes, the note's text, what the screenshot shows. */
+		body?: string;
+		/** Where the item sits on the page. */
+		href?: string;
+		/** The screenshot itself. */
+		image?: string;
+	};
 </script>
 
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import type { Severity as SeverityLevel, TraceIndex } from '@claudio/core';
 	import { i18n } from '#lib/i18n/index.js';
-	import type { TraceIndex } from '#lib/trace-types.js';
 	import Icon from './Icon.svelte';
+	import Severity from './Severity.svelte';
 
 	/**
 	 * The run's Playwright trace as a timeline: the screen at any moment, the markers
-	 * of what the review found, and every browser action and agent step in order.
-	 * `jumpTo(iso)` seeks to a report timestamp and scrolls the timeline into view.
+	 * of what the review found, and every browser action and agent step in order. The
+	 * panel under the controls tells what was found at the playhead. `jumpTo(iso)`
+	 * seeks to a report timestamp and scrolls the timeline into view.
 	 */
 	let {
 		runId,
 		markers,
 		viewerUrl = null,
-		downloadUrl = null
-	}: { runId: string; markers: Marker[]; viewerUrl?: string | null; downloadUrl?: string | null } = $props();
+		downloadUrl = null,
+		onopen
+	}: { runId: string; markers: Marker[]; viewerUrl?: string | null; downloadUrl?: string | null; onopen?: (m: Marker) => void } = $props();
 	const i = i18n();
 
 	let status = $state<'loading' | 'ready' | 'missing' | 'error'>('loading');
@@ -80,8 +99,20 @@
 			.map((m) => ({ ...m, t: clampT(m.t) }))
 			.sort((a, b) => a.t - b.t);
 	});
+	const lane = (kind: Marker['kind']) => markerTs.filter((m) => m.kind === kind);
 	// Tool calls that the markers already stand for are left out of the lanes and the list.
-	const agentCalls = $derived((index?.toolCalls ?? []).filter((c) => c.tool !== 'evidence' && c.tool !== 'finding' && c.tool !== 'ac'));
+	const agentCalls = $derived((index?.toolCalls ?? []).filter((c) => c.tool !== 'evidence' && c.tool !== 'finding' && c.tool !== 'ac' && c.tool !== 'note'));
+
+	// What was found at the playhead: the markers of the latest moment at or before it.
+	const ORDER: Record<Marker['kind'], number> = { finding: 0, ac: 1, note: 2, evidence: 3 };
+	const activeMarkers = $derived.by((): Placed[] => {
+		let at: number | null = null;
+		for (const m of markerTs) {
+			if (m.t <= t) at = m.t;
+			else break;
+		}
+		return at === null ? [] : markerTs.filter((m) => m.t === at).sort((a, b) => ORDER[a.kind] - ORDER[b.kind]);
+	});
 
 	// The last frame at or before the playhead; before the first frame, the first one.
 	const frameIdx = $derived.by(() => {
@@ -109,7 +140,7 @@
 		return u;
 	});
 
-	type Ev = { key: string; t: number; kind: string; label: string; tone?: string };
+	type Ev = { key: string; t: number; kind: string; label: string; tone?: string; blocking?: boolean; dismissed?: boolean };
 	const kindLabel: Record<string, () => string> = {
 		action: () => i.t('common.traceKindAction'),
 		agent: () => i.t('common.traceKindAgent'),
@@ -117,7 +148,8 @@
 		console: () => i.t('common.traceKindConsole'),
 		finding: () => i.t('common.traceKindFinding'),
 		evidence: () => i.t('common.traceKindEvidence'),
-		ac: () => i.t('common.traceKindAc')
+		ac: () => i.t('common.traceKindAc'),
+		note: () => i.t('common.traceKindNote')
 	};
 	const events = $derived.by((): Ev[] => {
 		if (!index) return [];
@@ -126,7 +158,7 @@
 		agentCalls.forEach((c, k) => out.push({ key: `c${k}`, t: c.t, kind: 'agent', label: `${c.tool}: ${c.label}` }));
 		index.navigations.forEach((n, k) => out.push({ key: `n${k}`, t: n.t, kind: 'nav', label: n.url }));
 		index.console.forEach((c, k) => out.push({ key: `o${k}`, t: c.t, kind: 'console', label: c.text, tone: c.level === 'error' ? 'block' : 'major' }));
-		markerTs.forEach((m) => out.push({ key: `m-${m.kind}-${m.id}`, t: m.t, kind: m.kind, label: `${m.id} ${m.label}`, tone: toneOf(m) }));
+		markerTs.forEach((m) => out.push({ key: `m-${m.kind}-${m.id}`, t: m.t, kind: m.kind, label: m.kind === 'note' ? m.label : `${m.id} ${m.label}`, tone: toneOf(m), blocking: m.blocking, dismissed: m.dismissed }));
 		return out.sort((a, b) => a.t - b.t);
 	});
 	const currentIdx = $derived.by(() => {
@@ -319,16 +351,28 @@
 				<div class="lane nav" aria-hidden="true">
 					{#each index.navigations as n, k (k)}<span class="tick nav" style:left="{pct(n.t)}%" title={n.url}></span>{/each}
 				</div>
+				{#each ['finding', 'ac', 'evidence', 'note'] as const as kind (kind)}
+					<div class="lane {kind}">
+						{#each lane(kind) as m (`${m.kind}-${m.id}`)}
+							<button
+								type="button"
+								class="mk {m.kind} {toneOf(m)}"
+								class:blocking={m.blocking}
+								class:dismissed={m.dismissed}
+								style:left="{pct(m.t)}%"
+								title={m.kind === 'note' ? m.label : `${m.id} ${m.label}`}
+								aria-label={m.kind === 'note' ? m.label : `${m.id} ${m.label}`}
+								tabindex="-1"
+								onclick={() => seek(m.t, true)}
+							></button>
+						{/each}
+					</div>
+				{/each}
 				<div class="lane agent" aria-hidden="true">
 					{#each agentCalls as c, k (k)}<span class="tick agent" style:left="{pct(c.t)}%" title="{c.tool}: {c.label}"></span>{/each}
 				</div>
 				<div class="lane console" aria-hidden="true">
 					{#each index.console as c, k (k)}<span class="tick console {c.level}" style:left="{pct(c.t)}%" title={c.text}></span>{/each}
-				</div>
-				<div class="lane markers">
-					{#each markerTs as m (`${m.kind}-${m.id}`)}
-						<button type="button" class="mk {m.kind} {toneOf(m)}" style:left="{pct(m.t)}%" title="{m.id} {m.label}" aria-label="{m.id} {m.label}" tabindex="-1" onclick={() => seek(m.t, true)}></button>
-					{/each}
 				</div>
 				<div class="playhead" style:left="{pct(t)}%" aria-hidden="true"></div>
 			</div>
@@ -346,19 +390,47 @@
 				</div>
 				<ul class="legend" aria-hidden="true">
 					<li><span class="mk finding major"></span>{i.t('common.traceKindFinding')}</li>
-					<li><span class="mk evidence"></span>{i.t('common.traceKindEvidence')}</li>
+					<li><span class="mk finding major blocking"></span>{i.t('common.traceBlocking')}</li>
 					<li><span class="mk ac passed"></span>{i.t('common.traceKindAc')}</li>
+					<li><span class="mk evidence"></span>{i.t('common.traceKindEvidence')}</li>
+					<li><span class="mk note"></span>{i.t('common.traceKindNote')}</li>
 					<li><span class="tick agent"></span>{i.t('common.traceKindAgent')}</li>
 					<li><span class="tick console error"></span>{i.t('common.traceKindConsole')}</li>
 				</ul>
 			</div>
+			<!-- What the run found at this point: the story of the findings and notes as you scrub -->
+			<div class="now" aria-live="polite">
+				<p class="now-head faint">{i.t('common.traceNow')}{#if activeMarkers.length}, {fmt(activeMarkers[0]!.t)}{/if}</p>
+				{#if activeMarkers.length === 0}
+					<p class="faint">{i.t('common.traceNoMarkerYet')}</p>
+				{:else}
+					{#each activeMarkers as m (`${m.kind}-${m.id}`)}
+						<article class="card {m.kind} {toneOf(m)}" class:blocking={m.blocking} class:dismissed={m.dismissed}>
+							<header>
+								<span class="kind">{kindLabel[m.kind]?.()}</span>
+								{#if m.kind !== 'note'}<span class="mid">{m.id}</span>{/if}
+								{#if m.kind === 'finding' && m.severity}<Severity severity={m.severity as SeverityLevel} />{/if}
+								{#if m.blocking}<span class="blk">{i.t('common.traceBlocking')}</span>{/if}
+								{#if m.dismissed}<span class="dis">{i.t('common.traceDismissed')}</span>{/if}
+								{#if m.kind === 'ac' && m.status}<span class="st {m.status}">{i.labels.ac[m.status] ?? m.status}</span>{/if}
+								{#if m.href}<a class="to" href={m.href}>{i.t('common.traceToReport')}</a>{/if}
+							</header>
+							{#if m.kind !== 'note'}<p class="title">{m.label}</p>{/if}
+							{#if m.body}<p class="body">{m.body}</p>{/if}
+							{#if m.image}
+								<button type="button" class="shot" onclick={() => onopen?.(m)}><img src={m.image} alt={m.label} loading="lazy" /></button>
+							{/if}
+						</article>
+					{/each}
+				{/if}
+			</div>
 			<ol class="events" bind:this={list} aria-label={i.t('common.traceEvents')}>
 				{#each events as e, k (e.key)}
-					<li class="{e.kind} {e.tone ?? ''}" class:current={k === currentIdx}>
+					<li class="{e.kind} {e.tone ?? ''}" class:current={k === currentIdx} class:dismissed={e.dismissed}>
 						<button type="button" onclick={() => seek(e.t, true)}>
 							<span class="at">{fmt(e.t)}</span>
 							<span class="kind">{kindLabel[e.kind]?.() ?? e.kind}</span>
-							<span class="label">{e.label}</span>
+							<span class="label">{#if e.blocking}<span class="blk">{i.t('common.traceBlocking')}</span> {/if}{e.label}</span>
 						</button>
 					</li>
 				{/each}
@@ -419,7 +491,7 @@
 	/* The timeline: lanes of ticks and markers over the whole run, the playhead on top */
 	.track {
 		position: relative;
-		height: 3.5rem;
+		height: 5.5rem;
 		background: var(--sunken);
 		border-block: 1px solid var(--rule);
 		cursor: pointer;
@@ -438,16 +510,29 @@
 		top: 0;
 		bottom: 0;
 	}
-	.lane.markers {
-		top: 0.55rem;
+	/* One row per kind of marker, so the moments of a finding, its criterion and its screenshot stay apart */
+	.lane.finding {
+		top: 0.45rem;
 		height: 0.75rem;
 	}
+	.lane.ac {
+		top: 1.4rem;
+		height: 0.75rem;
+	}
+	.lane.evidence {
+		top: 2.35rem;
+		height: 0.5rem;
+	}
+	.lane.note {
+		top: 3.15rem;
+		height: 0.5rem;
+	}
 	.lane.agent {
-		top: 1.9rem;
+		top: 3.95rem;
 		height: 0.5rem;
 	}
 	.lane.console {
-		top: 2.7rem;
+		top: 4.7rem;
 		height: 0.5rem;
 	}
 	.tick {
@@ -485,9 +570,14 @@
 	.mk.evidence {
 		width: 0.45rem;
 		height: 0.45rem;
-		top: 0.1rem;
 		border-radius: 1px;
 		background: var(--accent);
+	}
+	.mk.note {
+		width: 0.4rem;
+		height: 0.4rem;
+		border-radius: 1px;
+		background: var(--ink-3);
 	}
 	.mk.ac {
 		border-radius: 1px;
@@ -509,6 +599,14 @@
 	}
 	.mk.passed {
 		background: var(--pass);
+	}
+	/* A finding that blocks approval wears a ring; a dismissed one fades */
+	.mk.finding.blocking {
+		outline: 2px solid var(--block);
+		outline-offset: 1.5px;
+	}
+	.mk.dismissed {
+		opacity: 0.4;
 	}
 	.playhead {
 		position: absolute;
@@ -536,6 +634,7 @@
 	.legend {
 		display: flex;
 		gap: 0.75rem;
+		flex-wrap: wrap;
 		margin: 0 0 0 auto;
 		padding: 0;
 		list-style: none;
@@ -561,6 +660,120 @@
 	}
 	.legend .mk.ac {
 		transform: rotate(45deg) scale(0.85);
+	}
+
+	/* What was found at the playhead */
+	.now {
+		display: grid;
+		gap: 0.5rem;
+		padding: 0.6rem 0.75rem;
+		border-bottom: 1px solid var(--rule);
+		background: color-mix(in srgb, var(--accent) 3%, var(--sheet));
+	}
+	.now-head {
+		font-weight: 500;
+	}
+	.card {
+		display: grid;
+		gap: 0.3rem;
+		padding: 0.5rem 0.75rem;
+		border: 1px solid var(--rule);
+		border-left: 3px solid var(--hint);
+		border-radius: var(--radius-s);
+		background: var(--sheet);
+	}
+	.card.finding.blocker,
+	.card.finding.blocking,
+	.card.ac.failed {
+		border-left-color: var(--block);
+	}
+	.card.finding.major,
+	.card.ac.blocked {
+		border-left-color: var(--major);
+	}
+	.card.finding.minor {
+		border-left-color: var(--minor);
+	}
+	.card.ac.passed {
+		border-left-color: var(--pass);
+	}
+	.card.evidence {
+		border-left-color: var(--accent);
+	}
+	.card.note {
+		border-left-color: var(--ink-3);
+	}
+	.card.dismissed {
+		opacity: 0.6;
+	}
+	.card header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		padding: 0;
+		border: 0;
+		font-size: var(--text-xs);
+	}
+	.card .kind {
+		font-weight: 500;
+		color: var(--ink-2);
+	}
+	.card .mid {
+		font-family: var(--mono);
+		color: var(--ink-3);
+	}
+	.blk {
+		color: var(--block);
+		font-weight: 500;
+	}
+	.dis {
+		color: var(--ink-3);
+		font-weight: 500;
+	}
+	.st {
+		font-weight: 500;
+		color: var(--ink-2);
+	}
+	.st.passed {
+		color: var(--pass);
+	}
+	.st.failed {
+		color: var(--block);
+	}
+	.st.blocked {
+		color: var(--major);
+	}
+	.card .to {
+		margin-left: auto;
+	}
+	.card .title {
+		font-weight: 500;
+	}
+	.card .body {
+		max-height: 9rem;
+		overflow: auto;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		color: var(--ink-2);
+		font-size: var(--text-sm);
+	}
+	.card .shot {
+		justify-self: start;
+		width: 10rem;
+		padding: 0;
+		border: 1px solid var(--rule);
+		border-radius: var(--radius-s);
+		background: none;
+		cursor: zoom-in;
+		overflow: hidden;
+	}
+	.card .shot img {
+		display: block;
+		width: 100%;
+		aspect-ratio: 16 / 10;
+		object-fit: cover;
+		object-position: top;
 	}
 
 	/* Every event in order; the row at the playhead is highlighted */
@@ -594,6 +807,9 @@
 		background: var(--accent-soft);
 		color: var(--ink);
 	}
+	.events li.dismissed button {
+		opacity: 0.55;
+	}
 	.events .at {
 		font-family: var(--mono);
 		color: var(--ink-3);
@@ -608,7 +824,8 @@
 	}
 	.events li.finding .kind,
 	.events li.evidence .kind,
-	.events li.ac .kind {
+	.events li.ac .kind,
+	.events li.note .kind {
 		font-weight: 500;
 		color: var(--ink-2);
 	}

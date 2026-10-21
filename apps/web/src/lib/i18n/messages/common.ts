@@ -169,7 +169,13 @@ export const de = {
 	traceKindNav: 'Seite',
 	traceKindConsole: 'Konsole',
 	traceKindAgent: 'Agent',
-	traceKindAction: 'Browser'
+	traceKindAction: 'Browser',
+	traceKindNote: 'Notiz',
+	traceBlocking: 'Blockiert die Freigabe',
+	traceDismissed: 'Verworfen',
+	traceToReport: 'Im Bericht',
+	traceNow: 'An dieser Stelle',
+	traceNoMarkerYet: 'Bis hierher noch kein Finding, Kriterium oder keine Notiz.'
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
@@ -328,5 +334,11 @@ export const en: Translation<typeof de> = {
 	traceKindNav: 'Page',
 	traceKindConsole: 'Console',
 	traceKindAgent: 'Agent',
-	traceKindAction: 'Browser'
+	traceKindAction: 'Browser',
+	traceKindNote: 'Note',
+	traceBlocking: 'Blocks approval',
+	traceDismissed: 'Dismissed',
+	traceToReport: 'In the report',
+	traceNow: 'At this point',
+	traceNoMarkerYet: 'No finding, criterion or note up to this point.'
 };

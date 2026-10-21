@@ -13,6 +13,7 @@
 	import TraceTimeline, { type Marker } from '#lib/components/TraceTimeline.svelte';
 	import { page } from '$app/state';
 	import { isActive } from '#lib/labels.js';
+	import { parseNotes } from '#lib/notes.js';
 	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
 
@@ -74,19 +75,40 @@
 
 	// ---- trace timeline
 	let timeline = $state<ReturnType<typeof TraceTimeline>>();
-	const hasTrace = $derived(Boolean(report?.files.trace && data.review.runId));
+	const hasTrace = $derived(Boolean(report?.files.timeline && data.review.runId));
 	// A finding's first screenshot was taken when it was observed; its own time is when the agent wrote it up.
 	const anchorOf = (ids: string[], fallback: string) => ids.map((id) => report?.evidence[id]?.createdAt).find((x): x is string => Boolean(x)) ?? fallback;
 	const jumpEv = (ev: ThumbEvidence) => ev.createdAt && timeline?.jumpTo(ev.createdAt);
-	const markers = $derived.by((): Marker[] =>
-		report
-			? [
-					...gallery.map((e) => ({ kind: 'evidence' as const, id: e.id, label: e.label, at: e.createdAt })),
-					...report.findings.map((f) => ({ kind: 'finding' as const, id: f.id, label: f.title, at: anchorOf(f.evidenceIds, f.createdAt), severity: f.severity })),
-					...report.acceptanceCriteria.map((ac, idx) => ({ kind: 'ac' as const, id: `AC${idx + 1}`, label: ac.criterion, at: anchorOf(ac.evidenceIds, ac.createdAt), status: ac.status }))
-				]
-			: []
-	);
+	// Everything the timeline marks: screenshots, findings (with whether they block), criteria and the agent's notes.
+	const markers = $derived.by((): Marker[] => {
+		if (!report) return [];
+		const evidence: Marker[] = gallery.map((e) => ({ kind: 'evidence', id: e.id, label: e.label, at: e.createdAt, body: e.note, image: e.url ?? undefined }));
+		const findings: Marker[] = report.findings.map((f) => ({
+			kind: 'finding',
+			id: f.id,
+			label: f.title,
+			at: anchorOf(f.evidenceIds, f.createdAt),
+			severity: f.severity,
+			blocking: f.blocking,
+			dismissed: f.rating.status === 'dismissed',
+			body: [f.description, f.expected && `${i.t('review.expected')}: ${f.expected}`, f.actual && `${i.t('review.observed')}: ${f.actual}`].filter(Boolean).join('\n'),
+			href: `#finding-${f.id}`
+		}));
+		const criteria: Marker[] = report.acceptanceCriteria.map((ac, idx) => ({
+			kind: 'ac',
+			id: `AC${idx + 1}`,
+			label: ac.criterion,
+			at: anchorOf(ac.evidenceIds, ac.createdAt),
+			status: ac.status,
+			body: ac.notes,
+			href: `#ac-${idx + 1}`
+		}));
+		const notes: Marker[] = parseNotes(report.notes).map((n, k) => ({ kind: 'note', id: `N${k + 1}`, label: n.text.split('\n')[0]!, at: n.at, body: n.text }));
+		return [...evidence, ...findings, ...criteria, ...notes];
+	});
+	const openMarker = (m: Marker) => {
+		if (m.image) lightbox = { url: m.image, label: `${m.id} ${m.label}` };
+	};
 	// Playwright's viewer runs a service worker, which browsers allow only on HTTPS or localhost.
 	let secure = $state(false);
 	$effect(() => {
@@ -163,7 +185,7 @@
 <div class="layout">
 	<div class="main">
 		{#if hasTrace && report && data.review.runId}
-			<TraceTimeline bind:this={timeline} runId={data.review.runId} {markers} viewerUrl={viewerHref} downloadUrl={report.files.trace} />
+			<TraceTimeline bind:this={timeline} runId={data.review.runId} {markers} viewerUrl={viewerHref} downloadUrl={report.files.trace} onopen={openMarker} />
 		{/if}
 
 		{#if active && data.human}
@@ -212,7 +234,7 @@
 				{#if report.acceptanceCriteria.length}
 					<ul class="ac sheet">
 						{#each report.acceptanceCriteria as ac, idx (idx)}
-							<li class={ac.status}>
+							<li class={ac.status} id="ac-{idx + 1}">
 								<span class="ac-status">{i.labels.ac[ac.status]}</span>
 								<div>
 									<div class="crit-row">
@@ -251,7 +273,7 @@
 				{/if}
 				{#each report.findings as f (f.id)}
 					{#if showDismissed || f.rating.status !== 'dismissed'}
-						<article class="finding sheet {f.rating.status}" class:blocking={f.blocking}>
+						<article class="finding sheet {f.rating.status}" class:blocking={f.blocking} id="finding-{f.id}">
 							<header>
 								<Severity severity={f.severity} />
 								<span class="cat">{i.labels.category[f.category] ?? f.category}</span>
@@ -581,6 +603,11 @@
 	}
 	.ac li:last-child {
 		border-bottom: 0;
+	}
+	/* Links from the timeline land here; keep the target clear of the page's top edge */
+	.ac li,
+	.finding {
+		scroll-margin-top: 1rem;
 	}
 	.ac-status {
 		display: inline-flex;

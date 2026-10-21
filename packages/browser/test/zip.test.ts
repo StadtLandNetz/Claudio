@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { crc32, deflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { readZipDirectory, readZipEntry, streamZipEntry } from '../src/lib/server/zip.js';
+import { readZipDirectory, readZipEntry, streamZipEntry } from '../src/trace/zip.js';
 
 type Spec = { name: string; data: Buffer; method: 0 | 8 };
 

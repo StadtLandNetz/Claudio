@@ -40,6 +40,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@claudio/browser':
+        specifier: workspace:*
+        version: link:../../packages/browser
       '@claudio/core':
         specifier: workspace:*
         version: link:../../packages/core
