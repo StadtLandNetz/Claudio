@@ -14,26 +14,36 @@ export const STRICTNESS_THRESHOLD: Record<Strictness, Severity> = {
   strict: "minor",
 };
 
-export function isBlocking(finding: Finding, strictness: Strictness): boolean {
+/** What the verdict needs of a finding: lists load only this much of a report. */
+export type FindingLike = Pick<Finding, "id" | "severity">;
+/** What the verdict needs of a report. A full ReviewReport satisfies it, so does a digest from the database. */
+export type ReportLike = {
+  status: ReviewReport["status"];
+  request: { strictness: Strictness };
+  acceptanceCriteria: { status: ReviewReport["acceptanceCriteria"][number]["status"] }[];
+  findings: FindingLike[];
+};
+
+export function isBlocking(finding: FindingLike, strictness: Strictness): boolean {
   return SEVERITY_RANK[finding.severity] >= SEVERITY_RANK[STRICTNESS_THRESHOLD[strictness]];
 }
 
 /** Findings that block a merge. Findings a person dismissed (by id) never block. */
-export function blockingFindings(
-  report: ReviewReport,
+export function blockingFindings<F extends FindingLike>(
+  report: { findings: F[]; request: { strictness: Strictness } },
   strictness: Strictness = report.request.strictness,
   dismissedIds: readonly string[] = [],
-): Finding[] {
+): F[] {
   return sortBySeverity(report.findings.filter((f) => !dismissedIds.includes(f.id) && isBlocking(f, strictness)));
 }
 
-export function sortBySeverity(findings: Finding[]): Finding[] {
+export function sortBySeverity<F extends FindingLike>(findings: F[]): F[] {
   return [...findings].sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
 }
 
 export type Verdict = "approve" | "request_changes" | "inconclusive";
 
-export function verdict(report: ReviewReport, strictness: Strictness = report.request.strictness, dismissedIds: readonly string[] = []): Verdict {
+export function verdict(report: ReportLike, strictness: Strictness = report.request.strictness, dismissedIds: readonly string[] = []): Verdict {
   if (report.status !== "completed") return "inconclusive";
   const failedAc = report.acceptanceCriteria.some((ac) => ac.status === "failed");
   if (failedAc || blockingFindings(report, strictness, dismissedIds).length > 0) return "request_changes";

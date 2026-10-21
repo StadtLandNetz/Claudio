@@ -1,7 +1,8 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { addRepo, listReviews } from '@claudio/db';
+import { addRepo, lastReviewByRepo } from '@claudio/db';
 import { visibleRepos } from '#lib/server/access.js';
 import { userToken } from '#lib/server/auth.js';
+import { forget, swr } from '#lib/server/cache.js';
 import { db } from '#lib/server/db.js';
 import { createDemoRepo, DEMO_REPO } from '#lib/server/demo.js';
 import { devFixtures, githubOAuthConfig } from '#lib/server/env.js';
@@ -12,16 +13,14 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ locals }) => {
 	const { t } = serverI18n(locals.locale);
 	const { repos } = await visibleRepos(locals.user!);
-	const reviews = await listReviews(db(), { limit: 500, repoIds: repos.map((r) => r.id) });
-	const lastReview = new Map<number, Date>();
-	for (const r of reviews) if (!lastReview.has(r.repoId)) lastReview.set(r.repoId, r.createdAt);
+	const [lastReview, token] = await Promise.all([lastReviewByRepo(db(), repos.map((r) => r.id)), userToken(locals.user!)]);
 
-	const token = await userToken(locals.user!);
 	let github: GithubRepo[] = [];
 	let githubError: string | null = null;
 	if (token) {
 		try {
-			github = await listUserRepos(token);
+			// Paging through every repository of the account takes a while; a minute-old list is fine here.
+			github = await swr(`github-repos:${locals.user!.id}`, 60_000, 10 * 60_000, () => listUserRepos(token));
 		} catch (e) {
 			githubError = githubErrorMessage(e);
 		}
@@ -66,6 +65,7 @@ export const actions: Actions = {
 		}
 		if (!info.canWrite) return fail(403, { error: t('common.addNeedsWrite') });
 		await addRepo(db(), { fullName: info.fullName, isPrivate: info.isPrivate, defaultBranch: info.defaultBranch, createdBy: locals.user!.id });
+		forget(`github-repos:${locals.user!.id}`);
 		redirect(303, `/repos/${info.fullName}?tab=settings&new=1`);
 	},
 	demo: async ({ locals }) => {

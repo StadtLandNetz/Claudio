@@ -2,7 +2,7 @@ import { error, fail } from '@sveltejs/kit';
 import { REVIEW_SUPERSEDED, StrictnessSchema, blockingFindings, renderPrComment, sortBySeverity, verdict, withTests, type FindingNote, type ReviewTestResult } from '@claudio/core';
 import {
 	addLesson,
-	eventsSince,
+	countEvents,
 	getReview,
 	listFindings,
 	listTestRuns,
@@ -44,9 +44,9 @@ const notesOf = (rows: Awaited<ReturnType<typeof listFindings>>): FindingNote[] 
 
 export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const review = await loadReview(params.id, locals, 'read');
-	const [rows, events, testRuns] = await Promise.all([
+	const [rows, eventCount, testRuns] = await Promise.all([
 		listFindings(db(), review.id),
-		eventsSince(db(), { reviewId: review.id }, 0, 5000),
+		countEvents(db(), { reviewId: review.id }),
 		listTestRuns(db(), { reviewId: review.id }, 100)
 	]);
 	const tests: ReviewTestResult[] = testRuns.map((t) => ({ name: t.scriptName, outcome: t.outcome }));
@@ -115,7 +115,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 					files: { trace: traceUrl, timeline }
 				}
 			: null,
-		events: events.map((e) => ({ seq: e.seq, line: e.line })),
+		eventCount,
 		human: await openHumanRequest(db(), 'review', review.id).then((h) => (h ? { id: h.id, reason: h.reason } : null)),
 		tests: testRuns
 			.map((t) => ({ id: t.id, scriptId: t.scriptId, name: t.scriptName, status: t.status, outcome: t.outcome, healed: t.healed, mode: t.mode, summary: t.report?.summary ?? '' }))

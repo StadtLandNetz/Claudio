@@ -1,20 +1,26 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { i18n } from '#lib/i18n/index.js';
 
 	type Entry = { seq: number; line: string };
 
+	/**
+	 * The run's log. The lines come over the run's event stream: at once while the
+	 * run is active, on demand (when the log is opened) once it has finished, so a
+	 * page never has to carry thousands of lines it may not show.
+	 */
 	let {
 		streamUrl,
-		events,
+		count,
 		active,
 		onstatus,
 		online
 	}: {
 		/** SSE endpoint of the run, e.g. /reviews/3/events */
 		streamUrl: string;
-		/** Log entries from the page load. */
-		events: Entry[];
+		/** How many lines the run has (from the page load). */
+		count: number;
 		/** Whether the run was queued or running when the page loaded. */
 		active: boolean;
 		/** Status changes from the stream (queued → running → finished). */
@@ -24,31 +30,40 @@
 	} = $props();
 	const i = i18n();
 
-	let live = $state<Entry[]>([]);
-	const log = $derived([...events, ...live.filter((l) => l.seq > (events.at(-1)?.seq ?? 0))]);
+	let log = $state<Entry[]>([]);
+	// Open from the start while the run is active; afterwards the person opens it.
+	// svelte-ignore state_referenced_locally
+	let open = $state(active);
 	let box: HTMLElement | undefined = $state();
 	let follow = $state(true);
 	let streaming = $state(false);
+	let loading = $state(false);
+	const shown = $derived(Math.max(count, log.length));
 
-	// Depends only on the loaded data: status changes from the stream must not reopen it.
+	// Depends on `open` (and `active`): status changes from the stream must not reopen it.
 	$effect(() => {
-		if (!active) return;
-		let lastSeq = events.at(-1)?.seq ?? 0;
+		if (!open && !active) return;
+		const wasActive = active;
+		let lastSeq = untrack(() => log.at(-1)?.seq ?? 0);
 		const source = new EventSource(`${streamUrl}?after=${lastSeq}`);
 		streaming = true;
+		loading = lastSeq === 0;
 		source.addEventListener('line', (e) => {
 			const ev = e as MessageEvent;
 			const seq = Number(ev.lastEventId);
 			if (seq <= lastSeq) return;
 			lastSeq = seq;
 			const line = JSON.parse(ev.data);
-			live.push({ seq, line });
+			log.push({ seq, line });
+			loading = false;
 			online?.(line);
 		});
 		const finish = (status: string) => {
 			if (!streaming) return;
 			source.close();
 			streaming = false;
+			loading = false;
+			if (!wasActive) return;
 			invalidateAll().then(() => onstatus?.(null));
 			onstatus?.(status);
 		};
@@ -59,9 +74,11 @@
 			else finish(status);
 		});
 		source.addEventListener('done', (e) => finish(JSON.parse((e as MessageEvent).data)));
+		source.addEventListener('error', () => (loading = false));
 		return () => {
 			source.close();
 			streaming = false;
+			loading = false;
 		};
 	});
 
@@ -78,16 +95,16 @@
 	}
 </script>
 
-<details class="sheet logsheet" open={active}>
+<details class="sheet logsheet" bind:open>
 	<summary>
 		<h2>{i.t('common.agentLog')}</h2>
-		<span class="faint">{i.t('common.entryCount', { n: log.length })}{#if streaming}{i.t('common.live')}{/if}</span>
+		<span class="faint">{i.t('common.entryCount', { n: shown })}{#if streaming && active}{i.t('common.live')}{/if}</span>
 	</summary>
 	<div class="log" bind:this={box} onscroll={() => box && (follow = box.scrollTop + box.clientHeight >= box.scrollHeight - 24)}>
 		{#each log as entry (entry.seq)}
 			<p class={kind(entry.line)}>{entry.line}</p>
 		{:else}
-			<p class="sys">{i.t('common.noEntries')}</p>
+			<p class="sys">{loading ? i.t('common.loadingEntries') : i.t('common.noEntries')}</p>
 		{/each}
 	</div>
 </details>

@@ -61,10 +61,10 @@
 			<LiveView src="/analyses/{data.analysis.id}/live" url={a.instanceUrl} />
 		{/if}
 
-		{#if isActive(data.analysis.status) || data.events.length > 0}
+		{#if isActive(data.analysis.status) || data.eventCount > 0}
 			<LiveLog
 				streamUrl="/analyses/{data.analysis.id}/events"
-				events={data.events}
+				count={data.eventCount}
 				active={isActive(data.analysis.status)}
 				onstatus={(s) => (liveStatus = s)}
 				online={(line) => /^Mensch (gebraucht|fertig):/.test(line) && invalidateAll()}

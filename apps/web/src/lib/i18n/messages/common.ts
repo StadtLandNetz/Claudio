@@ -131,6 +131,7 @@ export const de = {
 	entryCount: (p: { n: number }) => `${p.n} Einträge`,
 	live: ', live',
 	noEntries: 'Noch keine Einträge.',
+	loadingEntries: 'Einträge werden geladen …',
 
 	// LiveView.svelte
 	liveViewLabel: 'Live-Ansicht des Browsers',
@@ -145,8 +146,9 @@ export const de = {
 	screenshotsExpire: 'Screenshots werden nach 14 Tagen gelöscht',
 	screenshotDeleted: 'Screenshot gelöscht',
 
-	// +layout.svelte (repository menu)
+	// +layout.svelte (repository menu, navigation progress)
 	toggleRepos: 'Repository-Liste ein- oder ausklappen',
+	loading: 'Seite wird geladen',
 
 	// TraceTimeline.svelte
 	trace: 'Browser-Aufzeichnung',
@@ -300,6 +302,7 @@ export const en: Translation<typeof de> = {
 	entryCount: (p: { n: number }) => (p.n === 1 ? '1 entry' : `${p.n} entries`),
 	live: ', live',
 	noEntries: 'No entries yet.',
+	loadingEntries: 'Loading entries …',
 
 	liveViewLabel: 'Live view of the browser',
 	liveView: 'Live view',
@@ -313,6 +316,7 @@ export const en: Translation<typeof de> = {
 	screenshotDeleted: 'Screenshot deleted',
 
 	toggleRepos: 'Collapse or expand the repository list',
+	loading: 'Loading the page',
 
 	trace: 'Browser recording',
 	traceLoading: 'Loading the recording …',

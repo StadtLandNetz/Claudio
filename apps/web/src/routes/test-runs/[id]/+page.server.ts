@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { describeStep, resolveStepTemplates, sortBySeverity } from '@claudio/core';
-import { eventsSince, getTestRun, openHumanRequest, requestTestRunAbort } from '@claudio/db';
+import { countEvents, getTestRun, openHumanRequest, requestTestRunAbort } from '@claudio/db';
 import type { AccessLevel } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
@@ -24,7 +24,7 @@ const runTagOf = (runId: string) => runId.split('-').slice(-2).join('');
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const run = await loadRun(params.id, locals, 'read');
-	const events = await eventsSince(db(), { testRunId: run.id }, 0, 5000);
+	const eventCount = await countEvents(db(), { testRunId: run.id });
 	const r = run.report;
 	const tplCtx = r ? { runTag: runTagOf(r.runId), now: new Date(r.createdAt) } : null;
 	// The whole trace stays only in the (ephemeral) run directory: offered for download while it is there.
@@ -86,7 +86,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					errors: r.errors
 				}
 			: null,
-		events: events.map((e) => ({ seq: e.seq, line: e.line })),
+		eventCount,
 		human: await openHumanRequest(db(), 'test', run.id).then((h) => (h ? { id: h.id, reason: h.reason } : null))
 	};
 };

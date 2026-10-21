@@ -110,10 +110,10 @@
 		{:else if active}
 			<LiveView src="/test-runs/{data.run.id}/live" url={run.instanceUrl} />
 		{/if}
-		{#if isActive(data.run.status) || data.events.length > 0}
+		{#if isActive(data.run.status) || data.eventCount > 0}
 			<LiveLog
 				streamUrl="/test-runs/{data.run.id}/events"
-				events={data.events}
+				count={data.eventCount}
 				active={isActive(data.run.status)}
 				onstatus={(s) => (liveStatus = s)}
 				online={(line) => /^Mensch (gebraucht|fertig):/.test(line) && invalidateAll()}

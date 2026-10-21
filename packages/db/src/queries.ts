@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, inArray, lt, sql } from "drizzle-orm";
 import type {
   AnalysisReport,
   AnalysisRequest,
@@ -7,8 +7,11 @@ import type {
   KnowledgeBase,
   KnowledgeDoc,
   LoginStep,
+  ReportLike,
   ReviewReport,
   ReviewRequest,
+  Severity,
+  Strictness,
   TestRunReport,
   TestRunRequest,
   TestScript,
@@ -359,6 +362,64 @@ export async function listReviews(db: Db, opts: { repoId?: number; repoIds?: num
   return rows.map((r) => ({ ...r.review, repoFullName: r.repoFullName, startedByLogin: r.startedByLogin }));
 }
 
+/** A review for a list: everything but the report, of which only what the verdict needs is extracted in MySQL. */
+export type ReviewDigestItem = Omit<Review, "report"> & { repoFullName: string; startedByLogin: string; report: ReportLike | null };
+
+const { report: _reviewReport, ...reviewColumns } = getTableColumns(reviews);
+const jsonList = (v: unknown): unknown[] => {
+  if (v === null || v === undefined) return [];
+  const parsed = typeof v === "string" ? JSON.parse(v) : v;
+  return Array.isArray(parsed) ? parsed : [];
+};
+
+/**
+ * Like listReviews, without carrying the full reports (summaries, descriptions,
+ * evidence) out of the database: a list only needs the verdict and the counts.
+ */
+export async function listReviewDigests(db: Db, opts: { repoId?: number; repoIds?: number[]; limit?: number } = {}): Promise<ReviewDigestItem[]> {
+  if (opts.repoIds && opts.repoIds.length === 0) return [];
+  const rows = await db
+    .select({
+      ...reviewColumns,
+      repoFullName: repos.fullName,
+      startedByLogin: users.login,
+      hasReport: sql<number>`(${reviews.report} is not null)`.mapWith(Number),
+      reportStatus: sql<string | null>`json_unquote(json_extract(${reviews.report}, '$.status'))`,
+      strictness: sql<string | null>`json_unquote(json_extract(${reviews.report}, '$.request.strictness'))`,
+      acStatuses: sql<unknown>`json_extract(${reviews.report}, '$.acceptanceCriteria[*].status')`.mapWith(jsonList),
+      findingIds: sql<unknown>`json_extract(${reviews.report}, '$.findings[*].id')`.mapWith(jsonList),
+      findingSeverities: sql<unknown>`json_extract(${reviews.report}, '$.findings[*].severity')`.mapWith(jsonList),
+    })
+    .from(reviews)
+    .innerJoin(repos, eq(repos.id, reviews.repoId))
+    .innerJoin(users, eq(users.id, reviews.startedBy))
+    .where(and(opts.repoId ? eq(reviews.repoId, opts.repoId) : undefined, opts.repoIds ? inArray(reviews.repoId, opts.repoIds) : undefined))
+    .orderBy(desc(reviews.id))
+    .limit(opts.limit ?? 50);
+  return rows.map(({ hasReport, reportStatus, strictness, acStatuses, findingIds, findingSeverities, ...r }) => ({
+    ...r,
+    report: hasReport
+      ? {
+          status: (reportStatus ?? "failed") as ReportLike["status"],
+          request: { strictness: (strictness ?? "normal") as Strictness },
+          acceptanceCriteria: (jsonList(acStatuses) as string[]).map((status) => ({ status: status as ReportLike["acceptanceCriteria"][number]["status"] })),
+          findings: (jsonList(findingIds) as string[]).map((id, k) => ({ id, severity: ((jsonList(findingSeverities) as string[])[k] ?? "suggestion") as Severity })),
+        }
+      : null,
+  }));
+}
+
+/** When each repository was last reviewed (for the repositories page). */
+export async function lastReviewByRepo(db: Db, repoIds: number[]): Promise<Map<number, Date>> {
+  if (repoIds.length === 0) return new Map();
+  const rows = await db
+    .select({ repoId: reviews.repoId, at: sql<Date | string>`max(${reviews.createdAt})` })
+    .from(reviews)
+    .where(inArray(reviews.repoId, repoIds))
+    .groupBy(reviews.repoId);
+  return new Map(rows.map((r) => [r.repoId, new Date(r.at)]));
+}
+
 export async function getReview(db: Db, id: number): Promise<ReviewListItem | undefined> {
   const [row] = await db
     .select({ review: reviews, repoFullName: repos.fullName, startedByLogin: users.login })
@@ -484,6 +545,12 @@ const eventFilter = (t: EventTarget) =>
 
 export async function appendEvent(db: Db, target: EventTarget, seq: number, line: string): Promise<void> {
   await db.insert(runEvents).values({ ...target, seq, line });
+}
+
+/** How many log lines a run has, so a page can offer the log without loading it. */
+export async function countEvents(db: Db, target: EventTarget): Promise<number> {
+  const [row] = await db.select({ n: sql<number>`count(*)`.mapWith(Number) }).from(runEvents).where(eventFilter(target));
+  return row?.n ?? 0;
 }
 
 export async function eventsSince(db: Db, target: EventTarget, afterSeq: number, limit = 500) {
@@ -692,11 +759,22 @@ export async function listTestScripts(db: Db, repoId: number): Promise<TestScrip
   });
 }
 
-async function lastRunsByScript(db: Db, scriptIds: number[]): Promise<Map<number, TestRun>> {
-  const out = new Map<number, TestRun>();
+type LastRun = Pick<TestRun, "scriptId" | "status" | "outcome" | "healed" | "createdAt">;
+
+/** The latest run of each script, without the reports: a repository's full run history would not fit a page load. */
+async function lastRunsByScript(db: Db, scriptIds: number[]): Promise<Map<number, LastRun>> {
+  const out = new Map<number, LastRun>();
   if (scriptIds.length === 0) return out;
-  const rows = await db.select().from(testRuns).where(inArray(testRuns.scriptId, scriptIds)).orderBy(desc(testRuns.id));
-  for (const r of rows) if (!out.has(r.scriptId)) out.set(r.scriptId, r);
+  const latest = db
+    .select({ id: sql<number>`max(${testRuns.id})`.as("id") })
+    .from(testRuns)
+    .where(inArray(testRuns.scriptId, scriptIds))
+    .groupBy(testRuns.scriptId);
+  const rows = await db
+    .select({ scriptId: testRuns.scriptId, status: testRuns.status, outcome: testRuns.outcome, healed: testRuns.healed, createdAt: testRuns.createdAt })
+    .from(testRuns)
+    .where(inArray(testRuns.id, latest));
+  for (const r of rows) out.set(r.scriptId, r);
   return out;
 }
 

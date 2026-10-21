@@ -12,6 +12,7 @@ import {
 	getUser,
 	latestKnowledge,
 	listAnalyses,
+	listReviewDigests,
 	listReviews,
 	listRoles,
 	listTestRuns,
@@ -33,6 +34,7 @@ import {
 import { atLeast, requireRepo, visibleRepos } from '#lib/server/access.js';
 import { checkAnthropicKey, keyOptional, noKeyMessage } from '#lib/server/anthropic.js';
 import { userToken } from '#lib/server/auth.js';
+import { swr } from '#lib/server/cache.js';
 import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
 import { WEBHOOK_EVENTS, addWebhookEvents, createGithubClient, createRepoWebhook, deleteRepoWebhook, getBranchHead, getRepoWebhook, listEnvironmentNames, suggestPreviewEnvironment } from '@claudio/github';
@@ -50,59 +52,68 @@ async function loadRepo(params: { owner: string; name: string }, user: App.Local
 	return (await requireRepo(user, `${params.owner}/${params.name}`, min)).repo;
 }
 
+const TABS = ['pulls', 'reviews', 'tests', 'knowledge', 'settings'] as const;
+type Tab = (typeof TABS)[number];
+const tabOf = (v: string | null): Tab => ((TABS as readonly string[]).includes(v ?? '') ? (v as Tab) : 'pulls');
+/** GitHub's answers are reused for a short while: switching tabs or coming back must not ask again. */
+const FRESH_MS = 30_000;
+const STALE_MS = 10 * 60_000;
+
 export const load: PageServerLoad = async ({ params, locals, url }) => {
 	const { t } = serverI18n(locals.locale);
+	const tab = tabOf(url.searchParams.get('tab'));
 	const { repo, level } = await requireRepo(locals.user, `${params.owner}/${params.name}`, 'read');
-	const [roles, reviews] = await Promise.all([listRoles(db(), repo.id), listReviews(db(), { repoId: repo.id, limit: 100 })]);
-	const [dismissed, reviewTests] = await Promise.all([
-		dismissedFindingIds(db(), reviews.map((r) => r.id)),
-		testResultsByReview(db(), reviews.map((r) => r.id))
-	]);
-
-	let pulls: (GithubPull & { fixture?: boolean })[] = [];
-	let pullsError: string | null = null;
-	if (repo.fullName === DEMO_REPO && devFixtures()) {
-		const pr = demoPullRequest();
-		pulls = [
-			{ number: pr.number, title: pr.title, author: pr.author ?? null, headRef: pr.headRef, draft: false, updatedAt: new Date().toISOString(), url: pr.url, fixture: true }
-		];
-	} else {
-		const token = await userToken(locals.user!);
-		if (!token) pullsError = t('repo.pullsNoToken');
-		else
-			try {
-				pulls = await listOpenPulls(token, repo.fullName);
-			} catch (e) {
-				pullsError = githubErrorMessage(e);
-			}
-	}
-
 	const isDemo = repo.fullName === DEMO_REPO && devFixtures();
-	const [knowledge, analyses] = await Promise.all([latestKnowledge(db(), repo.id), listAnalyses(db(), { repoId: repo.id, limit: 20 })]);
+	const settings = tab === 'settings' && level === 'admin';
+	// Each tab loads only what it shows. GitHub is asked only for that, and the answers are cached briefly.
+	const token = !isDemo && (tab === 'pulls' || tab === 'knowledge' || settings) ? await userToken(locals.user!) : null;
+	const github = token ? createGithubClient(token) : null;
+	const base = publicBaseUrl(url);
+	const batchId = tab === 'tests' ? url.searchParams.get('batch') : null;
 
-	// Is the knowledge base older than the head of the analysed branch?
-	let headSha: string | null = null;
-	if (knowledge && !isDemo && knowledge.branch) {
-		const token = await userToken(locals.user!);
-		if (token) headSha = await getBranchHead(createGithubClient(token), repo.fullName, knowledge.branch).catch(() => null);
-	}
-
-	const batchId = url.searchParams.get('batch');
-	const [tests, activeTestRuns, batchRuns] = await Promise.all([
-		listTestScripts(db(), repo.id),
-		listTestRuns(db(), { repoId: repo.id, activeOnly: true }, 100),
-		batchId ? listTestRuns(db(), { batchId, repoId: repo.id }, 200) : Promise.resolve([])
-	]);
-
+	const pullsP = (async (): Promise<{ pulls: (GithubPull & { fixture?: boolean })[]; error: string | null }> => {
+		if (tab !== 'pulls') return { pulls: [], error: null };
+		if (isDemo) {
+			const pr = demoPullRequest();
+			return {
+				pulls: [{ number: pr.number, title: pr.title, author: pr.author ?? null, headRef: pr.headRef, draft: false, updatedAt: new Date().toISOString(), url: pr.url, fixture: true }],
+				error: null
+			};
+		}
+		if (!token) return { pulls: [], error: t('repo.pullsNoToken') };
+		try {
+			return { pulls: await swr(`pulls:${repo.id}`, FRESH_MS, STALE_MS, () => listOpenPulls(token, repo.fullName)), error: null };
+		} catch (e) {
+			return { pulls: [], error: githubErrorMessage(e) };
+		}
+	})();
+	const reviewsP = tab === 'reviews' ? listReviewDigests(db(), { repoId: repo.id, limit: 100 }) : Promise.resolve([]);
+	const knowledgeP = tab === 'knowledge' ? latestKnowledge(db(), repo.id) : Promise.resolve(null);
+	const analysesP = tab === 'knowledge' ? listAnalyses(db(), { repoId: repo.id, limit: 20 }) : Promise.resolve([]);
+	const testsP = tab === 'tests' ? listTestScripts(db(), repo.id) : Promise.resolve([]);
+	const activeRunsP = tab === 'tests' ? listTestRuns(db(), { repoId: repo.id, activeOnly: true }, 100) : Promise.resolve([]);
+	const batchP = batchId ? listTestRuns(db(), { batchId, repoId: repo.id }, 200) : Promise.resolve([]);
+	const keySetByP = settings && repo.anthropicKeySetBy ? getUser(db(), repo.anthropicKeySetBy) : Promise.resolve(undefined);
+	const learningsP = settings ? listLearnings(db(), repo.id) : Promise.resolve([]);
+	// Other repos (where this user is admin) whose key can be copied over.
+	const keySourcesP = (async (): Promise<{ fullName: string; hint: string }[]> => {
+		if (!settings) return [];
+		const { repos: visible, levels } = await visibleRepos(locals.user!);
+		return visible
+			.filter((r) => r.id !== repo.id && r.anthropicKeyEnc && atLeast(levels.get(r.id) ?? 'none', 'admin'))
+			.map((r) => ({ fullName: r.fullName, hint: r.anthropicKeyHint ?? '' }));
+	})();
 	// Webhook health, shown in the settings.
-	let webhook: { id: number; ok: boolean | null; status: string; by: string | null } | null = null;
-	if (repo.webhookId) {
-		const owner = repo.automationUserId ? await getUser(db(), repo.automationUserId) : undefined;
-		const token = await userToken(locals.user!);
-		const info = token && !isDemo ? await getRepoWebhook(createGithubClient(token), repo.fullName, repo.webhookId).catch(() => null) : null;
+	const webhookP = (async (): Promise<{ id: number; ok: boolean | null; status: string; by: string | null } | null> => {
+		if (!settings || !repo.webhookId) return null;
+		const hookId = repo.webhookId;
+		const [owner, info] = await Promise.all([
+			repo.automationUserId ? getUser(db(), repo.automationUserId) : Promise.resolve(undefined),
+			github ? swr(`hook:${repo.id}:${hookId}`, FRESH_MS, STALE_MS, () => getRepoWebhook(github, repo.fullName, hookId)).catch(() => null) : Promise.resolve(null)
+		]);
 		const code = info?.lastResponse?.code ?? null;
-		webhook = {
-			id: repo.webhookId,
+		return {
+			id: hookId,
 			ok: code === null ? null : code >= 200 && code < 300,
 			status: info
 				? code
@@ -111,34 +122,40 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 				: t('repo.webhookStatusUnavailable'),
 			by: owner?.login ?? null
 		};
-	}
-	const base = publicBaseUrl(url);
-
+	})();
 	// GitHub environments, suggested for the review instances (settings tab only).
-	let environments: string[] = [];
-	let suggestedEnvironment: string | null = null;
-	if (url.searchParams.get('tab') === 'settings' && !isDemo && level === 'admin') {
-		const token = await userToken(locals.user!);
-		if (token) {
-			const github = createGithubClient(token);
-			[environments, suggestedEnvironment] = await Promise.all([
-				listEnvironmentNames(github, repo.fullName).catch(() => []),
-				suggestPreviewEnvironment(github, repo.fullName).catch(() => null)
-			]);
-		}
-	}
+	const envP = (async (): Promise<{ environments: string[]; suggested: string | null }> => {
+		if (!settings || !github) return { environments: [], suggested: null };
+		const g = github;
+		return swr(`env:${repo.id}`, 60_000, STALE_MS, async () => {
+			const [environments, suggested] = await Promise.all([listEnvironmentNames(g, repo.fullName).catch(() => []), suggestPreviewEnvironment(g, repo.fullName).catch(() => null)]);
+			return { environments, suggested };
+		});
+	})();
 
-	// Anthropic key: status, and other repos (where this user is admin) whose key can be copied over.
-	const keySetBy = repo.anthropicKeySetBy ? await getUser(db(), repo.anthropicKeySetBy) : undefined;
-	let keySources: { fullName: string; hint: string }[] = [];
-	if (level === 'admin') {
-		const { repos: visible, levels } = await visibleRepos(locals.user!);
-		keySources = visible
-			.filter((r) => r.id !== repo.id && r.anthropicKeyEnc && atLeast(levels.get(r.id) ?? 'none', 'admin'))
-			.map((r) => ({ fullName: r.fullName, hint: r.anthropicKeyHint ?? '' }));
-	}
+	const [roles, reviews, knowledge, analyses, tests, activeTestRuns, batchRuns, keySetBy, learnings, keySources, webhook, env, pulls] = await Promise.all([
+		listRoles(db(), repo.id),
+		reviewsP,
+		knowledgeP,
+		analysesP,
+		testsP,
+		activeRunsP,
+		batchP,
+		keySetByP,
+		learningsP,
+		keySourcesP,
+		webhookP,
+		envP,
+		pullsP
+	]);
+	const branch = knowledge?.branch ?? null;
+	const [dismissed, reviewTests, headSha] = await Promise.all([
+		dismissedFindingIds(db(), reviews.map((r) => r.id)),
+		testResultsByReview(db(), reviews.map((r) => r.id)),
+		// Is the knowledge base older than the head of the analysed branch?
+		branch && !isDemo && github ? swr(`head:${repo.id}:${branch}`, 60_000, STALE_MS, () => getBranchHead(github, repo.fullName, branch)).catch(() => null) : Promise.resolve(null)
+	]);
 
-	const tab = url.searchParams.get('tab');
 	return {
 		repo: {
 			fullName: repo.fullName,
@@ -158,8 +175,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			recipe: r.recipe ? JSON.stringify(r.recipe, null, 2) : ''
 		})),
 		reviews: reviews.map((r) => summarize(r, dismissed.get(r.id), undefined, reviewTests.get(r.id))),
-		pulls,
-		pullsError,
+		pulls: pulls.pulls,
+		pullsError: pulls.error,
 		knowledge: knowledge
 			? {
 					analysisId: knowledge.analysisId,
@@ -191,12 +208,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		autoReview: repo.autoReview ?? DEFAULT_AUTO_REVIEW,
 		webhook,
 		webhookUrl: `${base}/webhooks/github`,
-		environments,
-		suggestedEnvironment,
+		environments: env.environments,
+		suggestedEnvironment: env.suggested,
 		localBaseUrl: /^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(base),
 		lessons: repo.lessons ?? [],
 		learningsInPrompt: LEARNINGS_IN_PROMPT,
-		learnings: (await listLearnings(db(), repo.id)).map((l) => {
+		learnings: learnings.map((l) => {
 			const kind = { review: ['reviews', t('repo.sourceReview')], analysis: ['analyses', t('repo.sourceAnalysis')], test: ['test-runs', t('repo.sourceTest')] }[l.runKind];
 			return { id: l.id, text: l.text, at: l.createdAt, source: `${kind[1]} #${l.runRefId}`, href: `/${kind[0]}/${l.runRefId}` };
 		}),
@@ -216,7 +233,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			? batchRuns.map((r) => ({ id: r.id, scriptName: r.scriptName, status: r.status, outcome: r.outcome, healed: r.healed, mode: r.mode, costUsd: r.costUsd }))
 			: null,
 		level,
-		tab: tab === 'settings' || tab === 'reviews' || tab === 'knowledge' || tab === 'tests' ? tab : 'pulls',
+		tab,
 		isNew: url.searchParams.has('new')
 	};
 };

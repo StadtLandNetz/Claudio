@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import favicon from '#lib/assets/favicon.svg';
-	import { page } from '$app/state';
+	import { navigating, page } from '$app/state';
 	import Icon from '#lib/components/Icon.svelte';
 	import LocaleSwitch from '#lib/components/LocaleSwitch.svelte';
 	import ThemeSwitch from '#lib/components/ThemeSwitch.svelte';
@@ -48,6 +48,19 @@
 		return null;
 	});
 
+	// A thin bar at the top while a navigation takes longer than a moment; it fills up and fades when the page is there.
+	let bar = $state<'idle' | 'busy' | 'done'>('idle');
+	$effect(() => {
+		if (!navigating.to) return;
+		const start = setTimeout(() => (bar = 'busy'), 150);
+		return () => {
+			clearTimeout(start);
+			if (bar !== 'busy') return;
+			bar = 'done';
+			setTimeout(() => (bar = 'idle'), 450);
+		};
+	});
+
 	// The list folds away, the current repository stays. Remembered per browser.
 	const LIST_KEY = 'claudio_repo_list';
 	let reposOpen = $state(true);
@@ -68,6 +81,10 @@
 	<link rel="icon" href={favicon} />
 	<title>Claudio</title>
 </svelte:head>
+
+{#if bar !== 'idle'}
+	<div class="progress {bar}" role="progressbar" aria-label={i.t('common.loading')} aria-busy={bar === 'busy'}></div>
+{/if}
 
 {#if data.user}
 	<div class="shell">
@@ -165,6 +182,36 @@
 {/if}
 
 <style>
+	/* Navigation progress: 2px at the very top, grows while loading, fills and fades when done */
+	.progress {
+		position: fixed;
+		top: 0;
+		left: 0;
+		z-index: 100;
+		height: 2px;
+		width: 30%;
+		background: var(--accent);
+		box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
+		pointer-events: none;
+	}
+	.progress.busy {
+		animation: progress-grow 8s cubic-bezier(0.1, 0.7, 0.2, 1) forwards;
+	}
+	.progress.done {
+		width: 100%;
+		opacity: 0;
+		transition:
+			width 0.15s ease-out,
+			opacity 0.3s ease-out 0.15s;
+	}
+	@keyframes progress-grow {
+		from {
+			width: 0;
+		}
+		to {
+			width: 90%;
+		}
+	}
 	.shell {
 		display: grid;
 		grid-template-columns: 15rem minmax(0, 1fr);

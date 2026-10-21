@@ -9,6 +9,11 @@ import { requestI18n } from './i18n.js';
 
 /** GitHub permissions are cached this long; changes on GitHub show up after that at the latest. */
 const TTL_MS = 15 * 60_000;
+/** An older entry still answers once while GitHub is asked again in the background; beyond this, the page waits. */
+const STALE_MS = 24 * 3_600_000;
+/** Users whose token GitHub rejected during a background check: they get the "sign in again" notice. */
+const tokenRejectedAt = new Map<number, number>();
+const refreshing = new Set<string>();
 const RANK: Record<AccessLevel, number> = { none: 0, read: 1, write: 2, admin: 3 };
 
 export const atLeast = (level: AccessLevel, min: AccessLevel) => RANK[level] >= RANK[min];
@@ -37,6 +42,19 @@ async function fetchLevel(token: string, fullName: string): Promise<AccessLevel 
 	}
 }
 
+/** Asks GitHub again for one repository without holding up the page that found the cache stale. */
+function refreshInBackground(user: SessionUser, token: string, repo: Repo): void {
+	const key = `${user.id}:${repo.id}`;
+	if (refreshing.has(key)) return;
+	refreshing.add(key);
+	fetchLevel(token, repo.fullName)
+		.then((level) => (level === null ? undefined : storeAccess(db(), user.id, repo.id, level)))
+		.catch((e) => {
+			if (e instanceof GithubAuthExpired) tokenRejectedAt.set(user.id, Date.now());
+		})
+		.finally(() => refreshing.delete(key));
+}
+
 /** The user's level on each repository, from the cache or fresh from GitHub. */
 export async function accessMap(user: SessionUser, repos?: Repo[]): Promise<Map<number, AccessLevel> & { authExpired?: boolean }> {
 	const all = repos ?? (await listRepos(db()));
@@ -48,11 +66,18 @@ export async function accessMap(user: SessionUser, repos?: Repo[]): Promise<Map<
 			// The offline demo repo does not exist on GitHub; on the dev server everyone may use it.
 			if (repo.fullName === DEMO_REPO && devFixtures()) return out.set(repo.id, 'admin');
 			const cached = cache.get(repo.id);
-			if (cached && Date.now() - cached.checkedAt.getTime() < TTL_MS) return out.set(repo.id, cached.level);
+			const age = cached ? Date.now() - cached.checkedAt.getTime() : Infinity;
+			if (cached && age < TTL_MS) return out.set(repo.id, cached.level);
 			if (!token) return out.set(repo.id, 'none');
+			// A stale answer serves this page; the next one gets GitHub's current one.
+			if (cached && age < STALE_MS) {
+				refreshInBackground(user, token, repo);
+				return out.set(repo.id, cached.level);
+			}
 			let level: AccessLevel | null;
 			try {
 				level = await fetchLevel(token, repo.fullName);
+				tokenRejectedAt.delete(user.id);
 			} catch (e) {
 				if (!(e instanceof GithubAuthExpired)) throw e;
 				out.authExpired = true;
@@ -63,6 +88,7 @@ export async function accessMap(user: SessionUser, repos?: Repo[]): Promise<Map<
 			out.set(repo.id, level);
 		})
 	);
+	if ((tokenRejectedAt.get(user.id) ?? 0) > Date.now() - TTL_MS) out.authExpired = true;
 	return out;
 }
 
