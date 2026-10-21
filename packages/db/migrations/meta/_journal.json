@@ -99,6 +99,13 @@
       "when": 1792049399177,
       "tag": "0013_user_locale",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1792585268263,
+      "tag": "0014_slack_notifications",
+      "breakpoints": true
     }
   ]
 }

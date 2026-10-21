@@ -40,6 +40,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@claudio/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
       '@claudio/browser':
         specifier: workspace:*
         version: link:../../packages/browser

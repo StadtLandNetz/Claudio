@@ -56,6 +56,10 @@ export const FindingSchema = z.object({
   url: z.string().optional(),
   acceptanceCriterion: z.string().optional(),
   evidenceIds: z.array(z.string()).default([]),
+  /** In a re-review: the finding of the earlier review this one continues, and whether it was re-checked. */
+  previous: z
+    .object({ reviewId: z.number(), findingId: z.string(), status: z.enum(["still_open", "not_rechecked"]) })
+    .optional(),
   createdAt: z.string(),
 });
 export type Finding = z.infer<typeof FindingSchema>;
@@ -67,9 +71,32 @@ export const AcceptanceCriterionResultSchema = z.object({
   status: AcStatusSchema,
   notes: z.string().default(""),
   evidenceIds: z.array(z.string()).default([]),
+  /** In a re-review: taken over unchanged from this earlier review (not re-tested, nothing it depends on changed). */
+  carriedFrom: z.number().optional(),
   createdAt: z.string(),
 });
 export type AcceptanceCriterionResult = z.infer<typeof AcceptanceCriterionResultSchema>;
+
+/** What a re-review found about one finding of the earlier review. */
+export const RecheckSchema = z.object({
+  findingId: z.string(),
+  title: z.string(),
+  severity: SeveritySchema,
+  status: z.enum(["fixed", "still_open", "not_rechecked"]),
+  notes: z.string().default(""),
+  evidenceIds: z.array(z.string()).default([]),
+});
+export type Recheck = z.infer<typeof RecheckSchema>;
+
+export const FollowUpSchema = z.object({
+  reviewId: z.number(),
+  /** Commit the earlier review checked. */
+  headSha: z.string().optional(),
+  /** Files changed since that commit; null when GitHub could not tell. */
+  changedFiles: z.array(z.string()).nullable().default(null),
+  rechecks: z.array(RecheckSchema).default([]),
+});
+export type FollowUp = z.infer<typeof FollowUpSchema>;
 
 export const TodoItemSchema = z.object({
   id: z.number(),
@@ -94,6 +121,10 @@ export const ReviewRequestSchema = z.object({
   cloneRepo: z.boolean().default(true),
   modelOverride: z.string().optional(),
   extraInstructions: z.string().optional(),
+  /** Acceptance criteria a person confirmed before the run. When set, the agent tests exactly these. */
+  criteria: z.array(z.string().min(1)).optional(),
+  /** Re-review: build on this earlier review of the same pull request and check only what changed since. */
+  followUpOf: z.number().int().positive().optional(),
 });
 export type ReviewRequest = z.infer<typeof ReviewRequestSchema>;
 
@@ -135,9 +166,28 @@ export const ReviewReportSchema = z.object({
   errors: z.array(z.string()).default([]),
   /** URL of the TL;DR comment posted to the pull request, if any. */
   commentUrl: z.string().optional(),
+  /** Set for a re-review: what became of the earlier review's findings. */
+  followUp: FollowUpSchema.optional(),
   createdAt: z.string(),
 });
 export type ReviewReport = z.infer<typeof ReviewReportSchema>;
+
+/** A criterion without the number an agent may have put in front ("2. Das Formular …"). */
+export const criterionText = (s: string): string => s.trim().replace(/^\d+[.)]\s+/, "");
+
+/** What a re-review is told about the review it builds on (assembled by the worker). */
+export type FollowUpContext = {
+  reviewId: number;
+  headSha?: string;
+  /** Files changed since that commit; null when GitHub could not tell (then everything counts as changed). */
+  changedFiles: string[] | null;
+  summary: string;
+  criteria: { criterion: string; status: AcceptanceCriterionResult["status"]; notes: string }[];
+  /** Findings that were not dismissed, with the people's rating. */
+  findings: (Finding & { rating: "proposed" | "confirmed"; comment: string | null })[];
+  /** Titles of findings people dismissed: intended behaviour, not to be reported again. */
+  dismissed: string[];
+};
 
 /** One step of a login recipe. `$USER` and `$PASSWORD` are substituted from the role's env vars. */
 export const LoginStepSchema = z.discriminatedUnion("action", [

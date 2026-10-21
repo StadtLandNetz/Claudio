@@ -34,6 +34,10 @@ import {
   LEARNINGS_IN_PROMPT,
   toTestScript,
   freshAccessToken,
+  claimNotification,
+  getTestRun,
+  listTestRuns,
+  notify,
   type Analysis,
   type Db,
   type EventTarget,
@@ -43,6 +47,7 @@ import {
 } from "@claudio/db";
 import { persistArtifacts, persistTrace, purgeOldArtifacts } from "./artifacts.js";
 import { finalizeReview } from "./finalize.js";
+import { followUpContext } from "./follow-up.js";
 import { humanBridge } from "./human.js";
 import { purgeOldRuns } from "./retention.js";
 
@@ -159,7 +164,7 @@ async function prepare(db: Db, job: Job) {
       anthropicApiKey,
       requireApiKey: !keyOptional,
       onProgress: emit,
-      human: humanBridge(db, { kind: job.kind, id: job.row.id, repoId: job.row.repoId }, emit, stop.signal),
+      human: humanBridge(db, { kind: job.kind, id: job.row.id, repoId: job.row.repoId, repo, what: runLabel(job), language: runLanguage(job) }, emit, stop.signal, publicBaseUrl),
       onLearning: (text: string) => {
         emit(`Gelernt: ${text}`);
         void addLearning(db, { repoId: job.row.repoId, text, runKind: job.kind, runRefId: job.row.id }).catch((e) => log(`learning not saved: ${(e as Error).message}`));
@@ -167,8 +172,18 @@ async function prepare(db: Db, job: Job) {
     },
     knowledge,
     fixture,
+    repo,
   };
 }
+
+/** How a run is named in a notification. */
+function runLabel(job: Job): string {
+  if (job.kind === "review") return `#${job.row.prNumber} ${job.row.prTitle ?? ""}`.trim();
+  if (job.kind === "analysis") return job.row.request.repo;
+  return `#${job.row.id}`;
+}
+
+const runLanguage = (job: Job): "de" | "en" => ((job.row.request as { language?: string }).language === "en" ? "en" : "de");
 
 async function execute(db: Db, job: Job): Promise<void> {
   let ctx: Awaited<ReturnType<typeof prepare>> | undefined;
@@ -185,10 +200,13 @@ async function execute(db: Db, job: Job): Promise<void> {
     const c = ctx;
     if (job.kind === "review") {
       if (c.knowledge) c.emit(`Wissensbasis von Commit ${c.knowledge.commitSha.slice(0, 7)} wird mitgegeben.`);
+      const followUp = await followUpContext(db, job.row, c.common.githubToken, c.emit);
+      if (followUp) c.emit(`Nachprüfung von Review #${followUp.reviewId}: ${followUp.findings.length} offene Findings, ${followUp.changedFiles ? `${followUp.changedFiles.length} geänderte Dateien` : "Änderungen unbekannt"}.`);
       // The comment is posted by finalizeReview once the regression tests are done, so it can include them.
       const report = await runReview({ ...job.row.request, postComment: false }, {
         ...c.common,
         knowledge: c.knowledge,
+        followUp,
         reportUrl: publicBaseUrl ? `${publicBaseUrl}/reviews/${job.row.id}` : undefined,
         prContextFile: c.fixture?.prContextFile,
         repoDir: c.fixture?.repoDir,
@@ -230,6 +248,7 @@ async function execute(db: Db, job: Job): Promise<void> {
       }
       log(`test run ${job.row.id} (${script.name}) finished: ${report.outcome}, ${report.mode}, ${report.cost.usd.toFixed(2)} USD`);
       if (job.row.reviewId) await finalizeReview(db, job.row.reviewId, publicBaseUrl, log);
+      else await notifyTestRun(db, job.row.id, c.repo, log);
     } else {
       if (c.knowledge) c.emit(`Aktualisiert die Wissensbasis von Commit ${c.knowledge.commitSha.slice(0, 7)}.`);
       const report = await runAnalysis(job.row.request, {
@@ -249,6 +268,7 @@ async function execute(db: Db, job: Job): Promise<void> {
         error: report.errors.length ? report.errors.join("\n") : null,
       });
       log(`analysis ${job.row.id} finished: ${report.status}, ${report.docs.length} docs, ${report.cost.usd.toFixed(2)} USD`);
+      await notify(c.repo, { kind: "analysis", id: job.row.id, status: report.status, docs: report.docs.length, error: report.errors[0] ?? null }, { language: runLanguage(job), baseUrl: publicBaseUrl, log });
     }
   } catch (e) {
     const message = (e as Error).message;
@@ -258,6 +278,8 @@ async function execute(db: Db, job: Job): Promise<void> {
     log(`${job.kind} ${job.row.id} failed: ${message}`);
     const reviewId = job.kind === "review" ? job.row.id : job.kind === "test" ? job.row.reviewId : null;
     if (reviewId) await finalizeReview(db, reviewId, publicBaseUrl, log).catch(() => undefined);
+    else if (job.kind === "test" && ctx) await notifyTestRun(db, job.row.id, ctx.repo, log).catch(() => undefined);
+    else if (job.kind === "analysis" && ctx) await notify(ctx.repo, { kind: "analysis", id: job.row.id, status: "failed", docs: 0, error: message }, { language: runLanguage(job), baseUrl: publicBaseUrl, log });
   } finally {
     ctx?.stop();
     if (run) {
@@ -265,6 +287,31 @@ async function execute(db: Db, job: Job): Promise<void> {
       await persistTrace(db, run, log).catch((e) => log(`storing trace failed: ${(e as Error).message}`));
     }
   }
+}
+
+/**
+ * A test run outside a review: its own result, or, once the last run of its suite
+ * has finished, the suite's. Each goes to Slack once.
+ */
+async function notifyTestRun(db: Db, testRunId: number, repo: Parameters<typeof notify>[0], log: (msg: string) => void): Promise<void> {
+  const run = await getTestRun(db, testRunId);
+  if (!run) return;
+  const language = run.request.language === "en" ? "en" : "de";
+  if (!run.batchId) {
+    if (!(await claimNotification(db, { testRunId }))) return;
+    await notify(repo, { kind: "test", id: run.id, name: run.scriptName, outcome: run.outcome, status: run.status, summary: run.report?.summary ?? run.error ?? "" }, { language, baseUrl: publicBaseUrl, log });
+    return;
+  }
+  const batch = await listTestRuns(db, { batchId: run.batchId, repoId: run.repoId }, 500);
+  if (batch.some((r) => r.status === "queued" || r.status === "running")) return;
+  // The suite's message is claimed on its first run, so it goes out once even if two runs finish together.
+  const first = batch.reduce((a, b) => (a.id < b.id ? a : b));
+  if (!(await claimNotification(db, { testRunId: first.id }))) return;
+  await notify(
+    repo,
+    { kind: "suite", batchId: run.batchId, total: batch.length, passed: batch.filter((r) => r.outcome === "passed").length, failed: batch.filter((r) => r.outcome !== "passed").map((r) => r.scriptName) },
+    { language, baseUrl: publicBaseUrl, log },
+  );
 }
 
 /** Reviews first: they block a merge, an analysis can wait. */

@@ -134,6 +134,8 @@
 				{review.abortRequested ? i.t('review.aborting') : i.t('review.abort')}
 			</button>
 		</form>
+	{:else if report && data.canWrite}
+		<a class="btn small" href="/reviews/new?repo={encodeURIComponent(review.repo)}&pr={review.prNumber}">{i.t('review.reReview')}</a>
 	{/if}
 </div>
 
@@ -205,6 +207,38 @@
 		{/if}
 
 		{#if report}
+			{#if report.followUp}
+				{@const fu = report.followUp}
+				{@const fixed = fu.rechecks.filter((r) => r.status === 'fixed')}
+				{@const open = fu.rechecks.filter((r) => r.status !== 'fixed')}
+				<section class="block followup">
+					<div class="block-head">
+						<h2>{i.t('review.followUpOf', { id: fu.reviewId })}</h2>
+						<a class="faint" href="/reviews/{fu.reviewId}">{i.t('review.followUpOpen', { id: fu.reviewId })}</a>
+					</div>
+					<p class="muted">
+						{i.t('review.followUpCounts', { fixed: fixed.length, open: open.length })}
+						{#if fu.headSha && fu.changedFiles}{i.t('review.followUpSince', { sha: fu.headSha.slice(0, 7), n: fu.changedFiles.length })}{/if}
+					</p>
+					{#if fu.rechecks.length}
+						<ul class="rechecks sheet">
+							{#each [...fixed, ...open] as r (r.findingId)}
+								<li class={r.status}>
+									<span class="rc-status">{i.labels.recheck[r.status]}</span>
+									<div>
+										<p><a href="/reviews/{fu.reviewId}#finding-{r.findingId}">{r.findingId}</a> {r.title}</p>
+										{#if r.notes}<p class="faint">{r.notes}</p>{/if}
+										{#if r.evidenceIds.length}
+											<div class="ac-ev"><EvidenceThumbs items={evidenceOf(r.evidenceIds)} onopen={openEv} onjump={hasTrace ? jumpEv : undefined} /></div>
+										{/if}
+									</div>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</section>
+			{/if}
+
 			{#if report.summaryHtml}
 				<section class="block">
 					<h2>{i.t('review.summary')}</h2>
@@ -235,7 +269,10 @@
 					<ul class="ac sheet">
 						{#each report.acceptanceCriteria as ac, idx (idx)}
 							<li class={ac.status} id="ac-{idx + 1}">
-								<span class="ac-status">{i.labels.ac[ac.status]}</span>
+								<span class="ac-status">
+									{i.labels.ac[ac.status]}
+									{#if ac.carriedFrom}<span class="carried" title={i.t('review.carriedHint')}>{i.t('review.carriedFrom', { id: ac.carriedFrom })}</span>{/if}
+								</span>
 								<div>
 									<div class="crit-row">
 										<p class="criterion">{ac.criterion}</p>
@@ -278,6 +315,11 @@
 								<Severity severity={f.severity} />
 								<span class="cat">{i.labels.category[f.category] ?? f.category}</span>
 								{#if f.blocking}<span class="blk">{i.t('review.blocksApproval')}</span>{/if}
+								{#if f.previous}
+									<a class="prev {f.previous.status}" href="/reviews/{f.previous.reviewId}#finding-{f.previous.findingId}">
+										{f.previous.status === 'still_open' ? i.t('review.stillOpenFrom', { id: f.previous.reviewId, fid: f.previous.findingId }) : i.t('review.notRecheckedFrom', { id: f.previous.reviewId, fid: f.previous.findingId })}
+									</a>
+								{/if}
 								<span class="fid faint">{f.id}</span>
 								{#if hasTrace}
 									<button type="button" class="btn ghost small jump" title={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: {f.id}" onclick={() => timeline?.jumpTo(anchorOf(f.evidenceIds, f.createdAt))}>
@@ -609,8 +651,59 @@
 	.finding {
 		scroll-margin-top: 1rem;
 	}
+	.carried {
+		display: block;
+		font-weight: 400;
+		color: var(--ink-3);
+	}
+	.prev {
+		font-weight: 500;
+		color: var(--major);
+	}
+	.prev.not_rechecked {
+		color: var(--ink-3);
+	}
+	/* Re-review: what became of the earlier findings */
+	.rechecks {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.rechecks li {
+		display: grid;
+		grid-template-columns: 6.5rem minmax(0, 1fr);
+		gap: 0.75rem;
+		padding: 0.6rem 0.75rem;
+		border-bottom: 1px solid var(--rule);
+	}
+	.rechecks li:last-child {
+		border-bottom: 0;
+	}
+	.rc-status {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-weight: 500;
+		font-size: var(--text-xs);
+		color: var(--ink-2);
+	}
+	.rc-status::before {
+		content: '';
+		flex: none;
+		width: 0.5rem;
+		height: 0.5rem;
+		border-radius: 50%;
+		background: var(--hint);
+	}
+	.rechecks .fixed .rc-status::before {
+		background: var(--pass);
+	}
+	.rechecks .still_open .rc-status::before {
+		background: var(--block);
+	}
 	.ac-status {
 		display: inline-flex;
+		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.4rem;
 		font-weight: 500;

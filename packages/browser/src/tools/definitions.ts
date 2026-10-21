@@ -9,6 +9,7 @@ import {
   SeveritySchema,
   resolveCredentials,
   type DriverName,
+  type Finding,
   type RoleConfig,
 } from "@claudio/core";
 import type { BrowserAttachment } from "../driver.js";
@@ -30,6 +31,8 @@ export type ToolContext = {
   human?: HumanBridge;
   /** Stores a learning about operating the app for later runs on this repository. Enables remember_learning. */
   onLearning?: (text: string) => void;
+  /** Re-review: the open findings of the earlier review. Enables recheck_finding. */
+  followUp?: { reviewId: number; findings: Finding[] };
 };
 
 /** A tool definition that both the Agent SDK adapter and the stdio MCP server can consume. */
@@ -246,7 +249,50 @@ export function createClaudioTools(ctx: ToolContext): ClaudioTool<any>[] {
   if (ctx.knowledgeDir) tools.push(writeKnowledgeTool(ctx.knowledgeDir));
   if (ctx.human) tools.push(humanHelpTool(ctx.human, ctx.attachment));
   if (ctx.onLearning) tools.push(rememberLearningTool(ctx.onLearning));
+  if (ctx.followUp?.findings.length) tools.push(recheckFindingTool(store, ctx.followUp));
   return tools;
+}
+
+/**
+ * Re-review: the verdict on one finding of the earlier review. A finding that is
+ * still open is recorded again in this run (so it counts for the verdict), with a
+ * link to the earlier one.
+ */
+export function recheckFindingTool(store: RunStore, followUp: { reviewId: number; findings: Finding[] }): ClaudioTool<any> {
+  const byId = new Map(followUp.findings.map((f) => [f.id, f]));
+  // findingId of the earlier review → id of the finding recorded again in this run
+  const carried = new Map<string, string>();
+  return def({
+    name: "recheck_finding",
+    description: `Record what became of one finding of review #${followUp.reviewId}: "fixed" when the problem no longer occurs, "still_open" when it still does. Reproduce it first (follow its steps) and capture evidence of the current state. Call it once per earlier finding; a later call replaces the earlier verdict. Findings you do not re-check are carried over as still open.`,
+    schema: {
+      findingId: z.string().describe("Id of the earlier finding, e.g. F3"),
+      status: z.enum(["fixed", "still_open"]),
+      notes: z.string().default("").describe("What you did and what you saw now"),
+      actual: z.string().optional().describe("still_open: the behaviour observed now, if it changed"),
+      evidenceIds: z.array(z.string()).default([]),
+    },
+    handler: async ({ findingId, status, notes, actual, evidenceIds }) => {
+      const prev = byId.get(findingId);
+      if (!prev) return `Review #${followUp.reviewId} has no open finding ${findingId}. Open findings: ${[...byId.keys()].join(", ")}.`;
+      const old = carried.get(findingId);
+      if (old) {
+        store.removeFinding(old);
+        carried.delete(findingId);
+      }
+      store.recordRecheck({ findingId, title: prev.title, severity: prev.severity, status, notes, evidenceIds });
+      if (status === "fixed") return `${findingId} recorded as fixed.`;
+      const { id: _id, createdAt: _at, previous: _p, ...rest } = prev;
+      const again = store.addFinding({
+        ...rest,
+        actual: actual ?? prev.actual,
+        evidenceIds: evidenceIds.length ? evidenceIds : [],
+        previous: { reviewId: followUp.reviewId, findingId, status: "still_open" },
+      });
+      carried.set(findingId, again.id);
+      return `${findingId} is still open; recorded again as ${again.id}.`;
+    },
+  });
 }
 
 /** At most this many learnings per run, so one confused run cannot flood the prompt of later ones. */

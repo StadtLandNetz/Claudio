@@ -1,10 +1,14 @@
 <script lang="ts">
+	import CriteriaEditor from '#lib/components/CriteriaEditor.svelte';
 	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
 	const i = i18n();
 	let submitting = $state(false);
+	// A pull request that was reviewed before: by default only what changed is checked again.
+	// svelte-ignore state_referenced_locally
+	let followUp = $state(Boolean(data.previous));
 </script>
 
 <svelte:head><title>{i.t('review.start')} · Claudio</title></svelte:head>
@@ -52,12 +56,39 @@
 		<small>{i.t('review.rolesHelp')}</small>
 	</fieldset>
 
+	{#if data.previous}
+		<label class="check followup">
+			<input type="checkbox" name="followUp" bind:checked={followUp} />
+			<span>
+				{i.t('review.followUpOption', { id: data.previous.id })}
+				<span class="faint">
+					{i.t('review.followUpMeta', {
+						date: i.formatDate(data.previous.createdAt),
+						verdict: i.labels.verdict[data.previous.verdict],
+						n: data.previous.openFindings
+					})}
+				</span>
+				<span class="faint">{i.t('review.followUpHint')}</span>
+			</span>
+		</label>
+	{/if}
+
+	{#key followUp}
+		<CriteriaEditor
+			repo={data.repo}
+			pr={data.prNumber}
+			followUpOf={followUp ? (data.previous?.id ?? null) : null}
+			initial={followUp ? (data.previous?.criteria ?? []) : []}
+			language={i.locale}
+		/>
+	{/key}
+
 	<div class="grid">
 		<label class="field">
 			<span>{i.t('review.budget')}</span>
 			<select name="budget">
 				{#each Object.entries(i.labels.budget) as [value, label] (value)}
-					<option {value} selected={value === 'standard'}>{label}</option>
+					<option {value} selected={value === (followUp ? 'quick' : 'standard')}>{label}</option>
 				{/each}
 			</select>
 		</label>
@@ -164,6 +195,15 @@
 		align-items: center;
 		gap: 0.6rem;
 		flex-wrap: wrap;
+	}
+	.followup {
+		padding: 0.6rem 0.75rem;
+		border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+		border-radius: var(--radius-s);
+		background: var(--accent-soft);
+	}
+	.followup .faint {
+		display: block;
 	}
 	/* The role description follows the name inline */
 	.options .faint {

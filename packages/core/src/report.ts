@@ -77,6 +77,12 @@ const L = {
     notes: "Bewertungen im Review",
     confirmedBy: "bestätigt von",
     dismissedBy: "verworfen von",
+    followUp: "Nachprüfung von Review #{id}",
+    followUpLine: "{fixed} behoben, {open} weiterhin offen{unchecked}.",
+    followUpUnchecked: ", davon {n} nicht erneut geprüft",
+    fixed: "Behoben",
+    stillOpen: "Weiterhin offen",
+    carried: "aus Review #{id} übernommen",
     commitStatus: {
       pending: "Claudio prüft den Pull Request …",
       testsRunning: "Review fertig, {n} Regressionstest(s) laufen noch",
@@ -112,6 +118,12 @@ const L = {
     notes: "Review ratings",
     confirmedBy: "confirmed by",
     dismissedBy: "dismissed by",
+    followUp: "Re-review of review #{id}",
+    followUpLine: "{fixed} fixed, {open} still open{unchecked}.",
+    followUpUnchecked: ", {n} of them not re-checked",
+    fixed: "Fixed",
+    stillOpen: "Still open",
+    carried: "carried over from review #{id}",
     commitStatus: {
       pending: "Claudio is reviewing the pull request …",
       testsRunning: "Review done, {n} regression test(s) still running",
@@ -124,6 +136,19 @@ const L = {
 } as const;
 
 type Labels = (typeof L)[keyof typeof L];
+
+const fill = (s: string, p: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (all, k: string) => (k in p ? String(p[k]) : all));
+
+/** One line on a re-review: how many earlier findings are fixed and how many are still open. */
+export function followUpLine(report: ReviewReport): string | null {
+  const f = report.followUp;
+  if (!f) return null;
+  const t = labels(report);
+  const fixed = f.rechecks.filter((r) => r.status === "fixed").length;
+  const open = f.rechecks.length - fixed;
+  const unchecked = f.rechecks.filter((r) => r.status === "not_rechecked").length;
+  return `${fill(t.followUp, { id: f.reviewId })}: ${fill(t.followUpLine, { fixed, open, unchecked: unchecked ? fill(t.followUpUnchecked, { n: unchecked }) : "" })}`;
+}
 
 function labels(report: ReviewReport): Labels {
   return L[report.request.language];
@@ -203,6 +228,18 @@ export function renderMarkdown(report: ReviewReport, verbosity: Verbosity = repo
   out.push("");
   out.push(report.summary.trim() || "-");
   out.push("");
+
+  if (report.followUp) {
+    out.push(`## ${fill(t.followUp, { id: report.followUp.reviewId })}`);
+    out.push("");
+    out.push(followUpLine(report)!.split(": ").slice(1).join(": "));
+    out.push("");
+    for (const r of report.followUp.rechecks) {
+      const mark = r.status === "fixed" ? t.fixed : t.stillOpen;
+      out.push(`- **${mark}:** [${t.severity[r.severity]}] ${r.title}${r.notes && verbosity !== "tldr" ? ` — ${r.notes.replace(/\n/g, " ")}` : ""}`);
+    }
+    out.push("");
+  }
 
   if (report.acceptanceCriteria.length > 0) {
     out.push(`## ${t.ac}`);
@@ -309,6 +346,14 @@ export function renderPrComment(report: ReviewReport, reportUrl?: string, opts: 
   const lines: string[] = [];
   lines.push(`**Claudio Review: ${t.verdict[v]}**`);
   lines.push("");
+  const fu = followUpLine(report);
+  if (fu) {
+    lines.push(fu);
+    const fixed = report.followUp!.rechecks.filter((r) => r.status === "fixed");
+    fixed.slice(0, 5).forEach((r) => lines.push(`- ✅ ~~[${t.severity[r.severity]}] ${r.title}~~`));
+    if (fixed.length > 5) lines.push(`- … +${fixed.length - 5}`);
+    lines.push("");
+  }
   lines.push(`${t.ac}: ${acPassed}/${report.acceptanceCriteria.length} ${t.acStatus.passed}. ${t.findings}: ${report.findings.length - dismissed.length} (${t.blocking.toLowerCase()}: ${blocking.length}).`);
   if (tests.length > 0) {
     const passed = tests.filter((x) => x.outcome === "passed").length;

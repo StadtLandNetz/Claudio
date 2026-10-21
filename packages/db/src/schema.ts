@@ -76,9 +76,29 @@ export const repos = mysqlTable("repos", {
   anthropicKeySetAt: datetime("anthropic_key_set_at", { mode: "date" }),
   /** Dismissed findings with a reason; every later review is told about them. */
   lessons: json("lessons").$type<Lesson[]>().notNull().$defaultFn(() => []),
+  /** Slack incoming webhook (encrypted) and what to post there. */
+  slackWebhookEnc: text("slack_webhook_enc"),
+  slackWebhookHint: varchar("slack_webhook_hint", { length: 40 }),
+  notifications: json("notifications").$type<NotificationSettings | null>(),
   createdBy: ref("created_by").notNull(),
   createdAt: createdAt(),
 });
+
+/** What a repository's Slack channel hears about. */
+export type NotificationSettings = {
+  /** A run waits for a person (CAPTCHA, bot check). */
+  takeover: boolean;
+  /** Short result of every finished review, only of those that need changes, or none. */
+  reviews: "all" | "changes" | "off";
+  /** Automatic reviews started by GitHub events, and those that could not start (with the reason). */
+  automation: boolean;
+  /** Test runs outside reviews and test suites: failures only, every result, or none. */
+  tests: "failed" | "all" | "off";
+  /** Repository analyses (knowledge base updated or failed). */
+  analyses: boolean;
+  /** Added to messages that need someone (takeover, blocking result), e.g. <!here> or <@U123>. */
+  mention: string;
+};
 
 export type AutoReviewDefaults = {
   roles: string[];
@@ -86,6 +106,8 @@ export type AutoReviewDefaults = {
   strictness: "lenient" | "normal" | "strict";
   postComment: boolean;
   runTests: boolean;
+  /** Automatic reviews of a PR that was reviewed before only re-check what changed (default on). */
+  followUp?: boolean;
 };
 
 export type Lesson = { text: string; reviewId: number; findingId: string; by: string; at: string };
@@ -133,6 +155,8 @@ export const reviews = mysqlTable(
     error: text("error"),
     /** TL;DR comment on the pull request (posted by the run or later from the UI). */
     commentUrl: varchar("comment_url", { length: 500 }),
+    /** When the result went to Slack (it goes once). */
+    notifiedAt: datetime("notified_at", { mode: "date" }),
     abortRequested: boolean("abort_requested").notNull().default(false),
     startedBy: ref("started_by").notNull(),
     createdAt: createdAt(),
@@ -236,6 +260,8 @@ export const testRuns = mysqlTable(
     costUsd: varchar("cost_usd", { length: 20 }),
     error: text("error"),
     abortRequested: boolean("abort_requested").notNull().default(false),
+    /** When the result (of this run, or of its suite) went to Slack. */
+    notifiedAt: datetime("notified_at", { mode: "date" }),
     startedBy: ref("started_by").notNull(),
     createdAt: createdAt(),
     startedAt: datetime("started_at", { mode: "date" }),

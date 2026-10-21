@@ -6,3 +6,4 @@ export * from "./analysis-prompt.js";
 export * from "./analysis-runner.js";
 export * from "./judge.js";
 export * from "./test-runner.js";
+export * from "./criteria.js";

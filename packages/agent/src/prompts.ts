@@ -1,4 +1,4 @@
-import { KNOWLEDGE_DOCS, type BudgetProfile, type KnowledgeBase, type RepoConfig, type ReviewRequest } from "@claudio/core";
+import { KNOWLEDGE_DOCS, type BudgetProfile, type FollowUpContext, type KnowledgeBase, type RepoConfig, type ReviewRequest } from "@claudio/core";
 import type { PullRequestContext } from "@claudio/github";
 
 export const SYSTEM_APPEND = `
@@ -27,6 +27,8 @@ export type PromptInput = {
   maxDiffChars?: number;
   /** Knowledge base files written for this run. */
   knowledge?: { dir: string; base: KnowledgeBase } | null;
+  /** Re-review: the earlier review of this pull request it builds on. */
+  followUp?: FollowUpContext | null;
 };
 
 export function buildReviewPrompt(input: PromptInput): string {
@@ -90,9 +92,14 @@ export function buildReviewPrompt(input: PromptInput): string {
       `# Learned in earlier runs on this repository\n\nHow to operate this application, from earlier runs that had to find out the hard way. Follow these; ignore one only if it is clearly outdated. When you overcome a new obstacle that cost you attempts (a field without label, a banner, a slow page, a login quirk), call remember_learning.\n\n${config.learnings.map((l) => `- ${l}`).join("\n")}`,
     );
   }
+  if (request.criteria?.length) sections.push(renderConfirmedCriteria(request.criteria));
+  if (input.followUp) sections.push(renderFollowUp(input.followUp));
   if (request.extraInstructions) sections.push(`# Additional instructions for this run\n\n${request.extraInstructions.trim()}`);
 
-  sections.push(profile.delegateChecks ? delegatedProcedure(lang) : singleAgentProcedure(lang));
+  const confirmed = Boolean(request.criteria?.length);
+  sections.push(
+    input.followUp ? followUpProcedure(lang, input.followUp, confirmed) : profile.delegateChecks ? delegatedProcedure(lang, confirmed) : singleAgentProcedure(lang, confirmed),
+  );
 
   return sections.join("\n\n");
 }
@@ -130,11 +137,79 @@ const SUMMARY_STEP = (lang: string) => `Finish with a summary in ${lang} as your
    - Anything you could not test and why.
 Do not repeat every finding in the summary; they are rendered from the records.`;
 
+/** A person confirmed the criteria before the run: they replace the agent's own reading of the ticket. */
+export function renderConfirmedCriteria(criteria: string[]): string {
+  return `# Acceptance criteria (confirmed by a person)
+
+A person reviewed and edited these criteria before the run. Test exactly these: do not drop, merge or reword them, and use the text below verbatim as the criterion in record_ac_result. You may still add regression checks for affected areas, but not further criteria.
+
+${criteria.map((c, k) => `${k + 1}. ${c.trim()}`).join("\n")}`;
+}
+
+const STEP_CRITERIA = (confirmed: boolean) =>
+  confirmed
+    ? "Take the confirmed acceptance criteria above as they are. Add them to the todo list with todo_add, one item per criterion."
+    : "Extract the acceptance criteria from the issue(s) and PR description. If they are implicit, formulate them explicitly. Add them to the todo list with todo_add, one item per criterion.";
+
+/** Re-review: what the earlier review found, so this one can check the fixes and what changed since. */
+export function renderFollowUp(f: FollowUpContext): string {
+  const changed =
+    f.changedFiles === null
+      ? "GitHub could not tell which files changed since then: treat every affected area as changed."
+      : f.changedFiles.length === 0
+        ? "No files changed since then (the instance may have been redeployed or its data changed)."
+        : `${f.changedFiles.length} file(s) changed since then:\n${f.changedFiles.slice(0, 80).map((x) => `- ${x}`).join("\n")}${f.changedFiles.length > 80 ? `\n- … +${f.changedFiles.length - 80}` : ""}`;
+  const criteria = f.criteria.length ? f.criteria.map((c, k) => `${k + 1}. [${c.status}] ${c.criterion}${c.notes ? `\n   Notes then: ${c.notes.replace(/\s+/g, " ").slice(0, 300)}` : ""}`).join("\n") : "(none recorded)";
+  const findings = f.findings.length
+    ? f.findings
+        .map(
+          (x) =>
+            `## ${x.id} [${x.severity}] ${x.title}${x.rating === "confirmed" ? " (confirmed by a person)" : ""}\n${x.description}${x.steps.length ? `\nSteps: ${x.steps.join(" → ")}` : ""}${x.expected ? `\nExpected: ${x.expected}` : ""}${x.actual ? `\nActual then: ${x.actual}` : ""}${x.url ? `\nURL: ${x.url}` : ""}${x.comment ? `\nReviewer comment: ${x.comment}` : ""}`,
+        )
+        .join("\n\n")
+    : "(no open findings)";
+  return `# Re-review of review #${f.reviewId}
+
+This pull request was reviewed before${f.headSha ? ` at commit ${f.headSha.slice(0, 7)}` : ""}. This run is a re-review: confirm what was fixed, re-check what is still open, and test only what changed since. Do not repeat the whole review.
+
+## What changed since review #${f.reviewId}
+
+${changed}
+
+## Its acceptance criteria and their results
+
+${criteria}
+
+## Its open findings (to re-check)
+
+${findings}
+${f.dismissed.length ? `\n## Dismissed by people (intended behaviour, never report again)\n\n${f.dismissed.map((t) => `- ${t}`).join("\n")}\n` : ""}
+## Its summary
+
+${f.summary.trim().slice(0, 2000) || "(none)"}`;
+}
+
+/** Re-review: one agent re-checks the earlier findings, re-tests what changed, and leaves the rest as it was. */
+function followUpProcedure(lang: string, f: FollowUpContext, confirmed: boolean): string {
+  return `# Procedure (re-review)
+
+1. ${
+    confirmed
+      ? "The confirmed acceptance criteria above are the criteria of this run."
+      : `The criteria of review #${f.reviewId} are the criteria of this run; add criteria only if the PR or the ticket changed in a way that requires them.`
+  } Use each criterion's text verbatim in record_ac_result.
+2. Map the changed files to screens and flows (route index from the knowledge base, if available). These and the screens of the open findings are what you test.
+3. Log in with login_as. For every open finding of review #${f.reviewId}: follow its steps, capture_evidence of the current state, then call recheck_finding with "fixed" or "still_open". Do not report it again with report_finding.
+4. Re-test every criterion that failed, was blocked or not testable, and every criterion whose screens are touched by the changes; record_ac_result for each. Criteria you do not re-test keep their earlier result automatically: say in the notes of the summary which ones you left as they were.
+5. Look for regressions only around the changed files, and report new problems with report_finding as usual.
+6. ${SUMMARY_STEP(lang)} Begin the summary with what was fixed and what is still open.`;
+}
+
 /** Quick budget: one agent does everything. */
-function singleAgentProcedure(lang: string): string {
+function singleAgentProcedure(lang: string, confirmed = false): string {
   return `# Procedure
 
-1. Extract the acceptance criteria from the issue(s) and PR description. If they are implicit, formulate them explicitly. Add them to the todo list with todo_add, one item per criterion.
+1. ${STEP_CRITERIA(confirmed)}
 2. Impact analysis: from the diff (and the checkout, if available) determine which screens, routes, flows and shared components are affected. Add regression checks for those to the todo list. Keep this proportional to the size of the change.
 3. Log in with login_as and build a mental map of the app around the affected areas (snapshot, navigate, read). Do not click through unrelated areas.
 4. Work the todo list with todo_next / todo_done. For each criterion: perform the flow, capture_evidence, check get_console and get_network for errors, then record_ac_result. For each regression item: verify the existing behaviour still works and record findings when it does not.
@@ -147,14 +222,14 @@ function singleAgentProcedure(lang: string): string {
  * regressions and judge the UI, each with a fresh context. They share one
  * browser, so they run one after the other.
  */
-function delegatedProcedure(lang: string): string {
+function delegatedProcedure(lang: string, confirmed = false): string {
   return `# Procedure
 
 You coordinate specialised subagents. The browser subagents (ac-verifier, regression-tester) share one browser: run them one after the other, never in parallel. They record their results with the Claudio tools themselves; do not record the same results again.
 
-1. Extract the acceptance criteria from the issue(s) and PR description. If they are implicit, formulate them explicitly as testable statements, numbered.
+1. ${confirmed ? "Take the confirmed acceptance criteria above as they are, numbered." : "Extract the acceptance criteria from the issue(s) and PR description. If they are implicit, formulate them explicitly as testable statements, numbered."}
 2. Impact analysis: map the changed files to screens and flows (route index from the knowledge base, if available). For diffs larger than a handful of files or touching shared modules, delegate this to the impact-analyst subagent. Result: affected areas, each with direct/indirect and one concrete regression check, ordered by risk.
-3. Delegate to ac-verifier. Give it: run id, instance URL, roles, the numbered criteria, the app-map entries of the screens involved, and notes on test data.
+3. Delegate to ac-verifier. Give it: run id, instance URL, roles, the numbered criteria${confirmed ? " (verbatim, with the instruction to use that text in record_ac_result)" : ""}, the app-map entries of the screens involved, and notes on test data.
 4. Delegate to regression-tester. Give it: run id, instance URL, roles, the affected areas with their checks, and the app-map entries of those screens. Skip this step when the change is isolated and no area beyond the new feature is affected; say so in the summary.
 5. Delegate to ux-reviewer: the evidence file paths of the changed screens (from the evidence directory of this run) with one line on each screen's purpose. Record the observations you agree with via report_finding (category ux or ui), with the evidence ids.
 6. Check the records: every criterion has a result (record_ac_result for any the ac-verifier missed, as blocked with the reason). Do not re-test what the subagents covered.

@@ -31,8 +31,8 @@ async function loadReview(idParam: string, locals: App.Locals, min: AccessLevel 
 	const review = Number.isInteger(id) ? await getReview(db(), id) : undefined;
 	if (!review) error(404, serverI18n(locals.locale).t('review.reviewNotFound'));
 	// Visible only with access to its repository on GitHub.
-	await requireRepo(user, review.repoId, min);
-	return review;
+	const { level } = await requireRepo(user, review.repoId, min);
+	return Object.assign(review, { level });
 }
 
 const dismissedOf = (rows: Awaited<ReturnType<typeof listFindings>>) =>
@@ -96,6 +96,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		noteCount: notes.length,
 		strictness,
 		viewerAvailable: viewerAvailable(),
+		canWrite: review.level === 'write' || review.level === 'admin',
 		report: report
 			? {
 					pr: report.pr,
@@ -110,6 +111,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 					})),
 					evidence: Object.fromEntries(evidence.map((e) => [e.id, e])),
 					notes: report.notes,
+					followUp: report.followUp ?? null,
 					cost: report.cost,
 					errors: report.errors,
 					files: { trace: traceUrl, timeline }

@@ -523,6 +523,7 @@
 					</div>
 					<label class="check"><input type="checkbox" name="autoComment" checked={data.autoReview.postComment} /> <span>{i.t('repo.autoComment')}</span></label>
 					<label class="check"><input type="checkbox" name="autoTests" checked={data.autoReview.runTests} /> <span>{i.t('repo.autoTests')}</span></label>
+					<label class="check"><input type="checkbox" name="autoFollowUp" checked={data.autoReview.followUp !== false} /> <span>{i.t('repo.autoFollowUp')} <span class="faint">{i.t('repo.autoFollowUpHint')}</span></span></label>
 				</fieldset>
 				<div class="actions">
 					<button class="btn primary" type="submit">{i.t('repo.saveAutomation')}</button>
@@ -582,6 +583,64 @@
 			</div>
 		</div>
 	</section>
+
+	{#if data.slack}
+		{@const n = data.slack.notifications}
+		<section class="part" id="slack">
+			<div class="intro">
+				<h2>{i.t('repo.slackTitle')}</h2>
+				<p class="muted">{i.t('repo.slackIntro')}</p>
+			</div>
+			<div class="fields">
+				<form method="POST" action="?tab=settings&/slack" use:enhance={() => ({ update }) => update({ reset: false })} class="sheet fields">
+					{#if formError('slack')}<p class="notice error" role="alert">{formError('slack')}</p>{/if}
+					<label class="field">
+						<span>{i.t('repo.slackWebhook')}</span>
+						<input type="password" name="webhookUrl" autocomplete="off" placeholder={data.slack.hint ? i.t('repo.slackStored', { hint: data.slack.hint }) : 'https://hooks.slack.com/services/…'} />
+						<small>{i.t('repo.slackWebhookHint')}</small>
+					</label>
+					{#if data.slack.hint}
+						<label class="check"><input type="checkbox" name="removeWebhook" /> <span>{i.t('repo.slackRemove')}</span></label>
+					{/if}
+					<fieldset>
+						<legend>{i.t('repo.slackWhat')}</legend>
+						<label class="check"><input type="checkbox" name="takeover" checked={n.takeover} /> <span>{i.t('repo.slackTakeover')} <span class="faint">{i.t('repo.slackTakeoverHint')}</span></span></label>
+						<label class="field inline">
+							<span>{i.t('repo.slackReviews')}</span>
+							<select name="reviews">
+								<option value="all" selected={n.reviews === 'all'}>{i.t('repo.slackReviewsAll')}</option>
+								<option value="changes" selected={n.reviews === 'changes'}>{i.t('repo.slackReviewsChanges')}</option>
+								<option value="off" selected={n.reviews === 'off'}>{i.t('repo.slackOff')}</option>
+							</select>
+						</label>
+						<label class="check"><input type="checkbox" name="automationEvents" checked={n.automation} /> <span>{i.t('repo.slackAutomation')} <span class="faint">{i.t('repo.slackAutomationHint')}</span></span></label>
+						<label class="field inline">
+							<span>{i.t('repo.slackTests')}</span>
+							<select name="tests">
+								<option value="failed" selected={n.tests === 'failed'}>{i.t('repo.slackTestsFailed')}</option>
+								<option value="all" selected={n.tests === 'all'}>{i.t('repo.slackTestsAll')}</option>
+								<option value="off" selected={n.tests === 'off'}>{i.t('repo.slackOff')}</option>
+							</select>
+						</label>
+						<label class="check"><input type="checkbox" name="analyses" checked={n.analyses} /> <span>{i.t('repo.slackAnalyses')}</span></label>
+					</fieldset>
+					<label class="field">
+						<span>{i.t('repo.slackMention')}</span>
+						<input type="text" name="mention" value={n.mention} placeholder="<!here>" />
+						<small>{i.t('repo.slackMentionHint')}</small>
+					</label>
+					<div class="actions">
+						<button class="btn primary" type="submit">{i.t('repo.save')}</button>
+						{#if data.slack.hint}
+							<button class="btn" type="submit" formaction="?tab=settings&/slackTest">{i.t('repo.slackTest')}</button>
+						{/if}
+						{#if saved === 'slack'}<span class="ok" role="status">{i.t('repo.saved')}</span>{/if}
+						{#if saved === 'slackTest'}<span class="ok" role="status">{i.t('repo.slackTestSent')}</span>{/if}
+					</div>
+				</form>
+			</div>
+		</section>
+	{/if}
 
 	<section class="part">
 		<div class="intro">
@@ -950,6 +1009,16 @@
 		margin-top: 1.75rem;
 		display: grid;
 		gap: 0.6rem;
+	}
+	.field.inline {
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+	}
+	.field.inline > span {
+		font-weight: 400;
+	}
+	.field.inline select {
+		width: auto;
 	}
 	.warn {
 		display: block;

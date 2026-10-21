@@ -1,6 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { ReviewRequestSchema } from '@claudio/core';
-import { createReview, createTestRuns, listRoles, listTestScripts } from '@claudio/db';
+import { criterionText, verdict } from '@claudio/core';
+import { createReview, createTestRuns, dismissedFindingIds, listRoles, listTestScripts, previousReviewOf } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { DEFAULT_AUTOMATION, resolveInstanceUrl } from '#lib/server/automation.js';
 import { keyOptional } from '#lib/server/anthropic.js';
@@ -42,6 +43,21 @@ async function context(url: URL, user: App.Locals['user'], t: I18n['t']) {
 	return { repo, roles, prNumber, pr, prError, fixture };
 }
 
+/** The latest finished review of this pull request: a new one can build on it (re-review). */
+async function previousOf(repoId: number, prNumber: number) {
+	const prev = await previousReviewOf(db(), repoId, prNumber);
+	if (!prev?.report) return null;
+	const dismissed = (await dismissedFindingIds(db(), [prev.id])).get(prev.id) ?? [];
+	return {
+		id: prev.id,
+		createdAt: prev.createdAt,
+		verdict: verdict(prev.report, prev.report.request.strictness, dismissed),
+		openFindings: prev.report.findings.filter((f) => !dismissed.includes(f.id)).length,
+		criteria: prev.report.acceptanceCriteria.map((a) => criterionText(a.criterion)),
+		headSha: prev.headSha ?? prev.report.pr.headSha ?? null
+	};
+}
+
 /** Pre-fills the instance: the PR's GitHub deployment, the URL template, or the repo's default instance. */
 async function suggestedInstance(ctx: Awaited<ReturnType<typeof context>>, user: App.Locals['user'], t: I18n['t']): Promise<{ url: string; source: string | null; note?: string }> {
 	const { repo, pr, prNumber, fixture } = ctx;
@@ -63,8 +79,9 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const ctx = await context(url, locals.user, t);
 	const { repo, roles, prNumber, pr, prError } = ctx;
 	const instance = await suggestedInstance(ctx, locals.user, t);
-	const tests = (await listTestScripts(db(), repo.id)).filter((t) => t.runInReviews);
+	const [tests, previous] = await Promise.all([listTestScripts(db(), repo.id).then((all) => all.filter((t) => t.runInReviews)), previousOf(repo.id, prNumber)]);
 	return {
+		previous,
 		reviewTests: tests.map((t) => t.name),
 		repo: repo.fullName,
 		prNumber,
@@ -76,6 +93,16 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		instanceNote: instance.note ?? null
 	};
 };
+
+/** The criteria from the form: one per field, empty ones dropped; none means the agent derives them itself. */
+function criteriaOf(f: FormData): string[] | undefined {
+	const list = f
+		.getAll('criteria')
+		.map((v) => String(v).replace(/\s+/g, ' ').trim())
+		.filter(Boolean)
+		.slice(0, 40);
+	return list.length ? list : undefined;
+}
 
 export const actions: Actions = {
 	default: async ({ url, request, locals }) => {
@@ -95,7 +122,9 @@ export const actions: Actions = {
 			language: f.get('language'),
 			postComment: f.get('postComment') === 'on' && !fixture,
 			cloneRepo: !fixture,
-			extraInstructions: String(f.get('extraInstructions') ?? '').trim() || undefined
+			extraInstructions: String(f.get('extraInstructions') ?? '').trim() || undefined,
+			criteria: criteriaOf(f),
+			followUpOf: f.get('followUp') === 'on' ? (await previousOf(repo.id, prNumber))?.id : undefined
 		});
 		if (!parsed.success) {
 			const issue = parsed.error.issues[0];

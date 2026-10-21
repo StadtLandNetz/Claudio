@@ -1,6 +1,8 @@
-import { REVIEW_SUPERSEDED, blockingFindings, renderCommitStatus, renderPrComment, verdict, withTests, type Verdict } from "@claudio/core";
+import { REVIEW_SUPERSEDED, blockingFindings, followUpLine, renderCommitStatus, renderPrComment, verdict, withTests, type Verdict } from "@claudio/core";
 import {
+  claimNotification,
   dismissedFindingIds,
+  notify,
   getRepoById,
   getReview,
   getUser,
@@ -21,12 +23,42 @@ const ACTIVE = new Set(["queued", "running"]);
  */
 export async function finalizeReview(db: Db, reviewId: number, publicBaseUrl: string, log: (msg: string) => void): Promise<void> {
   const review = await getReview(db, reviewId);
-  if (!review || ACTIVE.has(review.status) || review.fixture) return;
+  if (!review || ACTIVE.has(review.status)) return;
   const repo = await getRepoById(db, review.repoId);
   if (!repo) return;
 
   const tests = (await testResultsByReview(db, [reviewId])).get(reviewId) ?? [];
   const pendingTests = tests.filter((t) => ACTIVE.has(t.status)).length;
+
+  // The short result goes to Slack once, when the review and its tests are done (also for the demo).
+  if (pendingTests === 0 && (await claimNotification(db, { reviewId }))) {
+    const report = review.report;
+    const dismissed = (await dismissedFindingIds(db, [reviewId])).get(reviewId) ?? [];
+    const results = tests.map((t) => ({ name: t.name, outcome: t.outcome }));
+    const blocking = report ? blockingFindings(report, report.request.strictness, dismissed) : [];
+    await notify(
+      repo,
+      {
+        kind: "review",
+        id: reviewId,
+        prNumber: review.prNumber,
+        prTitle: review.prTitle,
+        status: review.status,
+        verdict: report ? withTests(verdict(report, report.request.strictness, dismissed), results) : null,
+        acPassed: report?.acceptanceCriteria.filter((a) => a.status === "passed").length ?? 0,
+        acTotal: report?.acceptanceCriteria.length ?? 0,
+        findings: report ? report.findings.length - dismissed.length : 0,
+        blocking: blocking.map((f) => f.title),
+        tests: tests.length ? { passed: tests.filter((t) => t.outcome === "passed").length, total: tests.length } : null,
+        costUsd: report?.cost.usd ?? 0,
+        followUp: report ? followUpLine(report) : null,
+        error: review.error,
+      },
+      { language: review.request.language, baseUrl: publicBaseUrl, log },
+    );
+  }
+
+  if (review.fixture) return;
   const user = await getUser(db, repo.automationUserId ?? review.startedBy);
   const token = user ? await freshAccessToken(db, user) : null;
   if (!token) return;

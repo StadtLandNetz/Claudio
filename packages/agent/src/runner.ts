@@ -7,6 +7,7 @@ import { RunStore, createClaudioTools, createDriver, startLiveView, type DriverS
 import {
   ReviewRequestSchema,
   budgetProfile,
+  criterionText,
   loadRepoConfig,
   newRunId,
   nowIso,
@@ -15,6 +16,7 @@ import {
   REVIEW_SUPERSEDED,
   verdict,
   KNOWLEDGE_DOCS,
+  type FollowUpContext,
   type KnowledgeBase,
   type RepoConfig,
   type ReviewReport,
@@ -23,6 +25,7 @@ import {
 } from "@claudio/core";
 import { createGithubClient, fetchPullRequestContext, postPullRequestReview, type PullRequestContext } from "@claudio/github";
 import { createBrowserGuard, createCaptchaHook, createStopHook } from "./hooks.js";
+import { envWithout, modelEnv } from "./env.js";
 import { SYSTEM_APPEND, buildReviewPrompt, extractAffectedAreas } from "./prompts.js";
 import { createClaudioSdkServer } from "./sdk-tools.js";
 
@@ -62,6 +65,8 @@ export type RunnerDeps = {
   reportUrl?: string;
   /** Called once the run directory exists, before any network or model call. */
   onRunStarted?: (run: RunHandle) => void;
+  /** Re-review: the earlier review of this pull request (findings, criteria, files changed since). */
+  followUp?: FollowUpContext | null;
 };
 
 export type RunHandle = { runId: string; runDir: string };
@@ -134,8 +139,10 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     env: deps.roleEnv ? { ...process.env, ...deps.roleEnv } : undefined,
     human,
     onLearning: deps.onLearning,
+    followUp: deps.followUp ? { reviewId: deps.followUp.reviewId, findings: deps.followUp.findings.map(({ rating: _r, comment: _c, ...f }) => f) } : undefined,
   });
   const claudioServer = createClaudioSdkServer(tools);
+  if (deps.followUp) log(`re-review of #${deps.followUp.reviewId}: ${deps.followUp.findings.length} open finding(s), ${deps.followUp.changedFiles?.length ?? "unknown number of"} changed file(s)`);
 
   const instanceHost = new URL(request.instanceUrl).hostname;
   const guard = createBrowserGuard({
@@ -158,6 +165,7 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     profile,
     driverPrefix: session.promptPrefix,
     knowledge: knowledgeDir && deps.knowledge ? { dir: knowledgeDir, base: deps.knowledge } : null,
+    followUp: deps.followUp ?? null,
   });
   store.writeFile("prompt.md", prompt);
 
@@ -212,6 +220,7 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
   }
 
   const summary = result && result.subtype === "success" ? result.result : "";
+  const followUp = deps.followUp ? completeFollowUp(store, deps.followUp, request.criteria) : undefined;
   const report: ReviewReport = {
     runId,
     status,
@@ -234,6 +243,7 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     },
     sessionId,
     errors,
+    followUp,
     createdAt: nowIso(),
   };
 
@@ -258,6 +268,29 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     }
   }
   return report;
+}
+
+/**
+ * After a re-review: whatever the agent did not get to stays as it was. Open findings
+ * it did not re-check are carried over (still counting for the verdict), and criteria
+ * it did not re-test keep their earlier result.
+ */
+export function completeFollowUp(store: RunStore, f: FollowUpContext, confirmed?: string[]): NonNullable<ReviewReport["followUp"]> {
+  const checked = new Set(store.rechecks().map((r) => r.findingId));
+  for (const prev of f.findings) {
+    if (checked.has(prev.id)) continue;
+    const { id: _id, createdAt: _at, previous: _p, rating: _r, comment: _c, ...rest } = prev;
+    store.addFinding({ ...rest, evidenceIds: [], previous: { reviewId: f.reviewId, findingId: prev.id, status: "not_rechecked" } });
+    store.recordRecheck({ findingId: prev.id, title: prev.title, severity: prev.severity, status: "not_rechecked", notes: "", evidenceIds: [] });
+  }
+  const tested = new Set(store.acResults().map((a) => criterionText(a.criterion)));
+  // Criteria a person confirmed for this run are the criteria: earlier ones they dropped stay dropped.
+  const wanted = confirmed?.length ? new Set(confirmed.map(criterionText)) : null;
+  for (const c of f.criteria) {
+    if (tested.has(criterionText(c.criterion)) || (wanted && !wanted.has(criterionText(c.criterion)))) continue;
+    store.recordAcResult({ criterion: c.criterion, status: c.status, notes: c.notes, evidenceIds: [], carriedFrom: f.reviewId });
+  }
+  return { reviewId: f.reviewId, headSha: f.headSha, changedFiles: f.changedFiles, rechecks: store.rechecks() };
 }
 
 /** Writes the knowledge documents as Markdown files and returns the directory. */
@@ -320,23 +353,4 @@ export function scrub(text: string, secret?: string): string {
   return secret ? text.split(secret).join("***") : text;
 }
 
-/** Anthropic credentials a model session could pick up from the environment. */
-const ANTHROPIC_CREDENTIALS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"];
-
-/**
- * Environment for a model session. With a repository key, every other Anthropic
- * credential is removed so the run cannot fall back to the server's key or login.
- * Without one (CLI), the environment is used as it is.
- */
-export function modelEnv(env: Record<string, string | undefined>, apiKey: string | undefined): Record<string, string | undefined> {
-  if (!apiKey) return env;
-  const out = envWithout(env as NodeJS.ProcessEnv, ANTHROPIC_CREDENTIALS);
-  out.ANTHROPIC_API_KEY = apiKey;
-  return out;
-}
-
-export function envWithout(env: NodeJS.ProcessEnv, keys: string[]): Record<string, string | undefined> {
-  const out: Record<string, string | undefined> = { ...env };
-  for (const k of keys) delete out[k];
-  return out;
-}
+export { envWithout, modelEnv } from "./env.js";

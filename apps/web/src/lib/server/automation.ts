@@ -9,6 +9,8 @@ import {
 	listRoles,
 	listTestScripts,
 	freshAccessToken,
+	notify,
+	previousReviewOf,
 	type AutoReviewDefaults,
 	type Repo
 } from '@claudio/db';
@@ -46,10 +48,19 @@ export const DEFAULT_AUTO_REVIEW: AutoReviewDefaults = {
 	budget: 'standard',
 	strictness: 'normal',
 	postComment: true,
-	runTests: true
+	runTests: true,
+	followUp: true
 };
 
-export type EventResult = { action: 'review' | 'analysis' | 'ignored'; reason: string; id?: number };
+export type EventResult = {
+	action: 'review' | 'analysis' | 'ignored';
+	reason: string;
+	id?: number;
+	/** For Slack: why an automatic review did not start, in the language of the person it acts for. */
+	notice?: string;
+	prNumber?: number;
+	prTitle?: string | null;
+};
 
 type Github = ReturnType<typeof createGithubClient>;
 
@@ -63,12 +74,43 @@ async function automationUser(repo: Repo): Promise<{ token: string | null; userI
 	return { token: user ? await freshAccessToken(db(), user) : null, userId, locale: isLocale(user?.locale) ? user.locale : DEFAULT_LOCALE };
 }
 
-/** Turns a verified GitHub event into a review or analysis job. */
+/**
+ * Turns a verified GitHub event into a review or analysis job, and tells the
+ * repository's Slack channel about automatic reviews: started, or why not.
+ */
 export async function handleGithubEvent(repo: Repo, event: string, payload: Record<string, any>, baseUrl: string): Promise<EventResult> {
 	const settings = repo.automation ?? DEFAULT_AUTOMATION;
 	const decision = decideTrigger(event, payload, settings, repo.defaultBranch);
 	if (decision.kind === 'ignore') return { action: 'ignored', reason: decision.reason };
+	const result = await handleDecision(repo, settings, decision, baseUrl);
+	if (decision.kind === 'review' || decision.kind === 'deployment') {
+		const { locale } = await automationUser(repo);
+		const prNumber = decision.kind === 'review' ? decision.prNumber : (result.prNumber ?? 0);
+		const trigger = decision.kind === 'review' ? decision.trigger : 'deployment';
+		// Duplicates (a review already runs) are not worth a message; reasons a person can fix are.
+		const quiet = result.action === 'ignored' && (!result.notice || prNumber === 0);
+		if (!quiet) {
+			await notify(
+				repo,
+				{
+					kind: 'automation',
+					started: result.action === 'review',
+					prNumber,
+					prTitle: result.prTitle ?? (decision.kind === 'review' ? decision.title : null) ?? null,
+					trigger,
+					reason: result.notice ?? result.reason,
+					reviewId: result.action === 'review' ? result.id : undefined
+				},
+				{ language: locale, baseUrl, log: (m) => console.log(`[webhook] ${m}`) }
+			);
+		}
+	}
+	return result;
+}
 
+type Decision = Exclude<ReturnType<typeof decideTrigger>, { kind: 'ignore' }>;
+
+async function handleDecision(repo: Repo, settings: AutomationSettings, decision: Decision, baseUrl: string): Promise<EventResult> {
 	const fixture = repo.fullName === DEMO_REPO && devFixtures() ? DEMO_FIXTURE : null;
 	const { token, userId, locale } = await automationUser(repo);
 	const { t } = serverI18n(locale);
@@ -79,7 +121,7 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 		if (github && decision.kind === 'review' && decision.trigger === 'comment') {
 			await postPullRequestComment(github, repo.fullName, decision.prNumber, t('system.cannotReview', { reason: t('system.noKey') })).catch(() => undefined);
 		}
-		return { action: 'ignored', reason: 'no Anthropic API key for this repository' };
+		return { action: 'ignored', reason: 'no Anthropic API key for this repository', notice: t('system.noKey') };
 	}
 
 	if (decision.kind === 'analysis') {
@@ -91,7 +133,7 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 		return { action: 'analysis', reason: `push to ${decision.branch}`, id };
 	}
 
-	if (!repo.dataConfirmed) return { action: 'ignored', reason: 'the repository is not cleared for reviews (test data confirmation missing)' };
+	if (!repo.dataConfirmed) return { action: 'ignored', reason: 'the repository is not cleared for reviews (test data confirmation missing)', notice: t('system.notCleared') };
 
 	// A review instance finished deploying: review the open PR it belongs to.
 	if (decision.kind === 'deployment') {
@@ -110,7 +152,8 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 				})
 			);
 		}
-		return results.find((r) => r.action === 'review') ?? results[0]!;
+		const started = results.find((r) => r.action === 'review') ?? results[0]!;
+		return { ...started, prNumber: pulls[0]!.number, prTitle: pulls[0]!.title };
 	}
 
 	// Review. Comment events carry no head commit; fetch it.
@@ -126,7 +169,7 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 		if (github && decision.trigger === 'comment') {
 			await postPullRequestComment(github, repo.fullName, decision.prNumber, t('system.cannotReview', { reason: resolved.missing })).catch(() => undefined);
 		}
-		return { action: 'ignored', reason: resolved.reason };
+		return { action: 'ignored', reason: resolved.reason, notice: resolved.missing, prNumber: decision.prNumber, prTitle: title };
 	}
 
 	const result = await queueReview(repo, settings, github, baseUrl, userId, locale, fixture, {
@@ -140,7 +183,7 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 	if (result.action === 'review' && github && decision.trigger === 'comment' && decision.commentId) {
 		await reactToComment(github, repo.fullName, decision.commentId).catch(() => undefined);
 	}
-	return result;
+	return { ...result, prNumber: decision.prNumber, prTitle: title };
 }
 
 /**
@@ -193,8 +236,10 @@ async function queueReview(
 		return { action: 'ignored', reason: 'a review of this pull request is already queued or running' };
 	}
 
-	const defaults = repo.autoReview ?? DEFAULT_AUTO_REVIEW;
+	const defaults = { ...DEFAULT_AUTO_REVIEW, ...(repo.autoReview ?? {}) };
 	const roleNames = (await listRoles(db(), repo.id)).map((r) => r.name);
+	// A pull request that was reviewed before gets a re-review: the earlier findings re-checked, only the changes tested.
+	const previous = defaults.followUp ? await previousReviewOf(db(), repo.id, prNumber) : undefined;
 	const parsed = ReviewRequestSchema.safeParse({
 		repo: repo.fullName,
 		pr: prNumber,
@@ -205,7 +250,8 @@ async function queueReview(
 		postComment: defaults.postComment && !fixture,
 		// The report, the PR comment and the commit status follow the language of the person the run acts for.
 		language: locale,
-		cloneRepo: !fixture
+		cloneRepo: !fixture,
+		followUpOf: previous?.id
 	});
 	if (!parsed.success) return { action: 'ignored', reason: `invalid review request: ${parsed.error.issues[0]?.message}` };
 

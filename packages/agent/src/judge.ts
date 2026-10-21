@@ -1,5 +1,5 @@
 import { query, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
-import { modelEnv } from "./runner.js";
+import { modelEnv } from "./env.js";
 import { JudgeVerdictSchema, describeStep, isAssertion, resolveStepTemplates, type JudgeVerdict, type Language, type StepResult, type TestScript } from "@claudio/core";
 
 export type JudgeInput = {

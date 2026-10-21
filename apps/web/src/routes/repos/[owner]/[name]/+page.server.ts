@@ -29,7 +29,13 @@ import {
 	setWebhook,
 	testResultsByReview,
 	updateAutomation,
-	updateRepoSettings
+	updateRepoSettings,
+	DEFAULT_NOTIFICATIONS,
+	isSlackWebhookUrl,
+	postSlack,
+	setSlack,
+	slackWebhookUrl,
+	testMessage
 } from '@claudio/db';
 import { atLeast, requireRepo, visibleRepos } from '#lib/server/access.js';
 import { checkAnthropicKey, keyOptional, noKeyMessage } from '#lib/server/anthropic.js';
@@ -205,7 +211,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		keyOptional: keyOptional(repo),
 		keySources,
 		automation: repo.automation ?? DEFAULT_AUTOMATION,
-		autoReview: repo.autoReview ?? DEFAULT_AUTO_REVIEW,
+		autoReview: { ...DEFAULT_AUTO_REVIEW, ...(repo.autoReview ?? {}) },
+		slack: settings ? { hint: repo.slackWebhookHint, notifications: { ...DEFAULT_NOTIFICATIONS, ...(repo.notifications ?? {}) } } : null,
 		webhook,
 		webhookUrl: `${base}/webhooks/github`,
 		environments: env.environments,
@@ -397,7 +404,8 @@ export const actions: Actions = {
 				budget: pick(f.get('autoBudget'), ['quick', 'standard', 'thorough'] as const, 'standard'),
 				strictness: pick(f.get('autoStrictness'), ['lenient', 'normal', 'strict'] as const, 'normal'),
 				postComment: f.get('autoComment') === 'on',
-				runTests: f.get('autoTests') === 'on'
+				runTests: f.get('autoTests') === 'on',
+				followUp: f.get('autoFollowUp') === 'on'
 			}
 		);
 		// Webhooks set up before deployments were supported do not send deployment events yet.
@@ -410,6 +418,37 @@ export const actions: Actions = {
 			}
 		}
 		return { saved: 'automation' };
+	},
+	slack: async ({ params, request, locals }) => {
+		const { t } = serverI18n(locals.locale);
+		const repo = await loadRepo(params, locals.user, 'admin');
+		const f = await request.formData();
+		const url = text(f.get('webhookUrl'));
+		if (url && !isSlackWebhookUrl(url)) return fail(400, { error: t('repo.slackUrlInvalid'), form: 'slack' });
+		const pick = <T extends string>(v: FormDataEntryValue | null, allowed: readonly T[], fallback: T): T =>
+			(allowed as readonly string[]).includes(String(v)) ? (String(v) as T) : fallback;
+		await setSlack(db(), repo.id, {
+			// Empty keeps the stored webhook (the field never shows it); "remove" drops it.
+			webhookUrl: f.get('removeWebhook') === 'on' ? null : url || undefined,
+			notifications: {
+				takeover: f.get('takeover') === 'on',
+				reviews: pick(f.get('reviews'), ['all', 'changes', 'off'] as const, 'all'),
+				automation: f.get('automationEvents') === 'on',
+				tests: pick(f.get('tests'), ['failed', 'all', 'off'] as const, 'failed'),
+				analyses: f.get('analyses') === 'on',
+				mention: text(f.get('mention')).slice(0, 80)
+			}
+		});
+		return { saved: 'slack' };
+	},
+	slackTest: async ({ params, locals }) => {
+		const { t } = serverI18n(locals.locale);
+		const repo = await loadRepo(params, locals.user, 'admin');
+		const hook = slackWebhookUrl(repo);
+		if (!hook) return fail(400, { error: t('repo.slackMissing'), form: 'slack' });
+		const err = await postSlack(hook, testMessage(repo.fullName, locals.locale));
+		if (err) return fail(400, { error: t('repo.slackTestFailed', { reason: err }), form: 'slack' });
+		return { saved: 'slackTest' };
 	},
 
 	installWebhook: async ({ params, locals, url }) => {

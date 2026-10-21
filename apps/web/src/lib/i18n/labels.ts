@@ -8,6 +8,7 @@ export type Labels = {
 	severity: Record<Severity, string>;
 	category: Record<string, string>;
 	ac: Record<string, string>;
+	recheck: Record<string, string>;
 	strictness: Record<Strictness, string>;
 	budget: Record<string, string>;
 	analysisBudget: Record<string, string>;
@@ -45,6 +46,7 @@ const de: Labels = {
 		other: 'Sonstiges'
 	},
 	ac: { passed: 'Erfüllt', failed: 'Nicht erfüllt', blocked: 'Blockiert', not_testable: 'Nicht testbar' },
+	recheck: { fixed: 'Behoben', still_open: 'Weiterhin offen', not_rechecked: 'Nicht erneut geprüft' },
 	strictness: { lenient: 'Nachsichtig (nur Blocker blockieren)', normal: 'Normal (ab Major)', strict: 'Streng (ab Minor)' },
 	budget: { quick: 'Schnell (bis 2 USD)', standard: 'Standard (bis 8 USD)', thorough: 'Gründlich (bis 25 USD)' },
 	analysisBudget: { quick: 'Schnell (bis 4 USD)', standard: 'Standard (bis 15 USD)', thorough: 'Gründlich (bis 40 USD)' },
@@ -91,6 +93,7 @@ const en: Labels = {
 		other: 'Other'
 	},
 	ac: { passed: 'Met', failed: 'Not met', blocked: 'Blocked', not_testable: 'Not testable' },
+	recheck: { fixed: 'Fixed', still_open: 'Still open', not_rechecked: 'Not re-checked' },
 	strictness: { lenient: 'Lenient (only blockers block)', normal: 'Normal (major and above)', strict: 'Strict (minor and above)' },
 	budget: { quick: 'Quick (up to 2 USD)', standard: 'Standard (up to 8 USD)', thorough: 'Thorough (up to 25 USD)' },
 	analysisBudget: { quick: 'Quick (up to 4 USD)', standard: 'Standard (up to 15 USD)', thorough: 'Thorough (up to 40 USD)' },

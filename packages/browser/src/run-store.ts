@@ -4,11 +4,13 @@ import {
   AcceptanceCriterionResultSchema,
   EvidenceSchema,
   FindingSchema,
+  RecheckSchema,
   TodoItemSchema,
   nowIso,
   type AcceptanceCriterionResult,
   type Evidence,
   type Finding,
+  type Recheck,
   type TodoItem,
 } from "@claudio/core";
 import { z } from "zod";
@@ -78,6 +80,22 @@ export class RunStore {
     const result: AcceptanceCriterionResult = { ...input, createdAt: nowIso() };
     this.writeJson("acceptance.json", [...existing, result]);
     return result;
+  }
+
+  /** Re-review: what became of the earlier review's findings (one entry per finding, the latest wins). */
+  rechecks(): Recheck[] {
+    return this.readJson("rechecks.json", RecheckSchema);
+  }
+
+  recordRecheck(input: Recheck): Recheck {
+    const rest = this.rechecks().filter((r) => r.findingId !== input.findingId);
+    this.writeJson("rechecks.json", [...rest, input]);
+    return input;
+  }
+
+  /** Removes a finding again (a re-checked finding that turned out fixed after all). */
+  removeFinding(id: string): void {
+    this.writeJson("findings.json", this.findings().filter((f) => f.id !== id));
   }
 
   addNote(text: string): void {

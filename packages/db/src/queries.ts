@@ -41,6 +41,7 @@ import {
   type Analysis,
   type AutoReviewDefaults,
   type Lesson,
+  type NotificationSettings,
   type FindingStatus,
   type HumanInputPayload,
   type HumanRequest,
@@ -189,6 +190,55 @@ export async function setWebhook(db: Db, id: number, hook: { webhookId: number; 
     .update(repos)
     .set(hook ? { webhookId: hook.webhookId, webhookSecretEnc: encrypt(hook.secret), automationUserId: hook.userId } : { webhookId: null, webhookSecretEnc: null })
     .where(eq(repos.id, id));
+}
+
+/** Saves the Slack webhook (null removes it) and what is posted there. */
+export async function setSlack(db: Db, id: number, input: { webhookUrl?: string | null; notifications: NotificationSettings }): Promise<void> {
+  const hook =
+    input.webhookUrl === undefined
+      ? {}
+      : input.webhookUrl
+        ? { slackWebhookEnc: encrypt(input.webhookUrl), slackWebhookHint: `…${input.webhookUrl.slice(-6)}` }
+        : { slackWebhookEnc: null, slackWebhookHint: null };
+  await db.update(repos).set({ ...hook, notifications: input.notifications }).where(eq(repos.id, id));
+}
+
+export function slackWebhookUrl(repo: Pick<Repo, "slackWebhookEnc">): string | null {
+  return repo.slackWebhookEnc ? decrypt(repo.slackWebhookEnc) : null;
+}
+
+/**
+ * Claims the right to send a run's notification: true exactly once per run,
+ * however many workers or calls race for it.
+ */
+export async function claimNotification(db: Db, target: { reviewId: number } | { testRunId: number }): Promise<boolean> {
+  const now = new Date();
+  const [res] =
+    "reviewId" in target
+      ? await db.update(reviews).set({ notifiedAt: now }).where(and(eq(reviews.id, target.reviewId), sql`${reviews.notifiedAt} is null`))
+      : await db.update(testRuns).set({ notifiedAt: now }).where(and(eq(testRuns.id, target.testRunId), sql`${testRuns.notifiedAt} is null`));
+  return res.affectedRows === 1;
+}
+
+/** The latest finished review of a pull request before `beforeId`, with a report (what a re-review builds on). */
+export async function previousReviewOf(db: Db, repoId: number, prNumber: number, beforeId?: number): Promise<ReviewListItem | undefined> {
+  const [row] = await db
+    .select({ review: reviews, repoFullName: repos.fullName, startedByLogin: users.login })
+    .from(reviews)
+    .innerJoin(repos, eq(repos.id, reviews.repoId))
+    .innerJoin(users, eq(users.id, reviews.startedBy))
+    .where(
+      and(
+        eq(reviews.repoId, repoId),
+        eq(reviews.prNumber, prNumber),
+        sql`${reviews.report} is not null`,
+        inArray(reviews.status, ["completed", "budget_exceeded", "max_turns"]),
+        beforeId ? lt(reviews.id, beforeId) : undefined,
+      ),
+    )
+    .orderBy(desc(reviews.id))
+    .limit(1);
+  return row ? { ...row.review, repoFullName: row.repoFullName, startedByLogin: row.startedByLogin } : undefined;
 }
 
 export function webhookSecret(repo: Pick<Repo, "webhookSecretEnc">): string | null {
