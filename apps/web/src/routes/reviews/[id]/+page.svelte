@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import EvidenceThumbs, { type ThumbEvidence } from '#lib/components/EvidenceThumbs.svelte';
+	import Lightbox from '#lib/components/Lightbox.svelte';
 	import LiveLog from '#lib/components/LiveLog.svelte';
 	import HumanTakeover from '#lib/components/HumanTakeover.svelte';
 	import Icon from '#lib/components/Icon.svelte';
@@ -8,6 +10,8 @@
 	import { invalidateAll } from '$app/navigation';
 	import Severity from '#lib/components/Severity.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
+	import TraceTimeline, { type Marker } from '#lib/components/TraceTimeline.svelte';
+	import { page } from '$app/state';
 	import { isActive } from '#lib/labels.js';
 	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
@@ -54,12 +58,43 @@
 		return () => clearInterval(t);
 	});
 
+	// ---- screenshots
 	let lightbox: { url: string; label: string } | null = $state(null);
-	let dialog: HTMLDialogElement | undefined = $state();
-	function openEvidence(url: string, label: string) {
-		lightbox = { url, label };
-		dialog?.showModal();
-	}
+	const openEv = (ev: ThumbEvidence) => {
+		if (ev.url) lightbox = { url: ev.url, label: `${ev.id} ${ev.label}` };
+	};
+	const evidenceOf = (ids: string[]) => ids.flatMap((id) => report?.evidence[id] ?? []);
+	const evidenceNo = (id: string) => Number(id.replace(/\D+/g, '')) || 0;
+	// Every screenshot of the run in capture order; criteria and findings only show the ones they cite.
+	const gallery = $derived(
+		Object.values(report?.evidence ?? {})
+			.filter((e) => e.kind === 'screenshot')
+			.sort((a, b) => evidenceNo(a.id) - evidenceNo(b.id))
+	);
+
+	// ---- trace timeline
+	let timeline = $state<ReturnType<typeof TraceTimeline>>();
+	const hasTrace = $derived(Boolean(report?.files.trace && data.review.runId));
+	// A finding's first screenshot was taken when it was observed; its own time is when the agent wrote it up.
+	const anchorOf = (ids: string[], fallback: string) => ids.map((id) => report?.evidence[id]?.createdAt).find((x): x is string => Boolean(x)) ?? fallback;
+	const jumpEv = (ev: ThumbEvidence) => ev.createdAt && timeline?.jumpTo(ev.createdAt);
+	const markers = $derived.by((): Marker[] =>
+		report
+			? [
+					...gallery.map((e) => ({ kind: 'evidence' as const, id: e.id, label: e.label, at: e.createdAt })),
+					...report.findings.map((f) => ({ kind: 'finding' as const, id: f.id, label: f.title, at: anchorOf(f.evidenceIds, f.createdAt), severity: f.severity })),
+					...report.acceptanceCriteria.map((ac, idx) => ({ kind: 'ac' as const, id: `AC${idx + 1}`, label: ac.criterion, at: anchorOf(ac.evidenceIds, ac.createdAt), status: ac.status }))
+				]
+			: []
+	);
+	// Playwright's viewer runs a service worker, which browsers allow only on HTTPS or localhost.
+	let secure = $state(false);
+	$effect(() => {
+		secure = window.isSecureContext;
+	});
+	const viewerHref = $derived(
+		hasTrace && secure && data.viewerAvailable && report?.files.trace ? `/trace-viewer/index.html?trace=${encodeURIComponent(new URL(report.files.trace, page.url.origin).href)}` : null
+	);
 </script>
 
 <svelte:head><title>#{review.prNumber} {review.prTitle ?? ''} · Claudio</title></svelte:head>
@@ -127,6 +162,10 @@
 
 <div class="layout">
 	<div class="main">
+		{#if hasTrace && report && data.review.runId}
+			<TraceTimeline bind:this={timeline} runId={data.review.runId} {markers} viewerUrl={viewerHref} downloadUrl={report.files.trace} />
+		{/if}
+
 		{#if active && data.human}
 			<HumanTakeover src="/reviews/{data.review.id}/live" requestId={data.human.id} reason={data.human.reason} url={review.instanceUrl} />
 		{:else if active}
@@ -176,19 +215,17 @@
 							<li class={ac.status}>
 								<span class="ac-status">{i.labels.ac[ac.status]}</span>
 								<div>
-									<p class="criterion">{ac.criterion}</p>
+									<div class="crit-row">
+										<p class="criterion">{ac.criterion}</p>
+										{#if hasTrace}
+											<button type="button" class="btn ghost small jump" title={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: {idx + 1}" onclick={() => timeline?.jumpTo(anchorOf(ac.evidenceIds, ac.createdAt))}>
+												<Icon name="film" size={12} />
+											</button>
+										{/if}
+									</div>
 									{#if ac.notes}<p class="faint">{ac.notes}</p>{/if}
 									{#if ac.evidenceIds.length}
-										<p class="ev-links">
-											{#each ac.evidenceIds as eid (eid)}
-												{@const ev = report.evidence[eid]}
-												{#if ev?.url}
-													<button type="button" class="linkish" onclick={() => openEvidence(ev.url!, ev.label)}>{eid} {ev.label}</button>
-												{:else if ev?.expired}
-													<span class="faint" title={i.t('review.screenshotsExpire')}>{eid} {ev.label} {i.t('review.deleted')}</span>
-												{/if}
-											{/each}
-										</p>
+										<div class="ac-ev"><EvidenceThumbs items={evidenceOf(ac.evidenceIds)} onopen={openEv} onjump={hasTrace ? jumpEv : undefined} /></div>
 									{/if}
 								</div>
 							</li>
@@ -220,6 +257,11 @@
 								<span class="cat">{i.labels.category[f.category] ?? f.category}</span>
 								{#if f.blocking}<span class="blk">{i.t('review.blocksApproval')}</span>{/if}
 								<span class="fid faint">{f.id}</span>
+								{#if hasTrace}
+									<button type="button" class="btn ghost small jump" title={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: {f.id}" onclick={() => timeline?.jumpTo(anchorOf(f.evidenceIds, f.createdAt))}>
+										<Icon name="film" size={12} />
+									</button>
+								{/if}
 							</header>
 							<h3>{f.title}</h3>
 							<p class="desc">{f.description}</p>
@@ -236,22 +278,7 @@
 							{/if}
 							{#if f.url}<p class="faint url">{f.url}</p>{/if}
 							{#if f.evidenceIds.length}
-								<div class="thumbs">
-									{#each f.evidenceIds as eid (eid)}
-										{@const ev = report.evidence[eid]}
-										{#if ev?.url && ev.kind === 'screenshot'}
-											<button type="button" class="thumb" onclick={() => openEvidence(ev.url!, ev.label)}>
-												<img src={ev.url} alt={ev.label} loading="lazy" />
-												<span>{eid} {ev.label}</span>
-											</button>
-										{:else if ev?.expired}
-											<div class="shot-expired" title={i.t('review.screenshotsExpire')}>
-												<span>{i.t('review.screenshotDeleted')}</span>
-												<span class="faint">{eid} {ev.label}</span>
-											</div>
-										{/if}
-									{/each}
-								</div>
+								<EvidenceThumbs items={evidenceOf(f.evidenceIds)} onopen={openEv} onjump={hasTrace ? jumpEv : undefined} />
 							{/if}
 
 							{#if f.rating.comment && f.rating.status !== 'proposed' && !editing.has(f.id)}
@@ -308,6 +335,16 @@
 					{/if}
 				{/each}
 			</section>
+
+			{#if gallery.length}
+				<section class="block">
+					<div class="block-head">
+						<h2>{i.t('review.screenshots')}</h2>
+						<span class="faint">{i.t('common.screenshotsExpire')}</span>
+					</div>
+					<EvidenceThumbs items={gallery} layout="grid" onopen={openEv} onjump={hasTrace ? jumpEv : undefined} />
+				</section>
+			{/if}
 
 			{#if !review.fixture && review.status !== 'queued' && review.status !== 'running'}
 				<section class="block comment">
@@ -408,23 +445,13 @@
 				<a href="/reviews/{review.id}/report.md?verbosity=normal&strictness={data.strictness}">{i.t('review.downloadNormal')}</a>
 				<a href="/reviews/{review.id}/report.md?verbosity=detailed&strictness={data.strictness}">{i.t('review.downloadDetailed')}</a>
 				{#if report.files.trace}<a href={report.files.trace}>{i.t('review.trace')}</a>{/if}
+				{#if viewerHref}<a href={viewerHref} target="_blank" rel="noopener noreferrer">{i.t('common.traceOpenViewer')}</a>{/if}
 			</div>
 		{/if}
 	</aside>
 </div>
 
-<dialog bind:this={dialog} class="lightbox" onclose={() => (lightbox = null)} onclick={(e) => e.target === dialog && dialog?.close()}>
-	{#if lightbox}
-		<figure>
-			<img src={lightbox.url} alt={lightbox.label} />
-			<figcaption>
-				{lightbox.label}
-				<a href={lightbox.url} target="_blank" rel="noopener noreferrer">{i.t('review.openInNewTab')}</a>
-				<button class="btn small" type="button" onclick={() => dialog?.close()}>{i.t('review.close')}</button>
-			</figcaption>
-		</figure>
-	{/if}
-</dialog>
+<Lightbox bind:item={lightbox} />
 
 <style>
 	.page-title h1 {
@@ -579,26 +606,20 @@
 	.ac .blocked .ac-status::before {
 		background: var(--major);
 	}
+	.crit-row {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.5rem;
+	}
 	.criterion {
 		font-weight: 500;
 	}
-	.ev-links {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem 0.75rem;
-		margin-top: 0.25rem;
+	.jump {
+		flex: none;
 	}
-	.linkish {
-		font: inherit;
-		font-size: var(--text-xs);
-		background: none;
-		border: 0;
-		padding: 0;
-		color: var(--accent);
-		cursor: pointer;
-	}
-	.linkish:hover {
-		text-decoration: underline;
+	.ac-ev {
+		margin-top: 0.4rem;
 	}
 
 	/* Findings */
@@ -662,40 +683,6 @@
 	.url {
 		word-break: break-all;
 		font-family: var(--mono);
-	}
-	.thumbs {
-		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-	}
-	.thumb {
-		display: grid;
-		gap: 0.25rem;
-		width: 10rem;
-		padding: 0;
-		border: 1px solid var(--rule);
-		border-radius: var(--radius-s);
-		background: var(--sheet);
-		cursor: zoom-in;
-		font: inherit;
-		font-size: var(--text-xs);
-		color: var(--ink-2);
-		text-align: left;
-		overflow: hidden;
-	}
-	.thumb:hover {
-		border-color: var(--rule-strong);
-	}
-	.thumb img {
-		width: 100%;
-		aspect-ratio: 16 / 10;
-		object-fit: cover;
-		object-position: top;
-		display: block;
-		border-bottom: 1px solid var(--rule);
-	}
-	.thumb span {
-		padding: 0 0.45rem 0.35rem;
 	}
 	.rate {
 		display: flex;
@@ -820,38 +807,6 @@
 		gap: 0.3rem;
 		padding-top: 0.75rem;
 		border-top: 1px solid var(--rule);
-	}
-
-	.lightbox {
-		border: 0;
-		padding: 0;
-		max-width: min(92vw, 1280px);
-		max-height: 92vh;
-		background: var(--raised);
-		color: var(--ink);
-		border-radius: var(--radius-l);
-		box-shadow: var(--shadow-pop);
-	}
-	.lightbox::backdrop {
-		background: rgba(0, 0, 0, 0.6);
-	}
-	.lightbox figure {
-		margin: 0;
-	}
-	.lightbox img {
-		display: block;
-		max-width: 100%;
-		max-height: calc(92vh - 4rem);
-	}
-	.lightbox figcaption {
-		display: flex;
-		gap: 1rem;
-		align-items: center;
-		padding: 0.5rem 0.75rem;
-		flex-wrap: wrap;
-	}
-	.lightbox figcaption .btn {
-		margin-left: auto;
 	}
 
 	@media (max-width: 980px) {

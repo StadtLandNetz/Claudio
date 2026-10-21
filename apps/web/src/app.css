@@ -68,6 +68,9 @@
 html {
 	-webkit-text-size-adjust: 100%;
 }
+html:has(dialog:modal) {
+	overflow: hidden;
+}
 
 body {
 	margin: 0;
@@ -220,6 +223,12 @@ code {
 	background: var(--sunken);
 	color: var(--ink);
 }
+.btn.ghost.danger {
+	color: var(--block);
+}
+.btn.ghost.danger:hover {
+	background: var(--block-soft);
+}
 .btn.small {
 	height: 1.5rem;
 	padding: 0 0.5rem;
@@ -339,6 +348,8 @@ input[readonly] {
 	accent-color: var(--accent);
 }
 fieldset {
+	display: grid;
+	gap: 0.4rem;
 	border: 0;
 	padding: 0;
 	margin: 0;
@@ -346,7 +357,27 @@ fieldset {
 }
 legend {
 	padding: 0;
+	margin-bottom: 0.4rem;
 	font-weight: 500;
+}
+fieldset small {
+	color: var(--ink-3);
+	font-size: var(--text-xs);
+}
+/* Form layout: a column of fields, a row of buttons, a row of checkboxes */
+.fields {
+	display: grid;
+	gap: 0.9rem;
+}
+.actions {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+}
+.options {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem 1.25rem;
 }
 
 /* Surfaces */

@@ -5,7 +5,8 @@ import type { AccessLevel } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { serverI18n } from '#lib/i18n/index.js';
-import { withAvailability } from '#lib/server/run-files.js';
+import { fileAvailability, runFileUrl, withAvailability } from '#lib/server/run-files.js';
+import { viewerAvailable } from '#lib/server/trace.js';
 import type { Actions, PageServerLoad } from './$types';
 
 async function loadRun(idParam: string, locals: App.Locals, min: AccessLevel = 'read') {
@@ -26,7 +27,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const events = await eventsSince(db(), { testRunId: run.id }, 0, 5000);
 	const r = run.report;
 	const tplCtx = r ? { runTag: runTagOf(r.runId), now: new Date(r.createdAt) } : null;
+	// The trace stays only in the (ephemeral) run directory: offered while it is there.
+	const available = await fileAvailability(r?.runId);
 	return {
+		viewerAvailable: viewerAvailable(),
 		run: {
 			id: run.id,
 			scriptId: run.scriptId,
@@ -48,6 +52,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		},
 		report: r
 			? {
+					runId: r.runId,
+					traceUrl: available('trace.zip') ? runFileUrl(r.runId, 'trace.zip') : null,
 					mode: r.mode,
 					summary: r.summary,
 					healedAt: r.healedAt ?? null,
@@ -68,7 +74,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 						id: e.id,
 						label: e.label,
 						url: e.url,
-						expired: e.expired
+						expired: e.expired,
+						kind: e.kind,
+						createdAt: e.createdAt
 					})),
 					findings: sortBySeverity(r.findings),
 					cost: r.cost,

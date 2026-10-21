@@ -59,16 +59,14 @@ export const de = {
 	summary: 'Zusammenfassung',
 	regressionTests: 'Regressionstests',
 	acceptanceCriteria: 'Akzeptanzkriterien',
-	screenshotsExpire: 'Screenshots werden nach 14 Tagen gelöscht',
-	deleted: '(gelöscht)',
 	noAcRated: 'Claudio hat keine Akzeptanzkriterien bewertet.',
 	findings: 'Findings',
+	screenshots: 'Screenshots',
 	showDismissed: 'Verworfene zeigen ({n})',
 	noFindings: 'Keine Findings.',
 	blocksApproval: 'blockiert die Abnahme',
 	expected: 'Erwartet',
 	observed: 'Beobachtet',
-	screenshotDeleted: 'Screenshot gelöscht',
 
 	// reviews/[id]: rating findings
 	unknownUser: 'Unbekannt',
@@ -124,8 +122,6 @@ export const de = {
 	downloadNormal: 'Normal (Markdown)',
 	downloadDetailed: 'Ausführlich (Markdown)',
 	trace: 'Playwright-Trace',
-	openInNewTab: 'In neuem Tab öffnen',
-	close: 'Schließen',
 
 	// ReviewTable
 	colResult: 'Ergebnis',
@@ -194,16 +190,14 @@ export const en: Translation<typeof de> = {
 	summary: 'Summary',
 	regressionTests: 'Regression tests',
 	acceptanceCriteria: 'Acceptance criteria',
-	screenshotsExpire: 'Screenshots are deleted after 14 days',
-	deleted: '(deleted)',
 	noAcRated: 'Claudio did not assess any acceptance criteria.',
 	findings: 'Findings',
+	screenshots: 'Screenshots',
 	showDismissed: 'Show dismissed ({n})',
 	noFindings: 'No findings.',
 	blocksApproval: 'blocks approval',
 	expected: 'Expected',
 	observed: 'Observed',
-	screenshotDeleted: 'Screenshot deleted',
 
 	// reviews/[id]: rating findings
 	unknownUser: 'Unknown',
@@ -259,8 +253,6 @@ export const en: Translation<typeof de> = {
 	downloadNormal: 'Normal (Markdown)',
 	downloadDetailed: 'Detailed (Markdown)',
 	trace: 'Playwright trace',
-	openInNewTab: 'Open in new tab',
-	close: 'Close',
 
 	// ReviewTable
 	colResult: 'Result',

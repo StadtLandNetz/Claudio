@@ -58,6 +58,9 @@ importers:
       octokit:
         specifier: ^5.0.5
         version: 5.0.5
+      playwright-core:
+        specifier: 1.64.0
+        version: 1.64.0
       zod:
         specifier: ^4.6.5
         version: 4.6.5

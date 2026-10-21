@@ -141,6 +141,24 @@ export async function getRepoById(db: Db, id: number): Promise<Repo | undefined>
   return repo;
 }
 
+export type RepoCounts = { tests: number; reviews: number; roles: number };
+
+/** Per-repository counts for the sidebar menu, in three grouped queries instead of one per repository. */
+export async function countsByRepo(db: Db, repoIds: number[]): Promise<Map<number, RepoCounts>> {
+  const out = new Map<number, RepoCounts>(repoIds.map((id) => [id, { tests: 0, reviews: 0, roles: 0 }]));
+  if (repoIds.length === 0) return out;
+  const n = sql<number>`count(*)`.mapWith(Number);
+  const [tests, revs, roles] = await Promise.all([
+    db.select({ repoId: testScripts.repoId, n }).from(testScripts).where(inArray(testScripts.repoId, repoIds)).groupBy(testScripts.repoId),
+    db.select({ repoId: reviews.repoId, n }).from(reviews).where(inArray(reviews.repoId, repoIds)).groupBy(reviews.repoId),
+    db.select({ repoId: repoRoles.repoId, n }).from(repoRoles).where(inArray(repoRoles.repoId, repoIds)).groupBy(repoRoles.repoId),
+  ]);
+  for (const r of tests) out.get(r.repoId)!.tests = r.n;
+  for (const r of revs) out.get(r.repoId)!.reviews = r.n;
+  for (const r of roles) out.get(r.repoId)!.roles = r.n;
+  return out;
+}
+
 export async function addRepo(
   db: Db,
   input: { fullName: string; isPrivate: boolean; defaultBranch: string | null; createdBy: number },

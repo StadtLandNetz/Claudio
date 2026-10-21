@@ -4,6 +4,7 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import KnowledgeView from '#lib/components/KnowledgeView.svelte';
+	import Modal from '#lib/components/Modal.svelte';
 	import ReviewTable from '#lib/components/ReviewTable.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import { i18n } from '#lib/i18n/index.js';
@@ -39,6 +40,11 @@
 		return () => clearInterval(t);
 	});
 	const formError = (name: string) => (form && 'error' in form && form.form === name ? form.error : null);
+
+	// The "new test" dialog: open after a failed native POST too, so the error is not lost.
+	let createOpen = $state(!!formError('createTest'));
+	let createError = $state<string | null>(formError('createTest'));
+	let creating = $state(false);
 </script>
 
 <svelte:head><title>{data.repo.fullName} · Claudio</title></svelte:head>
@@ -53,17 +59,12 @@
 	{/if}
 </div>
 
-<nav class="tabs" aria-label={i.t('repo.tabsLabel')}>
-	{#each tabs.filter((t) => t.id !== 'settings' || isAdmin) as t (t.id)}
-		<a href="?tab={t.id}" aria-current={data.tab === t.id ? 'page' : undefined}>
-			{i.t(t.label)}
-			{#if t.id === 'reviews' && data.reviews.length}<span class="count">{data.reviews.length}</span>{/if}
-			{#if t.id === 'tests' && data.tests.length}<span class="count">{data.tests.length}</span>{/if}
-			{#if t.id === 'settings' && !ready}<span class="dot" title={i.t('repo.setupIncomplete')}></span>{/if}
-			{#if t.id === 'knowledge' && data.knowledge?.stale}<span class="dot" title={i.t('repo.kbStale')}></span>{/if}
-		</a>
-	{/each}
-</nav>
+<div class="tab-head">
+	<h2>{i.t(tabs.find((t) => t.id === data.tab)?.label ?? 'repo.tabPulls')}</h2>
+	{#if data.tab === 'tests' && canWrite}
+		<button type="button" class="btn primary small" onclick={() => (createOpen = true)}>{i.t('repo.newTest')}</button>
+	{/if}
+</div>
 
 {#if data.tab === 'pulls'}
 	{#if !canWrite}
@@ -155,6 +156,9 @@
 		<section class="empty-kb">
 			<h2>{i.t('repo.noTests')}</h2>
 			<p class="muted">{i.t('repo.noTestsText')}</p>
+			{#if canWrite}
+				<div><button type="button" class="btn primary" onclick={() => (createOpen = true)}>{i.t('repo.newTest')}</button></div>
+			{/if}
 		</section>
 	{/if}
 
@@ -186,50 +190,70 @@
 	{/if}
 
 	{#if canWrite}
-	<details class="sheet analyze" open={data.tests.length === 0 || !!formError('createTest')}>
-		<summary><strong>{i.t('repo.newTest')}</strong></summary>
-		<form method="POST" action="?tab=tests&/createTest" class="fields">
-			{#if formError('createTest')}<p class="notice error" role="alert">{formError('createTest')}</p>{/if}
-			<label class="field">
-				<span>{i.t('repo.name')}</span>
-				<input type="text" name="name" required placeholder={i.t('repo.testNamePlaceholder')} />
-			</label>
-			<label class="field">
-				<span>{i.t('repo.flow')}</span>
-				<textarea name="description" rows="3" required placeholder={i.t('repo.flowPlaceholder')}></textarea>
-				<small>{i.t('repo.flowHint')}</small>
-			</label>
-			<label class="field">
-				<span>{i.t('repo.expectation')}</span>
-				<textarea name="expectation" rows="2" required placeholder={i.t('repo.expectationPlaceholder')}></textarea>
-			</label>
-			<fieldset>
-				<legend>{i.t('repo.roles')}</legend>
-				<div class="options">
-					{#each data.roles as role (role.name)}
-						<label class="check"><input type="checkbox" name="roles" value={role.name} /> <span>{role.name}</span></label>
-					{/each}
-				</div>
-			</fieldset>
-			<fieldset>
-				<legend>{i.t('repo.otherSites')}</legend>
+		<Modal bind:open={createOpen} title={i.t('repo.newTest')} width="l" locked={creating} onclose={() => (createError = null)}>
+			<form
+				id="create-test"
+				method="POST"
+				action="?tab=tests&/createTest"
+				class="fields"
+				use:enhance={() => {
+					creating = true;
+					return async ({ result, update }) => {
+						creating = false;
+						if (result.type === 'failure') {
+							// Stay open with the message; `update()` would replace the page's form data.
+							createError = typeof result.data?.error === 'string' ? result.data.error : i.t('repo.checkInput');
+							return;
+						}
+						await update();
+					};
+				}}
+			>
+				{#if createError}<p class="notice error" role="alert">{createError}</p>{/if}
 				<label class="field">
-					<span>{i.t('repo.extraHosts')}</span>
-					<input type="text" name="allowedHosts" placeholder="google.com, login.example.de" />
-					<small>{i.t('repo.testHostsHint')}</small>
+					<span>{i.t('repo.name')}</span>
+					<input type="text" name="name" required placeholder={i.t('repo.testNamePlaceholder')} />
 				</label>
+				<label class="field">
+					<span>{i.t('repo.flow')}</span>
+					<textarea name="description" rows="3" required placeholder={i.t('repo.flowPlaceholder')}></textarea>
+					<small>{i.t('repo.flowHint')}</small>
+				</label>
+				<label class="field">
+					<span>{i.t('repo.expectation')}</span>
+					<textarea name="expectation" rows="2" required placeholder={i.t('repo.expectationPlaceholder')}></textarea>
+				</label>
+				<fieldset>
+					<legend>{i.t('repo.roles')}</legend>
+					<div class="options">
+						{#each data.roles as role (role.name)}
+							<label class="check"><input type="checkbox" name="roles" value={role.name} /> <span>{role.name}</span></label>
+						{/each}
+					</div>
+				</fieldset>
+				<fieldset>
+					<legend>{i.t('repo.otherSites')}</legend>
+					<label class="field">
+						<span>{i.t('repo.extraHosts')}</span>
+						<input type="text" name="allowedHosts" placeholder="google.com, login.example.de" />
+						<small>{i.t('repo.testHostsHint')}</small>
+					</label>
+					<label class="check">
+						<input type="checkbox" name="allowAnyHost" />
+						<span>{i.t('repo.allowAnyHost')} <span class="faint">{i.t('repo.allowAnyHostHint')}</span></span>
+					</label>
+				</fieldset>
 				<label class="check">
-					<input type="checkbox" name="allowAnyHost" />
-					<span>{i.t('repo.allowAnyHost')} <span class="faint">{i.t('repo.allowAnyHostHint')}</span></span>
+					<input type="checkbox" name="runInReviews" checked />
+					<span>{i.t('repo.runInReviews')}</span>
 				</label>
-			</fieldset>
-			<label class="check">
-				<input type="checkbox" name="runInReviews" checked />
-				<span>{i.t('repo.runInReviews')}</span>
-			</label>
-			<div class="actions"><button class="btn primary" type="submit">{i.t('repo.createTest')}</button></div>
-		</form>
-	</details>
+			</form>
+			{#snippet footer()}
+				<span class="spacer"></span>
+				<button type="button" class="btn" onclick={() => (createOpen = false)}>{i.t('common.cancel')}</button>
+				<button type="submit" class="btn primary" form="create-test" disabled={creating}>{i.t('repo.createTest')}</button>
+			{/snippet}
+		</Modal>
 	{/if}
 {:else if data.tab === 'knowledge'}
 	{#if runningAnalysis}
@@ -705,44 +729,15 @@
 		align-items: center;
 		margin-bottom: 0.75rem;
 	}
-	.tabs {
+	.tab-head {
 		display: flex;
-		gap: 0.125rem;
-		margin: 0 0 1.25rem;
-		padding-bottom: 0.5rem;
-		border-bottom: 1px solid var(--rule);
-		overflow-x: auto;
-	}
-	.tabs a {
-		display: inline-flex;
 		align-items: center;
-		gap: 0.4rem;
-		height: var(--control-h);
-		padding: 0 0.6rem;
-		border-radius: var(--radius-s);
-		color: var(--ink-2);
-		font-weight: 500;
-		text-decoration: none;
-		white-space: nowrap;
-	}
-	.tabs a:hover {
-		background: var(--sunken);
-		color: var(--ink);
-		text-decoration: none;
-	}
-	.tabs a[aria-current='page'] {
-		background: var(--sunken);
-		color: var(--ink);
-	}
-	.count {
-		font-size: var(--text-xs);
-		color: var(--ink-3);
-	}
-	.dot {
-		width: 0.4rem;
-		height: 0.4rem;
-		border-radius: 50%;
-		background: var(--major);
+		justify-content: space-between;
+		gap: 0.75rem 1rem;
+		flex-wrap: wrap;
+		margin: 0 0 1rem;
+		padding-bottom: 0.6rem;
+		border-bottom: 1px solid var(--rule);
 	}
 	.notice {
 		margin-bottom: 1rem;
@@ -798,10 +793,6 @@
 		margin-top: 0.3rem;
 		color: var(--ink-2);
 	}
-	.fields {
-		display: grid;
-		gap: 0.9rem;
-	}
 	form.sheet,
 	.sheet.hook {
 		padding: 1rem;
@@ -814,11 +805,6 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
 		gap: 0.9rem;
-	}
-	.actions {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
 	}
 	.ok {
 		color: var(--pass);
@@ -954,22 +940,6 @@
 	}
 	.analyze form {
 		padding: 1rem 0.75rem;
-	}
-	fieldset {
-		display: grid;
-		gap: 0.4rem;
-	}
-	legend {
-		margin-bottom: 0.4rem;
-	}
-	fieldset small {
-		color: var(--ink-3);
-		font-size: var(--text-xs);
-	}
-	.options {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.4rem 1.25rem;
 	}
 	.batch {
 		display: grid;

@@ -20,6 +20,7 @@ import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { publicBaseUrl } from '#lib/server/env.js';
 import { fileAvailability, runFileUrl, withAvailability } from '#lib/server/run-files.js';
+import { viewerAvailable } from '#lib/server/trace.js';
 import { renderMarkdown } from '#lib/markdown.js';
 import { serverI18n } from '#lib/i18n/index.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -66,6 +67,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	return {
 		review: {
 			id: review.id,
+			runId: review.runId,
 			repo: review.repoFullName,
 			prNumber: review.prNumber,
 			prTitle: review.prTitle,
@@ -91,6 +93,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 				: null,
 		noteCount: notes.length,
 		strictness,
+		viewerAvailable: viewerAvailable(),
 		report: report
 			? {
 					pr: report.pr,

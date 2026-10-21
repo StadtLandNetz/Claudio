@@ -12,7 +12,12 @@
 		check: 'M3 8.5l3 3 7-7',
 		x: 'M4 4l8 8M12 4l-8 8',
 		chevron: 'M6 3.5 10.5 8 6 12.5',
-		search: 'M7 12.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11zM11 11l3.5 3.5'
+		search: 'M7 12.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11zM11 11l3.5 3.5',
+		play: 'M5 3.25v9.5L12.5 8z',
+		pause: 'M5.5 3.5v9M10.5 3.5v9',
+		'skip-back': 'M3.5 3.5v9M12.5 3.75 6 8l6.5 4.25z',
+		'skip-forward': 'M12.5 3.5v9M3.5 3.75 10 8l-6.5 4.25z',
+		film: 'M2.5 3.5h11v9h-11zM2.5 6.5h11M2.5 9.5h11M5.5 3.5v9M10.5 3.5v9'
 	} as const;
 
 	export type IconName = keyof typeof PATHS;

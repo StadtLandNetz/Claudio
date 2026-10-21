@@ -1,10 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { error } from '@sveltejs/kit';
-import { getArtifact, repoIdOfRun } from '@claudio/db';
-import { requireRepo } from '#lib/server/access.js';
+import { getArtifact } from '@claudio/db';
 import { db } from '#lib/server/db.js';
 import { runsRoot } from '#lib/server/env.js';
 import { contentType, resolveRunFile } from '#lib/server/files.js';
+import { requireRunAccess } from '#lib/server/run-files.js';
 import { serverI18n } from '#lib/i18n/index.js';
 import type { RequestHandler } from './$types';
 
@@ -16,10 +16,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const { t } = serverI18n(locals.locale);
 	const path = resolveRunFile(runsRoot, params.runId, params.file);
 	if (!path) error(404, t('common.fileNotFound'));
-	// Files belong to a run, the run to a repository: same access rule as the run's page.
-	const repoId = await repoIdOfRun(db(), params.runId);
-	if (repoId === null) error(404, t('common.fileNotFound'));
-	await requireRepo(locals.user, repoId, 'read');
+	await requireRunAccess(locals, params.runId);
 
 	const stored = await getArtifact(db(), params.runId, params.file);
 	let body: Buffer;

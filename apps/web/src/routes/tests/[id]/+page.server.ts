@@ -23,14 +23,14 @@ async function loadScript(idParam: string, locals: App.Locals, min: AccessLevel 
 	const script = Number.isInteger(id) ? await getTestScript(db(), id) : undefined;
 	if (!script) error(404, serverI18n(locals.locale).t('test.testNotFound'));
 	// Visible only with access to its repository on GitHub.
-	await requireRepo(user, script.repoId, min);
-	return script;
+	const { level } = await requireRepo(user, script.repoId, min);
+	return { script, level };
 }
 
 const text = (v: FormDataEntryValue | null) => String(v ?? '').trim();
 
 export const load: PageServerLoad = async ({ params, url, locals }) => {
-	const script = await loadScript(params.id, locals, 'read');
+	const { script, level } = await loadScript(params.id, locals, 'read');
 	const [repo, roles, runs] = await Promise.all([getRepoById(db(), script.repoId), listRoles(db(), script.repoId), listTestRuns(db(), { scriptId: script.id }, 50)]);
 	return {
 		script: {
@@ -64,13 +64,14 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 			startedBy: r.startedByLogin,
 			createdAt: r.createdAt
 		})),
-		isNew: url.searchParams.has('new')
+		isNew: url.searchParams.has('new'),
+		level
 	};
 };
 
 export const actions: Actions = {
 	update: async ({ params, request, locals }) => {
-		const script = await loadScript(params.id, locals, 'write');
+		const { script } = await loadScript(params.id, locals, 'write');
 		const { t } = serverI18n(locals.locale);
 		const f = await request.formData();
 		const determinism = DeterminismSchema.safeParse(f.get('determinism'));
@@ -89,7 +90,7 @@ export const actions: Actions = {
 		return { saved: true };
 	},
 	run: async ({ params, request, locals }) => {
-		const script = await loadScript(params.id, locals, 'write');
+		const { script } = await loadScript(params.id, locals, 'write');
 		const { t } = serverI18n(locals.locale);
 		const repo = await getRepoById(db(), script.repoId);
 		if (!repo?.dataConfirmed) return fail(400, { error: t('test.errorDataNotConfirmed'), form: 'run' });
@@ -111,12 +112,12 @@ export const actions: Actions = {
 		redirect(303, `/test-runs/${id}`);
 	},
 	reset: async ({ params, locals }) => {
-		const script = await loadScript(params.id, locals, 'write');
+		const { script } = await loadScript(params.id, locals, 'write');
 		await resetTestSteps(db(), script.id);
 		return { saved: true };
 	},
 	delete: async ({ params, locals }) => {
-		const script = await loadScript(params.id, locals, 'write');
+		const { script } = await loadScript(params.id, locals, 'write');
 		await deleteTestScript(db(), script.id);
 		redirect(303, `/repos/${script.repoFullName}?tab=tests`);
 	}

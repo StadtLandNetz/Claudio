@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import Modal from '#lib/components/Modal.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import { i18n } from '#lib/i18n/index.js';
 	import { DEFAULT_TEST_BUDGET } from '#lib/labels.js';
@@ -11,6 +12,13 @@
 	let starting = $state(false);
 	let compare = $state<number[]>([]);
 	const formError = (name: string) => (form && 'error' in form && form.form === name ? form.error : null);
+	// What the user may do here follows their permission on GitHub.
+	const canWrite = $derived(data.level === 'write' || data.level === 'admin');
+
+	// The edit dialog: open after a failed native POST too, so the error is not lost.
+	let editOpen = $state(!!formError('update'));
+	let editError = $state<string | null>(formError('update'));
+	let saving = $state(false);
 
 	function toggleCompare(id: number, on: boolean) {
 		compare = on ? [...compare.filter((x) => x !== id), id].slice(-2) : compare.filter((x) => x !== id);
@@ -35,6 +43,9 @@
 			{#if s.allowAnyHost}<span class="tag">{i.t('test.tagAnyHost')}</span>{:else if s.allowedHosts.length}<span class="tag">{i.t('test.tagAllowedHosts', { hosts: s.allowedHosts.join(', ') })}</span>{/if}
 		</p>
 	</div>
+	{#if canWrite}
+		<button type="button" class="btn small" onclick={() => (editOpen = true)}>{i.t('test.editTest')}</button>
+	{/if}
 </div>
 
 {#if data.isNew}
@@ -161,53 +172,76 @@
 	</aside>
 </div>
 
-<details class="sheet edit" open={!!formError('update')}>
-	<summary><strong>{i.t('test.editTest')}</strong></summary>
-	<form method="POST" action="?/update" class="fields" use:enhance={() => ({ update }) => update({ reset: false })}>
-		{#if formError('update')}<p class="notice error" role="alert">{formError('update')}</p>{/if}
-		<label class="field"><span>{i.t('test.name')}</span><input type="text" name="name" value={s.name} required /></label>
-		<label class="field"><span>{i.t('test.flow')}</span><textarea name="description" rows="3" required>{s.description}</textarea></label>
-		<label class="field"><span>{i.t('test.expectedResult')}</span><textarea name="expectation" rows="2" required>{s.expectation}</textarea></label>
-		<fieldset>
-			<legend>{i.t('test.roles')}</legend>
-			<div class="options">
-				{#each data.roles as role (role)}
-					<label class="check"><input type="checkbox" name="roles" value={role} checked={s.roles.includes(role)} /> <span>{role}</span></label>
-				{/each}
-			</div>
-		</fieldset>
-		<label class="field">
-			<span>{i.t('test.testKind')}</span>
-			<select name="determinism">
-				<option value="" selected={!s.determinism}>{i.t('test.suggestOnFirstRun')}</option>
-				{#each Object.entries(i.labels.determinism) as [value, label] (value)}
-					<option {value} selected={s.determinism === value}>{label}</option>
-				{/each}
-			</select>
-			<small>{i.t('test.testKindHint')}</small>
-		</label>
-		<fieldset>
-			<legend>{i.t('test.otherWebsites')}</legend>
+{#if canWrite}
+	<Modal bind:open={editOpen} title={i.t('test.editTest')} width="l" locked={saving} onclose={() => (editError = null)}>
+		<form
+			id="edit-test"
+			method="POST"
+			action="?/update"
+			class="fields"
+			use:enhance={() => {
+				saving = true;
+				return async ({ result, update }) => {
+					saving = false;
+					if (result.type === 'failure') {
+						// Stay open with the message; `update()` would replace the page's form data.
+						editError = typeof result.data?.error === 'string' ? result.data.error : i.t('test.errorRequired');
+						return;
+					}
+					await update({ reset: false });
+					if (result.type === 'success') editOpen = false;
+				};
+			}}
+		>
+			{#if editError}<p class="notice error" role="alert">{editError}</p>{/if}
+			<label class="field"><span>{i.t('test.name')}</span><input type="text" name="name" value={s.name} required /></label>
+			<label class="field"><span>{i.t('test.flow')}</span><textarea name="description" rows="3" required>{s.description}</textarea></label>
+			<label class="field"><span>{i.t('test.expectedResult')}</span><textarea name="expectation" rows="2" required>{s.expectation}</textarea></label>
+			<fieldset>
+				<legend>{i.t('test.roles')}</legend>
+				<div class="options">
+					{#each data.roles as role (role)}
+						<label class="check"><input type="checkbox" name="roles" value={role} checked={s.roles.includes(role)} /> <span>{role}</span></label>
+					{/each}
+				</div>
+			</fieldset>
 			<label class="field">
-				<span>{i.t('test.allowedHosts')}</span>
-				<input type="text" name="allowedHosts" value={s.allowedHosts.join(', ')} placeholder="google.com, login.example.de" />
-				<small>{i.t('test.allowedHostsHint')}</small>
+				<span>{i.t('test.testKind')}</span>
+				<select name="determinism">
+					<option value="" selected={!s.determinism}>{i.t('test.suggestOnFirstRun')}</option>
+					{#each Object.entries(i.labels.determinism) as [value, label] (value)}
+						<option {value} selected={s.determinism === value}>{label}</option>
+					{/each}
+				</select>
+				<small>{i.t('test.testKindHint')}</small>
 			</label>
+			<fieldset>
+				<legend>{i.t('test.otherWebsites')}</legend>
+				<label class="field">
+					<span>{i.t('test.allowedHosts')}</span>
+					<input type="text" name="allowedHosts" value={s.allowedHosts.join(', ')} placeholder="google.com, login.example.de" />
+					<small>{i.t('test.allowedHostsHint')}</small>
+				</label>
+				<label class="check">
+					<input type="checkbox" name="allowAnyHost" checked={s.allowAnyHost} />
+					<span>{i.t('test.allowAnyHost')} <span class="faint">{i.t('test.allowAnyHostHint')}</span></span>
+				</label>
+			</fieldset>
 			<label class="check">
-				<input type="checkbox" name="allowAnyHost" checked={s.allowAnyHost} />
-				<span>{i.t('test.allowAnyHost')} <span class="faint">{i.t('test.allowAnyHostHint')}</span></span>
+				<input type="checkbox" name="runInReviews" checked={s.runInReviews} />
+				<span>{i.t('test.runInReviews')}</span>
 			</label>
-		</fieldset>
-		<label class="check">
-			<input type="checkbox" name="runInReviews" checked={s.runInReviews} />
-			<span>{i.t('test.runInReviews')}</span>
-		</label>
-		<div class="actions"><button class="btn primary" type="submit">{i.t('test.save')}</button></div>
-	</form>
-	<form method="POST" action="?/delete" class="danger" onsubmit={(e) => { if (!confirm(i.t('test.confirmDelete'))) e.preventDefault(); }}>
-		<button class="btn danger small" type="submit">{i.t('test.deleteTest')}</button>
-	</form>
-</details>
+		</form>
+		{#snippet footer()}
+			<form method="POST" action="?/delete" onsubmit={(e) => { if (!confirm(i.t('test.confirmDelete'))) e.preventDefault(); }}>
+				<button class="btn ghost danger small" type="submit">{i.t('test.deleteTest')}</button>
+			</form>
+			<span class="spacer"></span>
+			<button type="button" class="btn" onclick={() => (editOpen = false)}>{i.t('common.cancel')}</button>
+			<button type="submit" class="btn primary" form="edit-test" disabled={saving}>{i.t('test.save')}</button>
+		{/snippet}
+	</Modal>
+{/if}
 
 <style>
 	.page-title h1 {
@@ -338,38 +372,6 @@
 		padding: 1rem;
 		display: grid;
 		gap: 0.9rem;
-	}
-
-	.edit {
-		margin-top: 1.75rem;
-		max-width: 46rem;
-	}
-	.edit summary strong {
-		font-weight: 500;
-	}
-	.fields {
-		display: grid;
-		gap: 0.9rem;
-		padding: 1rem;
-	}
-	.danger {
-		padding: 0 1rem 1rem;
-	}
-	fieldset {
-		display: grid;
-		gap: 0.4rem;
-	}
-	legend {
-		margin-bottom: 0.4rem;
-	}
-	.options {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.4rem 1.25rem;
-	}
-	.actions {
-		display: flex;
-		gap: 0.6rem;
 	}
 
 	@media (max-width: 980px) {

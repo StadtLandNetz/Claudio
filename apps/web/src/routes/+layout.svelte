@@ -5,7 +5,7 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import LocaleSwitch from '#lib/components/LocaleSwitch.svelte';
 	import ThemeSwitch from '#lib/components/ThemeSwitch.svelte';
-	import { provideI18n } from '#lib/i18n/index.js';
+	import { provideI18n, type MessageKey } from '#lib/i18n/index.js';
 	import type { LayoutProps } from './$types';
 
 	let { children, data }: LayoutProps = $props();
@@ -16,14 +16,52 @@
 	const currentRepo = $derived.by((): string | null => {
 		if (page.params.owner && page.params.name) return `${page.params.owner}/${page.params.name}`;
 		const d = page.data as Record<string, any>;
-		const candidate = d.review?.repo ?? d.analysis?.repo ?? d.script?.repo ?? d.run?.repo ?? (typeof d.repo === 'string' ? d.repo : null);
+		const candidate = d.review?.repo ?? d.analysis?.repo ?? d.script?.repo ?? d.run?.repo ?? (typeof d.repo === 'string' ? d.repo : d.repo?.fullName);
 		return typeof candidate === 'string' ? candidate : null;
 	});
 
 	const nav = [
-		{ href: '/', icon: 'overview', label: 'common.navOverview', match: (p: string) => p === '/' || p.startsWith('/reviews') },
+		{ href: '/', icon: 'overview', label: 'common.navOverview', match: (p: string) => p === '/' },
 		{ href: '/kosten', icon: 'costs', label: 'common.navCosts', match: (p: string) => p === '/kosten' }
 	] as const;
+
+	// The repository's own menu, shown under it in the sidebar on every page that belongs to it.
+	const REPO_TABS = ['pulls', 'reviews', 'tests', 'knowledge', 'settings'] as const;
+	type RepoTab = (typeof REPO_TABS)[number];
+	const subItems: { id: RepoTab; label: MessageKey }[] = [
+		{ id: 'pulls', label: 'repo.tabPulls' },
+		{ id: 'reviews', label: 'repo.tabReviews' },
+		{ id: 'tests', label: 'repo.tabTests' },
+		{ id: 'knowledge', label: 'repo.tabKnowledge' },
+		{ id: 'settings', label: 'repo.tabSettings' }
+	];
+	const activeTab = $derived.by((): RepoTab | null => {
+		const p = page.url.pathname;
+		if (page.params.owner && page.params.name) {
+			const t = page.url.searchParams.get('tab') ?? '';
+			return (REPO_TABS as readonly string[]).includes(t) ? (t as RepoTab) : 'pulls';
+		}
+		if (p.startsWith('/tests/') || p.startsWith('/test-runs/')) return 'tests';
+		if (p === '/reviews/new') return 'pulls';
+		if (p.startsWith('/reviews/')) return 'reviews';
+		if (p.startsWith('/analyses/')) return 'knowledge';
+		return null;
+	});
+
+	// The list folds away, the current repository stays. Remembered per browser.
+	const LIST_KEY = 'claudio_repo_list';
+	let reposOpen = $state(true);
+	$effect(() => {
+		try {
+			if (localStorage.getItem(LIST_KEY) === 'collapsed') reposOpen = false;
+		} catch {}
+	});
+	function toggleRepos() {
+		reposOpen = !reposOpen;
+		try {
+			localStorage.setItem(LIST_KEY, reposOpen ? 'open' : 'collapsed');
+		} catch {}
+	}
 </script>
 
 <svelte:head>
@@ -48,18 +86,38 @@
 			</nav>
 			<section class="repos" aria-label={i.t('common.setUpRepos')}>
 				<div class="section">
-					<a href="/repos" aria-current={page.url.pathname === '/repos' ? 'page' : undefined}>{i.t('common.navRepos')}</a>
+					{#if repos.length}
+						<button type="button" class="toggle" aria-expanded={reposOpen} aria-controls="repo-list" aria-label={i.t('common.toggleRepos')} title={i.t('common.toggleRepos')} onclick={toggleRepos}>
+							<Icon name="chevron" size={12} />
+						</button>
+					{/if}
+					<a class="all" href="/repos" aria-current={page.url.pathname === '/repos' ? 'page' : undefined}>{i.t('common.navRepos')}</a>
 					<a class="plus" href="/repos#hinzufuegen" title={i.t('common.addRepo')} aria-label={i.t('common.addRepo')}><Icon name="plus" size={14} /></a>
 				</div>
 				{#if repos.length}
-					<ul class="repo-list">
+					<ul class="repo-list" id="repo-list" class:collapsed={!reposOpen}>
 						{#each repos as repo (repo.fullName)}
 							{@const [owner, name] = repo.fullName.split('/')}
-							<li>
-								<a href="/repos/{repo.fullName}" aria-current={currentRepo === repo.fullName ? 'page' : undefined} title={repo.fullName}>
+							{@const current = currentRepo === repo.fullName}
+							<li class:current>
+								<a href="/repos/{repo.fullName}" class="repo" class:current title={repo.fullName}>
 									<span class="avatar" aria-hidden="true">{name?.[0]?.toUpperCase() ?? '?'}</span>
 									<span class="label"><span class="owner">{owner}/</span>{name}</span>
 								</a>
+								{#if current}
+									<ul class="sub" aria-label={i.t('repo.tabsLabel')}>
+										{#each subItems.filter((it) => it.id !== 'settings' || repo.level === 'admin') as it (it.id)}
+											<li>
+												<a href="/repos/{repo.fullName}{it.id === 'pulls' ? '' : `?tab=${it.id}`}" aria-current={activeTab === it.id ? 'page' : undefined}>
+													{i.t(it.label)}
+													{#if it.id === 'reviews' && repo.reviewCount}<span class="count">{repo.reviewCount}</span>{/if}
+													{#if it.id === 'tests' && repo.testCount}<span class="count">{repo.testCount}</span>{/if}
+													{#if it.id === 'settings' && repo.setupIncomplete}<span class="dot major" title={i.t('repo.setupIncomplete')}></span>{/if}
+												</a>
+											</li>
+										{/each}
+									</ul>
+								{/if}
 							</li>
 						{/each}
 					</ul>
@@ -184,20 +242,76 @@
 	.section {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		gap: 0.25rem;
 		height: 1.5rem;
-		padding: 0 0.25rem 0 0.5rem;
+		padding: 0 0.25rem;
 		font-size: var(--text-xs);
 		font-weight: 500;
 		color: var(--ink-3);
 	}
-	.section > a:first-child {
+	.section > .all {
+		flex: 1;
 		color: inherit;
 	}
-	.section > a:first-child:hover,
-	.section > a:first-child[aria-current='page'] {
+	.section > .all:hover,
+	.section > .all[aria-current='page'] {
 		color: var(--ink);
 		text-decoration: none;
+	}
+	.toggle {
+		display: inline-grid;
+		place-items: center;
+		width: 1.25rem;
+		height: 1.25rem;
+		padding: 0;
+		border: 0;
+		border-radius: 3px;
+		background: none;
+		color: var(--ink-3);
+		cursor: pointer;
+	}
+	.toggle:hover {
+		color: var(--ink);
+		background: color-mix(in srgb, var(--ink) 6%, transparent);
+	}
+	.toggle :global(svg) {
+		transition: transform 0.12s;
+	}
+	.toggle[aria-expanded='true'] :global(svg) {
+		transform: rotate(90deg);
+	}
+	/* Folded: only the current repository (with its menu) stays visible */
+	.repo-list.collapsed > li:not(.current) {
+		display: none;
+	}
+	.repo-list a.repo.current {
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.sub {
+		list-style: none;
+		margin: 0.125rem 0 0.35rem;
+		padding: 0;
+		display: grid;
+		gap: 1px;
+	}
+	.sub a {
+		height: 1.625rem;
+		padding-left: 2rem;
+		font-weight: 400;
+	}
+	.sub a[aria-current='page'] {
+		font-weight: 500;
+	}
+	.count {
+		margin-left: auto;
+		font-size: var(--text-xs);
+		color: var(--ink-3);
+	}
+	.sub .dot {
+		width: 0.4rem;
+		height: 0.4rem;
+		margin-left: auto;
 	}
 	.plus {
 		display: inline-flex;
@@ -354,6 +468,27 @@
 			display: flex;
 			flex-wrap: wrap;
 			gap: 0.25rem;
+		}
+		/* On phones the list is always a wrapping row; the menu becomes a row of its own below it */
+		.toggle {
+			display: none;
+		}
+		.repo-list > li,
+		.repo-list.collapsed > li:not(.current) {
+			display: contents;
+		}
+		.sub {
+			order: 99;
+			flex-basis: 100%;
+			display: flex;
+			gap: 0.125rem;
+			margin: 0.25rem 0 0;
+			padding-bottom: 0.25rem;
+			overflow-x: auto;
+		}
+		.sub a {
+			padding-left: 0.5rem;
+			white-space: nowrap;
 		}
 		.foot {
 			order: 2;

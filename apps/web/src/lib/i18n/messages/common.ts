@@ -136,7 +136,40 @@ export const de = {
 	liveViewLabel: 'Live-Ansicht des Browsers',
 	liveView: 'Live-Ansicht',
 	liveImageAlt: 'Aktueller Bildschirm des Browsers, den Claudio steuert',
-	waitingFirstFrame: 'Wartet auf das erste Bild, sobald der Browser startet …'
+	waitingFirstFrame: 'Wartet auf das erste Bild, sobald der Browser startet …',
+
+	// Modal.svelte, Lightbox.svelte, EvidenceThumbs.svelte
+	close: 'Schließen',
+	cancel: 'Abbrechen',
+	openInNewTab: 'In neuem Tab öffnen',
+	screenshotsExpire: 'Screenshots werden nach 14 Tagen gelöscht',
+	screenshotDeleted: 'Screenshot gelöscht',
+
+	// +layout.svelte (repository menu)
+	toggleRepos: 'Repository-Liste ein- oder ausklappen',
+
+	// TraceTimeline.svelte
+	trace: 'Browser-Aufzeichnung',
+	traceLoading: 'Aufzeichnung wird geladen …',
+	traceFailed: 'Die Aufzeichnung konnte nicht geladen werden.',
+	traceFrameAlt: 'Bildschirm des Browsers zum gewählten Zeitpunkt',
+	tracePlay: 'Abspielen',
+	tracePause: 'Pause',
+	tracePrevMarker: 'Vorheriges markiertes Ereignis',
+	traceNextMarker: 'Nächstes markiertes Ereignis',
+	traceSpeed: 'Geschwindigkeit',
+	traceTimeline: 'Zeitleiste der Aufzeichnung',
+	traceEvents: 'Ereignisse',
+	traceJump: 'In der Aufzeichnung zeigen',
+	traceOpenViewer: 'Im Playwright Trace Viewer öffnen',
+	traceDownload: 'Trace herunterladen',
+	traceKindFinding: 'Finding',
+	traceKindEvidence: 'Screenshot',
+	traceKindAc: 'Akzeptanzkriterium',
+	traceKindNav: 'Seite',
+	traceKindConsole: 'Konsole',
+	traceKindAgent: 'Agent',
+	traceKindAction: 'Browser'
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
@@ -265,5 +298,35 @@ export const en: Translation<typeof de> = {
 	liveViewLabel: 'Live view of the browser',
 	liveView: 'Live view',
 	liveImageAlt: 'Current screen of the browser Claudio is controlling',
-	waitingFirstFrame: 'Waiting for the first image once the browser starts …'
+	waitingFirstFrame: 'Waiting for the first image once the browser starts …',
+
+	close: 'Close',
+	cancel: 'Cancel',
+	openInNewTab: 'Open in new tab',
+	screenshotsExpire: 'Screenshots are deleted after 14 days',
+	screenshotDeleted: 'Screenshot deleted',
+
+	toggleRepos: 'Collapse or expand the repository list',
+
+	trace: 'Browser recording',
+	traceLoading: 'Loading the recording …',
+	traceFailed: 'The recording could not be loaded.',
+	traceFrameAlt: 'The browser screen at the selected moment',
+	tracePlay: 'Play',
+	tracePause: 'Pause',
+	tracePrevMarker: 'Previous marked event',
+	traceNextMarker: 'Next marked event',
+	traceSpeed: 'Speed',
+	traceTimeline: 'Timeline of the recording',
+	traceEvents: 'Events',
+	traceJump: 'Show in recording',
+	traceOpenViewer: 'Open in Playwright Trace Viewer',
+	traceDownload: 'Download trace',
+	traceKindFinding: 'Finding',
+	traceKindEvidence: 'Screenshot',
+	traceKindAc: 'Acceptance criterion',
+	traceKindNav: 'Page',
+	traceKindConsole: 'Console',
+	traceKindAgent: 'Agent',
+	traceKindAction: 'Browser'
 };

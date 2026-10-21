@@ -1,12 +1,16 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { enhance } from '$app/forms';
+	import EvidenceThumbs, { type ThumbEvidence } from '#lib/components/EvidenceThumbs.svelte';
+	import Lightbox from '#lib/components/Lightbox.svelte';
 	import LiveLog from '#lib/components/LiveLog.svelte';
 	import HumanTakeover from '#lib/components/HumanTakeover.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import LiveView from '#lib/components/LiveView.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import Severity from '#lib/components/Severity.svelte';
+	import TraceTimeline, { type Marker } from '#lib/components/TraceTimeline.svelte';
+	import { page } from '$app/state';
 	import { i18n } from '#lib/i18n/index.js';
 	import { isActive } from '#lib/labels.js';
 	import type { PageProps } from './$types';
@@ -18,6 +22,33 @@
 	const r = $derived(data.report);
 	const active = $derived(isActive(run.status));
 	const tone = $derived(run.outcome === 'passed' ? 'approve' : run.outcome === 'failed' ? 'request_changes' : 'inconclusive');
+
+	let lightbox: { url: string; label: string } | null = $state(null);
+	const openEv = (ev: ThumbEvidence) => {
+		if (ev.url) lightbox = { url: ev.url, label: `${ev.id} ${ev.label}` };
+	};
+
+	// ---- trace timeline
+	let timeline = $state<ReturnType<typeof TraceTimeline>>();
+	const hasTrace = $derived(Boolean(r?.traceUrl));
+	const evidenceAt = $derived(new Map((r?.evidence ?? []).map((e) => [e.id, e.createdAt])));
+	// A finding's first screenshot was taken when it was observed; its own time is when it was written up.
+	const anchorOf = (ids: string[], fallback: string) => ids.map((id) => evidenceAt.get(id)).find((x): x is string => Boolean(x)) ?? fallback;
+	const jumpEv = (ev: ThumbEvidence) => ev.createdAt && timeline?.jumpTo(ev.createdAt);
+	const markers = $derived.by((): Marker[] =>
+		r
+			? [
+					...r.evidence.map((e) => ({ kind: 'evidence' as const, id: e.id, label: e.label, at: e.createdAt })),
+					...r.findings.map((f) => ({ kind: 'finding' as const, id: f.id, label: f.title, at: anchorOf(f.evidenceIds, f.createdAt), severity: f.severity }))
+				]
+			: []
+	);
+	// Playwright's viewer runs a service worker, which browsers allow only on HTTPS or localhost.
+	let secure = $state(false);
+	$effect(() => {
+		secure = window.isSecureContext;
+	});
+	const viewerHref = $derived(hasTrace && secure && data.viewerAvailable && r?.traceUrl ? `/trace-viewer/index.html?trace=${encodeURIComponent(new URL(r.traceUrl, page.url.origin).href)}` : null);
 </script>
 
 <svelte:head><title>{i.t('test.runPageTitle', { name: run.scriptName })}</title></svelte:head>
@@ -58,6 +89,10 @@
 
 <div class="layout">
 	<div class="main">
+		{#if r?.traceUrl}
+			<TraceTimeline bind:this={timeline} runId={r.runId} {markers} viewerUrl={viewerHref} downloadUrl={r.traceUrl} />
+		{/if}
+
 		{#if active && data.human}
 			<HumanTakeover src="/test-runs/{data.run.id}/live" requestId={data.human.id} reason={data.human.reason} url={run.instanceUrl} />
 		{:else if active}
@@ -134,6 +169,11 @@
 									<span class="faint">{i.labels.category[f.category] ?? f.category}</span>
 									<p>{f.description}</p>
 								</div>
+								{#if hasTrace}
+									<button type="button" class="btn ghost small jump" title={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: {f.id}" onclick={() => timeline?.jumpTo(anchorOf(f.evidenceIds, f.createdAt))}>
+										<Icon name="film" size={12} />
+									</button>
+								{/if}
 							</li>
 						{/each}
 					</ul>
@@ -143,21 +183,7 @@
 			{#if r.evidence.length}
 				<section class="block">
 					<h2>{i.t('test.screenshots')}</h2>
-					<div class="shots">
-						{#each r.evidence as ev (ev.id)}
-							{#if ev.url}
-							<a class="shot" href={ev.url} target="_blank" rel="noopener noreferrer">
-								<img src={ev.url} alt={ev.label} loading="lazy" />
-								<span>{ev.label}</span>
-							</a>
-						{:else}
-							<div class="shot-expired" title={i.t('test.screenshotsExpire')}>
-								<span>{i.t('test.screenshotDeleted')}</span>
-								<span class="faint">{ev.label}</span>
-							</div>
-						{/if}
-						{/each}
-					</div>
+					<EvidenceThumbs items={r.evidence} layout="grid" onopen={openEv} onjump={hasTrace ? jumpEv : undefined} />
 				</section>
 			{/if}
 
@@ -191,6 +217,8 @@
 		</dl>
 	</aside>
 </div>
+
+<Lightbox bind:item={lightbox} />
 
 <style>
 	.page-title h1 {
@@ -354,42 +382,16 @@
 		gap: 0.15rem;
 		min-width: 0;
 	}
+	.findings li div {
+		flex: 1;
+	}
 	.findings strong {
 		font-weight: 500;
 	}
+	.findings .jump {
+		flex: none;
+	}
 
-	.shots {
-		display: flex;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-	}
-	.shot {
-		display: grid;
-		gap: 0.25rem;
-		width: 10rem;
-		border: 1px solid var(--rule);
-		border-radius: var(--radius-s);
-		background: var(--sheet);
-		color: var(--ink-2);
-		font-size: var(--text-xs);
-		text-decoration: none;
-		overflow: hidden;
-	}
-	.shot:hover {
-		border-color: var(--rule-strong);
-		text-decoration: none;
-	}
-	.shot img {
-		width: 100%;
-		aspect-ratio: 16 / 10;
-		object-fit: cover;
-		object-position: top;
-		display: block;
-		border-bottom: 1px solid var(--rule);
-	}
-	.shot span {
-		padding: 0 0.45rem 0.35rem;
-	}
 	.errors {
 		margin: 0;
 		padding-left: 1.25rem;
