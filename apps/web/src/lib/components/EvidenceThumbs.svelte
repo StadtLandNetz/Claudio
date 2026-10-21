@@ -1,6 +1,6 @@
 <script module lang="ts">
 	/** What a tile needs. Review evidence (with `kind` and `createdAt`) and test-run evidence both fit. */
-	export type ThumbEvidence = { id: string; label: string; url: string | null; expired: boolean; kind?: string; createdAt?: string };
+	export type ThumbEvidence = { id: string; label: string; url: string | null; expired: boolean; kind?: string; createdAt?: string; viewport?: string };
 </script>
 
 <script lang="ts">
@@ -37,6 +37,7 @@
 							<img src={ev.url} alt={ev.label} loading="lazy" />
 							<span>{ev.id} {ev.label}</span>
 						</button>
+						{#if ev.viewport === 'mobile'}<span class="vp">{i.t('review.viewportMobile')}</span>{/if}
 					{:else}
 						<a class="open" href={ev.url} target="_blank" rel="noopener noreferrer">
 							<img src={ev.url} alt={ev.label} loading="lazy" />
@@ -133,6 +134,17 @@
 	.jump:hover {
 		color: var(--ink);
 		border-color: var(--rule-strong);
+	}
+	.vp {
+		position: absolute;
+		top: 0.3rem;
+		left: 0.3rem;
+		padding: 0 0.3rem;
+		border-radius: 3px;
+		background: var(--raised);
+		box-shadow: var(--shadow);
+		font-size: var(--text-xs);
+		color: var(--ink-2);
 	}
 	.chip {
 		font-size: var(--text-xs);

@@ -80,6 +80,10 @@ export const repos = mysqlTable("repos", {
   slackWebhookEnc: text("slack_webhook_enc"),
   slackWebhookHint: varchar("slack_webhook_hint", { length: 40 }),
   notifications: json("notifications").$type<NotificationSettings | null>(),
+  /** Spending cap per calendar month in USD (null: none). Runs do not start beyond it. */
+  monthlyBudgetUsd: varchar("monthly_budget_usd", { length: 20 }),
+  /** Month (YYYY-MM) for which the 80 % warning went out, so it goes once. */
+  budgetWarnedMonth: varchar("budget_warned_month", { length: 7 }),
   createdBy: ref("created_by").notNull(),
   createdAt: createdAt(),
 });
@@ -108,6 +112,8 @@ export type AutoReviewDefaults = {
   runTests: boolean;
   /** Automatic reviews of a PR that was reviewed before only re-check what changed (default on). */
   followUp?: boolean;
+  /** Where automatic reviews check the app (default desktop). */
+  viewports?: ("desktop" | "mobile")[];
 };
 
 export type Lesson = { text: string; reviewId: number; findingId: string; by: string; at: string };
@@ -228,6 +234,8 @@ export const testScripts = mysqlTable(
     /** Hosts this test may open besides the instance and the repo's allowed hosts. */
     allowedHosts: json("allowed_hosts").$type<string[] | null>(),
     allowAnyHost: boolean("allow_any_host").notNull().default(false),
+    /** Desktop and/or phone; each start runs the test once per viewport. Null: desktop. */
+    viewports: json("viewports").$type<("desktop" | "mobile")[] | null>(),
     createdBy: ref("created_by").notNull(),
     createdAt: createdAt(),
     updatedAt: datetime("updated_at", { mode: "date" }).notNull().$defaultFn(() => new Date()),
@@ -339,6 +347,13 @@ export const humanRequests = mysqlTable(
     runRefId: ref("run_ref_id").notNull(),
     repoId: ref("repo_id").notNull(),
     reason: varchar("reason", { length: 500 }).notNull(),
+    /** takeover: hand over the browser (CAPTCHA); question: the agent asks something and waits for an answer. */
+    kind: mysqlEnum("kind", ["takeover", "question"]).notNull().default("takeover"),
+    /** Question: what the agent already knows and why it asks. */
+    context: text("context"),
+    /** Question: answers the agent suggests (the person may also write their own). */
+    options: json("options").$type<string[] | null>(),
+    answer: text("answer"),
     status: mysqlEnum("status", HUMAN_REQUEST_STATUSES).notNull().default("open"),
     resolvedBy: ref("resolved_by"),
     createdAt: createdAt(),
@@ -400,6 +415,8 @@ export const findings = mysqlTable(
     comment: text("comment"),
     ratedBy: ref("rated_by"),
     ratedAt: datetime("rated_at", { mode: "date" }),
+    /** GitHub issue created from this finding. */
+    issueUrl: varchar("issue_url", { length: 500 }),
   },
   (t) => [uniqueIndex("findings_review_finding_idx").on(t.reviewId, t.findingId)],
 );

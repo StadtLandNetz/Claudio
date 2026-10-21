@@ -1,3 +1,4 @@
+import type { z } from "zod";
 import { execFile } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -7,6 +8,7 @@ import { RunStore, createClaudioTools, createDriver, startLiveView, type DriverS
 import {
   ReviewRequestSchema,
   budgetProfile,
+  capBudget,
   criterionText,
   loadRepoConfig,
   newRunId,
@@ -67,11 +69,13 @@ export type RunnerDeps = {
   onRunStarted?: (run: RunHandle) => void;
   /** Re-review: the earlier review of this pull request (findings, criteria, files changed since). */
   followUp?: FollowUpContext | null;
+  /** What is left of the repository's monthly budget: the run's cost cap goes no higher. */
+  remainingBudgetUsd?: number | null;
 };
 
 export type RunHandle = { runId: string; runDir: string };
 
-export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Promise<ReviewReport> {
+export async function runReview(input: z.input<typeof ReviewRequestSchema>, deps: RunnerDeps = {}): Promise<ReviewReport> {
   const request = ReviewRequestSchema.parse(input);
   const log = deps.onProgress ?? (() => undefined);
   const runId = newRunId(`review-pr${request.pr}`);
@@ -115,13 +119,14 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     }
   }
 
-  const profile = budgetProfile(request.budget, request.modelOverride);
+  const profile = capBudget(budgetProfile(request.budget, request.modelOverride), deps.remainingBudgetUsd);
   const driver = createDriver(request.driver);
   const session: DriverSession = await driver.start({
     runDir,
     instanceUrl: request.instanceUrl,
     headed: request.headed,
-    viewport: { width: 1280, height: 800 },
+    // Both: desktop first, the agent switches to the phone with set_viewport.
+    device: request.viewports.includes("desktop") ? "desktop" : "mobile",
     language: request.language,
   });
   log(`browser driver: ${session.name}${session.attachment ? ` (cdp ${session.attachment.cdpEndpoint})` : ""}`);
@@ -139,6 +144,7 @@ export async function runReview(input: ReviewRequest, deps: RunnerDeps = {}): Pr
     env: deps.roleEnv ? { ...process.env, ...deps.roleEnv } : undefined,
     human,
     onLearning: deps.onLearning,
+    viewports: request.viewports,
     followUp: deps.followUp ? { reviewId: deps.followUp.reviewId, findings: deps.followUp.findings.map(({ rating: _r, comment: _c, ...f }) => f) } : undefined,
   });
   const claudioServer = createClaudioSdkServer(tools);

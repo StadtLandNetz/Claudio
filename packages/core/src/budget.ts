@@ -136,6 +136,12 @@ export function testProfile(tier: TestBudgetTier): BudgetProfile {
   return TEST_TIERS[tier];
 }
 
+/** The profile with its cost cap lowered to what is left of the repository's monthly budget. */
+export function capBudget<P extends { maxBudgetUsd: number }>(profile: P, remainingUsd?: number | null): P {
+  if (remainingUsd === undefined || remainingUsd === null) return profile;
+  return { ...profile, maxBudgetUsd: Math.max(0.05, Math.min(profile.maxBudgetUsd, remainingUsd)) };
+}
+
 export function budgetProfile(tier: BudgetTier, modelOverride?: string): BudgetProfile {
   const base = BUDGET_TIERS[tier];
   return modelOverride ? { ...base, orchestratorModel: modelOverride } : base;

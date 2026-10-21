@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { DeterminismSchema, TestRunRequestSchema, describeStep, parseHostList } from '@claudio/core';
 import {
-	createTestRun,
+	createTestRuns,
 	deleteTestScript,
 	getRepoById,
 	getTestScript,
@@ -15,6 +15,7 @@ import { requireRepo } from '#lib/server/access.js';
 import { keyOptional, noKeyMessage } from '#lib/server/anthropic.js';
 import { db } from '#lib/server/db.js';
 import { serverI18n } from '#lib/i18n/index.js';
+import { budgetBlocks, runsPerViewport, viewportsOf } from '#lib/server/runs.js';
 import type { Actions, PageServerLoad } from './$types';
 
 async function loadScript(idParam: string, locals: App.Locals, min: AccessLevel = 'read') {
@@ -44,6 +45,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 			runInReviews: script.runInReviews,
 			allowedHosts: script.allowedHosts ?? [],
 			allowAnyHost: script.allowAnyHost,
+			viewports: (script.viewports?.length ? script.viewports : ['desktop']) as ('desktop' | 'mobile')[],
 			stepsVersion: script.stepsVersion,
 			stepsUpdatedAt: script.stepsUpdatedAt,
 			steps: (script.steps ?? []).map((s) => ({ text: describeStep(s), assertion: s.action.startsWith('expect_') }))
@@ -56,6 +58,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 			status: r.status,
 			outcome: r.outcome,
 			mode: r.mode,
+			viewport: r.request.viewport ?? 'desktop',
 			healed: r.healed,
 			stepsVersion: r.stepsVersion,
 			costUsd: r.costUsd,
@@ -83,6 +86,7 @@ export const actions: Actions = {
 			runInReviews: f.get('runInReviews') === 'on',
 			allowedHosts: parseHostList(text(f.get('allowedHosts'))),
 			allowAnyHost: f.get('allowAnyHost') === 'on',
+			viewports: viewportsOf(f),
 			determinism: determinism.success ? determinism.data : script.determinism
 		};
 		if (!input.name || !input.description || !input.expectation) return fail(400, { error: t('test.errorRequired'), form: 'update' });
@@ -108,8 +112,12 @@ export const actions: Actions = {
 			language: locals.locale
 		});
 		if (!parsed.success) return fail(400, { error: t('test.errorInstanceUrl'), form: 'run' });
-		const id = await createTestRun(db(), { scriptId: script.id, repoId: script.repoId, request: parsed.data, startedBy: locals.user!.id });
-		redirect(303, `/test-runs/${id}`);
+		const blocked = repo ? await budgetBlocks(repo, t) : null;
+		if (blocked) return fail(400, { error: blocked, form: 'run' });
+		// One run per viewport of the test; the page of the first one opens.
+		const viewports = script.viewports?.length ? script.viewports : (['desktop'] as const);
+		const ids = await createTestRuns(db(), runsPerViewport([{ scriptId: script.id, repoId: script.repoId, request: parsed.data, startedBy: locals.user!.id, viewports: [...viewports] }]));
+		redirect(303, `/test-runs/${ids[0]}`);
 	},
 	reset: async ({ params, locals }) => {
 		const { script } = await loadScript(params.id, locals, 'write');

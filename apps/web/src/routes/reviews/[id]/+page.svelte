@@ -3,6 +3,7 @@
 	import EvidenceThumbs, { type ThumbEvidence } from '#lib/components/EvidenceThumbs.svelte';
 	import Lightbox from '#lib/components/Lightbox.svelte';
 	import LiveLog from '#lib/components/LiveLog.svelte';
+	import AgentQuestion from '#lib/components/AgentQuestion.svelte';
 	import HumanTakeover from '#lib/components/HumanTakeover.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import LiveView from '#lib/components/LiveView.svelte';
@@ -190,7 +191,10 @@
 			<TraceTimeline bind:this={timeline} runId={data.review.runId} {markers} viewerUrl={viewerHref} downloadUrl={report.files.trace} onopen={openMarker} />
 		{/if}
 
-		{#if active && data.human}
+		{#if active && data.human?.kind === 'question'}
+			<AgentQuestion requestId={data.human.id} question={data.human.reason} context={data.human.context} options={data.human.options} />
+			<LiveView src="/reviews/{data.review.id}/live" url={review.instanceUrl} />
+		{:else if active && data.human}
 			<HumanTakeover src="/reviews/{data.review.id}/live" requestId={data.human.id} reason={data.human.reason} url={review.instanceUrl} />
 		{:else if active}
 			<LiveView src="/reviews/{data.review.id}/live" url={review.instanceUrl} />
@@ -395,6 +399,20 @@
 									</p>
 								{/if}
 							</form>
+							{#if f.rating.status === 'confirmed' && data.canWrite && !review.fixture}
+								{@const issueError = form && 'error' in form && form.form === `issue:${f.id}` ? form.error : null}
+								<div class="issue-row">
+									{#if f.rating.issueUrl}
+										<a href={f.rating.issueUrl} target="_blank" rel="noopener noreferrer">{i.t('review.issueOpen', { n: f.rating.issueUrl.split('/').pop() ?? '' })} <Icon name="external" size={12} /></a>
+									{:else}
+										<form method="POST" action="?/issue" use:enhance={() => async ({ update }) => update({ reset: false })}>
+											<input type="hidden" name="findingId" value={f.id} />
+											<button class="btn small" type="submit">{i.t('review.issueCreate')}</button>
+										</form>
+									{/if}
+									{#if issueError}<span class="notice error" role="alert">{issueError}</span>{/if}
+								</div>
+							{/if}
 						</article>
 					{/if}
 				{/each}
@@ -869,6 +887,16 @@
 	.btn.on-dismiss {
 		background: var(--sunken);
 		border-color: var(--ink-3);
+	}
+	.issue-row {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		flex-wrap: wrap;
+		font-size: var(--text-sm);
+	}
+	.issue-row .notice {
+		margin: 0;
 	}
 	.rated {
 		width: 100%;

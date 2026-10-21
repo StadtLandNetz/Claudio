@@ -752,6 +752,7 @@ export type TestScriptInput = {
   runInReviews: boolean;
   allowedHosts: string[];
   allowAnyHost: boolean;
+  viewports: ("desktop" | "mobile")[];
 };
 
 export async function createTestScript(db: Db, repoId: number, input: TestScriptInput, createdBy: number): Promise<number> {
@@ -844,15 +845,17 @@ export function toTestScript(row: TestScriptRow): TestScript {
     steps: row.steps ?? null,
     allowedHosts: row.allowedHosts ?? [],
     allowAnyHost: row.allowAnyHost,
+    viewports: row.viewports?.length ? row.viewports : ["desktop"],
   };
 }
 
 export async function createTestRuns(
   db: Db,
   runs: { scriptId: number; repoId: number; request: TestRunRequest; reviewId?: number | null; batchId?: string | null; startedBy: number }[],
-): Promise<void> {
-  if (runs.length === 0) return;
-  await db.insert(testRuns).values(
+): Promise<number[]> {
+  if (runs.length === 0) return [];
+  // One statement: InnoDB hands out its ids in one consecutive block.
+  const [res] = await db.insert(testRuns).values(
     runs.map((r) => ({
       scriptId: r.scriptId,
       repoId: r.repoId,
@@ -863,6 +866,7 @@ export async function createTestRuns(
       startedBy: r.startedBy,
     })),
   );
+  return runs.map((_, k) => res.insertId + k);
 }
 
 export async function createTestRun(
@@ -968,9 +972,20 @@ export async function isTestRunAbortRequested(db: Db, id: number): Promise<boole
 
 // ---------------------------------------------------------------- human takeover
 
-export async function createHumanRequest(db: Db, input: { runKind: RunKind; runRefId: number; repoId: number; reason: string }): Promise<number> {
-  const [res] = await db.insert(humanRequests).values({ ...input, reason: input.reason.slice(0, 500) });
+export async function createHumanRequest(
+  db: Db,
+  input: { runKind: RunKind; runRefId: number; repoId: number; reason: string; kind?: "takeover" | "question"; context?: string | null; options?: string[] | null },
+): Promise<number> {
+  const [res] = await db.insert(humanRequests).values({ ...input, reason: input.reason.slice(0, 500), kind: input.kind ?? "takeover" });
   return res.insertId;
+}
+
+/** A person answers a question of the agent; the run continues with the answer. */
+export async function answerHumanRequest(db: Db, id: number, answer: string, userId: number): Promise<void> {
+  await db
+    .update(humanRequests)
+    .set({ status: "resolved", answer: answer.slice(0, 4000), resolvedBy: userId, resolvedAt: new Date() })
+    .where(and(eq(humanRequests.id, id), eq(humanRequests.status, "open")));
 }
 
 export async function getHumanRequest(db: Db, id: number): Promise<HumanRequest | undefined> {
@@ -1040,6 +1055,11 @@ export async function rateFinding(
     .update(findings)
     .set({ status: input.status, comment: input.comment, ratedBy: input.userId, ratedAt: new Date() })
     .where(and(eq(findings.reviewId, reviewId), eq(findings.findingId, findingId)));
+}
+
+/** Remembers the GitHub issue created from a finding (only rated findings can become one, so the row exists). */
+export async function setFindingIssue(db: Db, reviewId: number, findingId: string, issueUrl: string): Promise<void> {
+  await db.update(findings).set({ issueUrl }).where(and(eq(findings.reviewId, reviewId), eq(findings.findingId, findingId)));
 }
 
 export async function dismissedFindingIds(db: Db, reviewIds: number[]): Promise<Map<number, string[]>> {

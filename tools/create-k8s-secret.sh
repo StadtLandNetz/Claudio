@@ -5,6 +5,7 @@
 #   DATABASE_MIGRATION_URL – optional: user with DDL privileges for the migrate init container (kept if already set)
 #   CLAUDIO_SECRET_KEY     – encrypts tokens and credentials in the database (kept if the secret already has one)
 #   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET – the GitHub OAuth App for the login
+#   GITHUB_APP_*           – optional: Claudio as a GitHub App (kept if already set and left empty)
 # Run it in an interactive terminal:  ./tools/create-k8s-secret.sh
 set -euo pipefail
 
@@ -66,6 +67,20 @@ read -rsp "Client secret (empty = keep existing): " GH_CLIENT_SECRET; echo
 [ -n "$GH_CLIENT_SECRET" ] || GH_CLIENT_SECRET=$(existing GITHUB_CLIENT_SECRET)
 [ -n "$GH_CLIENT_SECRET" ] || { echo "client secret must not be empty" >&2; exit 1; }
 
+echo "== GitHub App (optional, empty = keep existing / none) =="
+read -rp "App ID: " APP_ID; [ -n "$APP_ID" ] || APP_ID=$(existing GITHUB_APP_ID)
+APP_ARGS=()
+if [ -n "$APP_ID" ]; then
+	read -rp "App slug (github.com/apps/<slug>): " APP_SLUG; [ -n "$APP_SLUG" ] || APP_SLUG=$(existing GITHUB_APP_SLUG)
+	read -rp "Path to the private key (.pem, empty = keep existing): " APP_KEY_FILE
+	if [ -n "$APP_KEY_FILE" ]; then APP_KEY=$(cat "$APP_KEY_FILE"); else APP_KEY=$(existing GITHUB_APP_PRIVATE_KEY); fi
+	[ -n "$APP_KEY" ] || { echo "the app needs its private key" >&2; exit 1; }
+	read -rsp "Webhook secret of the app (empty = keep existing / none): " APP_HOOK; echo
+	[ -n "$APP_HOOK" ] || APP_HOOK=$(existing GITHUB_APP_WEBHOOK_SECRET)
+	APP_ARGS=(--from-literal=GITHUB_APP_ID="$APP_ID" --from-literal=GITHUB_APP_SLUG="$APP_SLUG" --from-literal=GITHUB_APP_PRIVATE_KEY="$APP_KEY")
+	[ -n "$APP_HOOK" ] && APP_ARGS+=(--from-literal=GITHUB_APP_WEBHOOK_SECRET="$APP_HOOK")
+fi
+
 echo "== Encryption key =="
 # Never replace an existing key: tokens, role credentials, webhook secrets and Anthropic keys are encrypted with it
 ENC_KEY=$(existing CLAUDIO_SECRET_KEY)
@@ -86,9 +101,10 @@ kubectl -n "$NS" create secret generic "$SECRET" \
 	--from-literal=GITHUB_CLIENT_ID="$GH_CLIENT_ID" \
 	--from-literal=GITHUB_CLIENT_SECRET="$GH_CLIENT_SECRET" \
 	${MIG_ARGS[@]+"${MIG_ARGS[@]}"} \
+	${APP_ARGS[@]+"${APP_ARGS[@]}"} \
 	--dry-run=client -o yaml | kubectl apply -f -
 
-unset GH_PAT DB_PASS DOCKERCFG DATABASE_URL ENC_KEY MIG_PASS MIG_ARGS MIG_EXISTING GH_CLIENT_SECRET
+unset GH_PAT DB_PASS DOCKERCFG DATABASE_URL ENC_KEY MIG_PASS MIG_ARGS MIG_EXISTING GH_CLIENT_SECRET APP_KEY APP_HOOK APP_ARGS
 echo
 echo "Secret $SECRET in namespace $NS is ready:"
 echo "  registry user $GH_USER, database $DB_USER@$DB_HOST/$DB_NAME, OAuth client $GH_CLIENT_ID"

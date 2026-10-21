@@ -12,6 +12,7 @@ Working rules:
 - Be precise about what you observed versus what you infer. If something could not be tested (missing data, missing permission, broken login), record it as blocked or not_testable rather than guessing.
 - Never type credentials into the browser. Use login_as.
 - CAPTCHAs and bot checks are for humans. Never try to solve one. If request_human_help is available, call it; otherwise record the blocked part and continue.
+- When something open in the ticket decides a result (what a criterion means, which data or role to use, whether a behaviour is intended) and ask_human is available, ask instead of guessing or recording not_testable. Ask only what you cannot find out yourself.
 - Stay inside the instance under test. Do not interact with production systems or external services.
 - Read the repository with Read/Grep/Glob to understand what the diff touches; you cannot run commands.
 `.trim();
@@ -92,6 +93,7 @@ export function buildReviewPrompt(input: PromptInput): string {
       `# Learned in earlier runs on this repository\n\nHow to operate this application, from earlier runs that had to find out the hard way. Follow these; ignore one only if it is clearly outdated. When you overcome a new obstacle that cost you attempts (a field without label, a banner, a slow page, a login quirk), call remember_learning.\n\n${config.learnings.map((l) => `- ${l}`).join("\n")}`,
     );
   }
+  if (request.viewports.includes("mobile")) sections.push(renderViewports(request.viewports));
   if (request.criteria?.length) sections.push(renderConfirmedCriteria(request.criteria));
   if (input.followUp) sections.push(renderFollowUp(input.followUp));
   if (request.extraInstructions) sections.push(`# Additional instructions for this run\n\n${request.extraInstructions.trim()}`);
@@ -136,6 +138,18 @@ const SUMMARY_STEP = (lang: string) => `Finish with a summary in ${lang} as your
    - A section titled "Affected areas:" with one bullet per affected screen or flow (one line each, keep this heading in English).
    - Anything you could not test and why.
 Do not repeat every finding in the summary; they are rendered from the records.`;
+
+/** Phone checks: the whole review on a phone, or desktop first and the changed screens on the phone afterwards. */
+export function renderViewports(viewports: ReviewRequest["viewports"]): string {
+  if (!viewports.includes("desktop")) {
+    return `# Viewport: phone
+
+The browser emulates a phone (390×844, touch, mobile user agent) for the whole review. Judge every screen as a phone user sees it: navigation behind a menu button, readable text without zooming, tap targets large enough, no horizontal scrolling, forms usable with the on-screen keyboard. Say in findings that they concern the phone.`;
+  }
+  return `# Viewports: desktop and phone
+
+Do the review in the desktop viewport first. Then call set_viewport with "mobile", reload, and check the screens this pull request changes again on the phone: layout and navigation (menu button), readable text, tap targets, no horizontal scrolling, forms and dialogs usable. Re-run the main flow of each acceptance criterion on the phone once; record a criterion as failed only if it fails on either viewport, and say which one in the notes. Start the title of a phone-only finding with "Mobil:" (German) or "Mobile:" (English).`;
+}
 
 /** A person confirmed the criteria before the run: they replace the agent's own reading of the ticket. */
 export function renderConfirmedCriteria(criteria: string[]): string {

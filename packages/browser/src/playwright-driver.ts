@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { chromium, type Browser } from "playwright";
 import { CaptureBuffer } from "./capture.js";
+import { VIEWPORT_SIZES, ViewportEmulation } from "./viewport.js";
 import type { BrowserAttachment, BrowserDriver, DriverSession, DriverStartOptions } from "./driver.js";
 
 const require = createRequire(import.meta.url);
@@ -41,9 +42,7 @@ export class PlaywrightDriver implements BrowserDriver {
     const context = attached.contexts()[0] ?? (await attached.newContext());
     const capture = new CaptureBuffer();
     capture.attach(context);
-    if (opts.viewport) {
-      context.on("page", (p) => p.setViewportSize(opts.viewport!).catch(() => undefined));
-    }
+    const viewport = new ViewportEmulation(context, opts.device ?? "desktop");
 
     let tracing = false;
     try {
@@ -62,6 +61,7 @@ export class PlaywrightDriver implements BrowserDriver {
         const pages = context.pages().filter((p) => !p.isClosed());
         return pages[pages.length - 1];
       },
+      viewport,
     };
 
     const mcpOutputDir = join(opts.runDir, "mcp-output");
@@ -83,14 +83,18 @@ export class PlaywrightDriver implements BrowserDriver {
       "--timeout-settle",
       "800",
     ];
-    if (opts.viewport) args.push("--viewport-size", `${opts.viewport.width}x${opts.viewport.height}`);
+    // On the phone the size comes from Claudio's emulation alone; a fixed MCP viewport would undo it.
+    if ((opts.device ?? "desktop") === "desktop") args.push("--viewport-size", `${VIEWPORT_SIZES.desktop.width}x${VIEWPORT_SIZES.desktop.height}`);
 
     const promptPrefix = [
       "Browser driver: Playwright MCP (headless, unattended).",
       "Use `mcp__playwright__browser_snapshot` to read the page (accessibility tree with element refs); take screenshots only when you need visual judgement or evidence.",
       "Use `mcp__claudio__capture_evidence` for every observation you will report, and `mcp__claudio__get_console` / `mcp__claudio__get_network` after each flow to check for errors.",
       `Only navigate within ${opts.instanceUrl}. Login is done with \`mcp__claudio__login_as\`, never by typing credentials yourself.`,
-    ].join("\n");
+      opts.device === "mobile" ? "The browser emulates a phone (390×844, touch, mobile user agent): judge the app as a phone user sees it." : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     return {
       name: "playwright",

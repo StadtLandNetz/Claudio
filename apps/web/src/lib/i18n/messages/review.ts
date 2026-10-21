@@ -155,6 +155,20 @@ export const de = {
 	clearCriteria: 'Alle entfernen',
 	moveUp: 'Nach oben',
 	moveDown: 'Nach unten',
+	// Viewports, issues, budget
+	viewports: 'Geprüft auf',
+	viewportDesktop: 'Desktop',
+	viewportMobile: 'Smartphone',
+	viewportsHint: 'Beides: erst am Desktop, danach die geänderten Screens auf dem Smartphone (390 × 844, Touch).',
+	issueCreate: 'Als GitHub-Issue anlegen',
+	issueOpen: 'Issue #{n}',
+	issueNeedsConfirmed: 'Nur bestätigte Findings werden zu Issues.',
+	demoNoIssue: 'Die Demo hat kein GitHub-Repository für Issues.',
+	issueRejected: 'GitHub hat das Issue abgelehnt: {message}',
+	issueSteps: 'Schritte',
+	issueScreenshots: 'Screenshots',
+	issueFooter: '{severity} · gefunden von Claudio im Review von PR #{pr}: {url}',
+	budgetBlocked: 'Kein Start möglich: {reason}',
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
@@ -311,4 +325,17 @@ export const en: Translation<typeof de> = {
 	clearCriteria: 'Remove all',
 	moveUp: 'Move up',
 	moveDown: 'Move down',
+	viewports: 'Checked on',
+	viewportDesktop: 'Desktop',
+	viewportMobile: 'Phone',
+	viewportsHint: 'Both: on the desktop first, then the changed screens on a phone (390 × 844, touch).',
+	issueCreate: 'Create GitHub issue',
+	issueOpen: 'Issue #{n}',
+	issueNeedsConfirmed: 'Only confirmed findings become issues.',
+	demoNoIssue: 'The demo has no GitHub repository for issues.',
+	issueRejected: 'GitHub rejected the issue: {message}',
+	issueSteps: 'Steps',
+	issueScreenshots: 'Screenshots',
+	issueFooter: '{severity} · found by Claudio in the review of PR #{pr}: {url}',
+	budgetBlocked: 'Cannot start: {reason}',
 };

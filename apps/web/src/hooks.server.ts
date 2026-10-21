@@ -6,7 +6,8 @@ import { SESSION_COOKIE } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 
 // Webhooks authenticate with their HMAC signature instead of a session.
-const PUBLIC_PATHS = ['/login', '/auth/', '/webhooks/', '/api/health', '/locale'];
+// /public/ serves single screenshots behind signed links (GitHub issues).
+const PUBLIC_PATHS = ['/login', '/auth/', '/webhooks/', '/api/health', '/locale', '/public/'];
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const token = event.cookies.get(SESSION_COOKIE);

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CriteriaEditor from '#lib/components/CriteriaEditor.svelte';
+	import ViewportChoice from '#lib/components/ViewportChoice.svelte';
 	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
 
@@ -29,6 +30,9 @@
 {#if !data.pr}
 	<p class="notice error">{data.prError ?? i.t('review.prNotFound', { n: data.prNumber })}</p>
 {/if}
+{#if data.budgetBlocked}
+	<p class="notice error">{i.t('review.budgetBlocked', { reason: data.budgetBlocked })}</p>
+{/if}
 
 <form method="POST" class="sheet form" onsubmit={() => (submitting = true)}>
 	{#if form?.error}<p class="notice error" role="alert">{form.error}</p>{/if}
@@ -55,6 +59,8 @@
 		</div>
 		<small>{i.t('review.rolesHelp')}</small>
 	</fieldset>
+
+	<ViewportChoice />
 
 	{#if data.previous}
 		<label class="check followup">
@@ -139,7 +145,7 @@
 	</label>
 
 	<div class="actions">
-		<button class="btn primary" type="submit" disabled={!data.pr || submitting}>
+		<button class="btn primary" type="submit" disabled={!data.pr || submitting || Boolean(data.budgetBlocked)}>
 			{submitting ? i.t('review.queueing') : i.t('review.start')}
 		</button>
 		<span class="faint">{i.t('review.changeLater')}</span>

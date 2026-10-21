@@ -7,6 +7,7 @@ import {
   KNOWLEDGE_DOCS,
   KnowledgeDocNameSchema,
   analysisProfile,
+  capBudget,
   loadRepoConfig,
   newRunId,
   nowIso,
@@ -84,13 +85,13 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
     }
   }
 
-  const profile = analysisProfile(request.budget);
+  const profile = capBudget(analysisProfile(request.budget), deps.remainingBudgetUsd);
   const driver = createDriver("playwright");
   const session: DriverSession = await driver.start({
     runDir,
     instanceUrl: request.instanceUrl,
     headed: request.headed,
-    viewport: { width: 1280, height: 800 },
+    device: "desktop",
     language: request.language,
   });
   log(`browser driver: ${session.name}`);

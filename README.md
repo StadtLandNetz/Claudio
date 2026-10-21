@@ -21,6 +21,11 @@ Claudio is built on the [Claude Agent SDK](https://docs.claude.com/en/docs/agent
 - **Re-review after fixes.** When a pull request was reviewed before, Claudio re-checks the earlier findings one by one and tests only what changed since. The report and the PR comment say what was fixed and what is still open.
 - **Agree on the criteria first.** Before a review starts, Claudio can propose the acceptance criteria from the ticket. You correct them, and the run tests exactly that list.
 - **Tell your team in Slack.** Per repository, an incoming webhook gets short messages: when a run needs a person, review and test results, automatic runs and why one could not start.
+- **Check on a phone too.** Reviews and tests can run on the desktop, on an emulated phone, or both. A review that checks both does the desktop first and then the changed screens on the phone.
+- **Ask instead of guessing.** When the ticket leaves open what a criterion means, the agent asks in the web UI and in Slack and waits for the answer.
+- **Turn findings into issues.** A confirmed finding becomes a GitHub issue with steps, expected and observed behaviour and its screenshots.
+- **Stay within budget.** Each repository can have a monthly budget. At 80 % a warning goes out; once it is used up, no new run starts.
+- **Act as its own GitHub identity.** With the optional GitHub App, comments, reviews, commit statuses and issues come from Claudio itself instead of a person's token.
 - **Get better over time.** When you dismiss a finding with a reason, Claudio remembers it for that repository. Test runs can also save practical tips for themselves, such as which button closes the cookie banner.
 - **Ask a human when it should.** Claudio never solves CAPTCHAs or bot checks. When one appears, the run pauses, the live browser view in the UI becomes clickable, and a person solves it.
 - **Show what it costs.** Each repository uses its own Anthropic API key. A cost page breaks spending down per repository, month and kind of run.

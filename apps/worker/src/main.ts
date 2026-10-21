@@ -35,6 +35,9 @@ import {
   toTestScript,
   freshAccessToken,
   claimNotification,
+  budgetState,
+  claimBudgetWarning,
+  BUDGET_WARN_AT,
   getTestRun,
   listTestRuns,
   notify,
@@ -46,6 +49,7 @@ import {
   type TestRun,
 } from "@claudio/db";
 import { persistArtifacts, persistTrace, purgeOldArtifacts } from "./artifacts.js";
+import { botToken } from "@claudio/github";
 import { finalizeReview } from "./finalize.js";
 import { followUpContext } from "./follow-up.js";
 import { humanBridge } from "./human.js";
@@ -74,6 +78,12 @@ const DEMO_REPO = "vanderlars/dispo-demo";
 const NO_KEY = {
   de: "Für dieses Repository ist kein Anthropic-API-Key hinterlegt. Ein Admin kann ihn in den Repo-Einstellungen eintragen.",
   en: "No Anthropic API key is stored for this repository. An admin can add it in the repository settings.",
+};
+
+/** Becomes the run's error when the repository's monthly budget is used up. */
+const BUDGET_STOP = {
+  de: (spent: string, limit: string) => `Das Monatsbudget dieses Repositories ist aufgebraucht (${spent} von ${limit} USD). Ein Admin kann es in den Einstellungen erhöhen.`,
+  en: (spent: string, limit: string) => `This repository's monthly budget is used up (${spent} of ${limit} USD). An admin can raise it in the settings.`,
 };
 
 /** Soft-stop handles of the runs in progress, so a shutdown (deploy) can end them cleanly. */
@@ -125,8 +135,16 @@ async function prepare(db: Db, job: Job) {
 
   const repo = await getRepoById(db, job.row.repoId);
   if (!repo) throw new Error(`Repo ${job.row.repoId} existiert nicht mehr.`);
+  // Queued before the cap was reached: nothing starts beyond it, and a run may spend only what is left.
+  const budget = await budgetState(db, repo);
+  if (budget.exhausted) throw new Error(BUDGET_STOP[runLanguage(job)](budget.spent.toFixed(2), budget.limit!.toFixed(2)));
   const user = await getUser(db, job.row.startedBy);
-  const githubToken = user ? ((await freshAccessToken(db, user)) ?? undefined) : undefined;
+  // The GitHub App's installation token when the app is installed; otherwise the starting person's token.
+  const appToken = await botToken(repo.fullName).catch((e) => {
+    log(`github app token for ${repo.fullName} failed: ${(e as Error).message}`);
+    return null;
+  });
+  const githubToken = appToken ?? (user ? ((await freshAccessToken(db, user)) ?? undefined) : undefined);
   const learnings = (await listLearnings(db, repo.id, LEARNINGS_IN_PROMPT)).map((l) => l.text);
   const { config, roleEnv } = toRepoConfig(repo, await listRoles(db, repo.id), undefined, learnings);
   const knowledge = await latestKnowledge(db, repo.id);
@@ -161,6 +179,7 @@ async function prepare(db: Db, job: Job) {
       githubToken,
       abortController: abort,
       stopSignal: stop.signal,
+      remainingBudgetUsd: budget.remaining,
       anthropicApiKey,
       requireApiKey: !keyOptional,
       onProgress: emit,
@@ -238,8 +257,11 @@ async function execute(db: Db, job: Job): Promise<void> {
       });
       await c.flush();
       await finishTestRun(db, job.row.id, { status: report.status, report, error: report.errors.length ? report.errors.join("\n") : null });
-      // A new recording or a healed replay becomes the script's next version.
-      if (report.compiledSteps?.length) {
+      // A new recording or a healed replay becomes the script's next version. A phone run of a test that
+      // also runs on the desktop keeps its steps to itself: the desktop recording stays the script.
+      const keepsSteps = job.row.request.viewport !== "mobile" || !script.viewports.includes("desktop");
+      if (report.compiledSteps?.length && !keepsSteps) c.emit("Mobil-Lauf: aufgezeichnete Schritte werden nicht als Testablauf gespeichert (der Desktop-Ablauf bleibt).");
+      if (report.compiledSteps?.length && keepsSteps) {
         // A new recording brings its own classification; a healed replay keeps the script's.
         const determinism = report.mode === "record" ? (report.determinismProposal ?? "deterministic") : undefined;
         await saveTestSteps(db, script.id, report.compiledSteps, determinism);
@@ -281,6 +303,7 @@ async function execute(db: Db, job: Job): Promise<void> {
     else if (job.kind === "test" && ctx) await notifyTestRun(db, job.row.id, ctx.repo, log).catch(() => undefined);
     else if (job.kind === "analysis" && ctx) await notify(ctx.repo, { kind: "analysis", id: job.row.id, status: "failed", docs: 0, error: message }, { language: runLanguage(job), baseUrl: publicBaseUrl, log });
   } finally {
+    if (ctx) await warnAboutBudget(db, ctx.repo, runLanguage(job), log).catch(() => undefined);
     ctx?.stop();
     if (run) {
       await persistArtifacts(db, run, log).catch((e) => log(`storing screenshots failed: ${(e as Error).message}`));
@@ -312,6 +335,15 @@ async function notifyTestRun(db: Db, testRunId: number, repo: Parameters<typeof 
     { kind: "suite", batchId: run.batchId, total: batch.length, passed: batch.filter((r) => r.outcome === "passed").length, failed: batch.filter((r) => r.outcome !== "passed").map((r) => r.scriptName) },
     { language, baseUrl: publicBaseUrl, log },
   );
+}
+
+/** Once a month, when a repository has used most of its budget (or all of it), its Slack channel hears about it. */
+async function warnAboutBudget(db: Db, repo: Parameters<typeof notify>[0] & { id: number; monthlyBudgetUsd: string | null }, language: "de" | "en", log: (msg: string) => void): Promise<void> {
+  const state = await budgetState(db, repo);
+  if (state.limit === null || state.ratio < BUDGET_WARN_AT) return;
+  if (!(await claimBudgetWarning(db, repo.id, state.month))) return;
+  log(`${repo.fullName}: ${Math.round(state.ratio * 100)} % of the monthly budget used`);
+  await notify(repo, { kind: "budget", spent: state.spent, limit: state.limit, exhausted: state.exhausted }, { language, baseUrl: publicBaseUrl, log });
 }
 
 /** Reviews first: they block a merge, an analysis can wait. */

@@ -5,6 +5,7 @@
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import KnowledgeView from '#lib/components/KnowledgeView.svelte';
 	import Modal from '#lib/components/Modal.svelte';
+	import ViewportChoice from '#lib/components/ViewportChoice.svelte';
 	import ReviewTable from '#lib/components/ReviewTable.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import { i18n } from '#lib/i18n/index.js';
@@ -58,6 +59,15 @@
 		</a>
 	{/if}
 </div>
+
+{#if data.budget.limit !== null && data.budget.ratio >= 0.8}
+	<p class="notice {data.budget.exhausted ? 'error' : ''} budget-note">
+		{data.budget.exhausted
+			? i.t('repo.budgetExhaustedNote', { spent: data.budget.spent.toFixed(2), limit: data.budget.limit.toFixed(2) })
+			: i.t('repo.budgetWarnNote', { pct: Math.round(data.budget.ratio * 100), spent: data.budget.spent.toFixed(2), limit: data.budget.limit.toFixed(2) })}
+		{#if isAdmin}<a href="?tab=settings#budget">{i.t('repo.budgetChange')}</a>{/if}
+	</p>
+{/if}
 
 <div class="tab-head">
 	<h2>{i.t(tabs.find((t) => t.id === data.tab)?.label ?? 'repo.tabPulls')}</h2>
@@ -243,6 +253,8 @@
 						<span>{i.t('repo.allowAnyHost')} <span class="faint">{i.t('repo.allowAnyHostHint')}</span></span>
 					</label>
 				</fieldset>
+				<ViewportChoice hint={false} />
+				<small class="faint">{i.t('test.viewportsHint')}</small>
 				<label class="check">
 					<input type="checkbox" name="runInReviews" checked />
 					<span>{i.t('repo.runInReviews')}</span>
@@ -373,6 +385,30 @@
 			{data.keySources.length ? i.t('repo.addedNextOrCopy') : i.t('repo.addedNext')}
 		</p>
 	{/if}
+
+	<section class="part" id="budget">
+		<div class="intro">
+			<h2>{i.t('repo.budgetTitle')}</h2>
+			<p class="muted">{i.t('repo.budgetIntro')}</p>
+		</div>
+		<form method="POST" action="?tab=settings&/budget" use:enhance={() => ({ update }) => update({ reset: false })} class="sheet fields">
+			{#if formError('budget')}<p class="notice error" role="alert">{formError('budget')}</p>{/if}
+			<label class="field">
+				<span>{i.t('repo.budgetLabel')}</span>
+				<input type="text" name="monthlyBudget" inputmode="decimal" value={data.budget.limit ?? ''} placeholder={i.t('repo.budgetNone')} />
+				<small>{i.t('repo.budgetHint')}</small>
+			</label>
+			<p class="muted">
+				{data.budget.limit !== null
+					? i.t('repo.budgetUsed', { spent: data.budget.spent.toFixed(2), limit: data.budget.limit.toFixed(2), pct: Math.round(data.budget.ratio * 100) })
+					: i.t('repo.budgetSpentOnly', { spent: data.budget.spent.toFixed(2) })}
+			</p>
+			<div class="actions">
+				<button class="btn primary" type="submit">{i.t('repo.save')}</button>
+				{#if saved === 'budget'}<span class="ok" role="status">{i.t('repo.saved')}</span>{/if}
+			</div>
+		</form>
+	</section>
 
 	<section class="part" id="anthropic">
 		<div class="intro">
@@ -524,6 +560,7 @@
 					<label class="check"><input type="checkbox" name="autoComment" checked={data.autoReview.postComment} /> <span>{i.t('repo.autoComment')}</span></label>
 					<label class="check"><input type="checkbox" name="autoTests" checked={data.autoReview.runTests} /> <span>{i.t('repo.autoTests')}</span></label>
 					<label class="check"><input type="checkbox" name="autoFollowUp" checked={data.autoReview.followUp !== false} /> <span>{i.t('repo.autoFollowUp')} <span class="faint">{i.t('repo.autoFollowUpHint')}</span></span></label>
+					<ViewportChoice selected={data.autoReview.viewports ?? ['desktop']} />
 				</fieldset>
 				<div class="actions">
 					<button class="btn primary" type="submit">{i.t('repo.saveAutomation')}</button>
@@ -531,6 +568,18 @@
 				</div>
 			</form>
 
+			{#if data.githubApp}
+				<div class="sheet fields hook">
+					<h3>{i.t('repo.appTitle')}</h3>
+					<p>
+						<span class="dot-ok" class:bad={!data.githubApp.installed}></span>
+						{data.githubApp.installed ? i.t('repo.appInstalled') : i.t('repo.appMissing')}
+					</p>
+					{#if !data.githubApp.installed && data.githubApp.slug}
+						<p><a href="https://github.com/apps/{data.githubApp.slug}/installations/new" target="_blank" rel="noopener noreferrer">{i.t('repo.appInstall')}</a></p>
+					{/if}
+				</div>
+			{/if}
 			<div class="sheet fields hook">
 				<h3>Webhook</h3>
 				{#if formError('webhook')}<p class="notice error" role="alert">{formError('webhook')}</p>{/if}
@@ -1009,6 +1058,9 @@
 		margin-top: 1.75rem;
 		display: grid;
 		gap: 0.6rem;
+	}
+	.budget-note {
+		margin-bottom: 0.75rem;
 	}
 	.field.inline {
 		grid-template-columns: minmax(0, 1fr) auto;

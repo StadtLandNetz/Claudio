@@ -52,6 +52,24 @@ pull request ─► ci.yml (same checks, no deploy)
 6. **First rollout**: push to `main` (or re-run the release workflow). The deploy job applies everything in `k8s/`
    except `namespace.yaml` and the subfolders.
 
+## Optional: Claudio as a GitHub App
+
+Without an app, Claudio writes to GitHub with the token of the person who set up a repository's automation. With an app, comments, PR reviews, commit statuses and issues come from "Claudio[bot]".
+
+1. **Create the app.** For an organisation, go to GitHub → organisation → Settings → Developer settings → GitHub Apps → New GitHub App. For a personal account, use Settings → Developer settings.
+   - Name: e.g. `Claudio StadtLandNetz`. The slug is shown later in the app's URL `github.com/apps/<slug>`.
+   - Homepage URL: the `PUBLIC_BASE_URL`.
+   - Webhook: active, URL `<PUBLIC_BASE_URL>/webhooks/github`, and a secret (`openssl rand -hex 32`). Deactivate it if you keep the per-repository webhooks.
+   - Repository permissions: Contents read, Metadata read, Pull requests read and write, Issues read and write, Commit statuses read and write, Deployments read.
+   - Subscribe to events: Issue comment, Pull request, Push, Deployment status.
+   - Where can this app be installed: only on this account.
+2. **Note the App ID** at the top of the app's page, then under "Private keys" choose **Generate a private key**. GitHub downloads a `.pem` file.
+3. **Install the app** (Install App → the organisation) on all repositories or on the ones set up in Claudio.
+4. **Give Claudio the values:** run `./tools/create-k8s-secret.sh` again and fill in the GitHub App section (App ID, slug, path to the `.pem` file, webhook secret). Everything else is kept when left empty. Then restart: `kubectl -n claudio rollout restart deployment/claudio`.
+5. **Check:** in a repository's settings tab, the "GitHub App" box says "Installed". If the app's webhook is active, the per-repository webhook can be removed there.
+
+Locally, the same values go into `.env` (`GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` with `\n` for line breaks, `GITHUB_APP_WEBHOOK_SECRET`).
+
 ## Every push to main
 
 `release.yml` runs the CI, pushes `ghcr.io/<repo>:sha-<commit>` (and `latest`), sets that tag in

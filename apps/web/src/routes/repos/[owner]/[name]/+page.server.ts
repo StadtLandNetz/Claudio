@@ -31,6 +31,9 @@ import {
 	updateAutomation,
 	updateRepoSettings,
 	DEFAULT_NOTIFICATIONS,
+	budgetState,
+	parseBudget,
+	setMonthlyBudget,
 	isSlackWebhookUrl,
 	postSlack,
 	setSlack,
@@ -41,6 +44,8 @@ import { atLeast, requireRepo, visibleRepos } from '#lib/server/access.js';
 import { checkAnthropicKey, keyOptional, noKeyMessage } from '#lib/server/anthropic.js';
 import { userToken } from '#lib/server/auth.js';
 import { swr } from '#lib/server/cache.js';
+import { budgetBlocks, runsPerViewport, viewportsOf } from '#lib/server/runs.js';
+import { githubAppSlug, githubApp, installationFor } from '@claudio/github';
 import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
 import { WEBHOOK_EVENTS, addWebhookEvents, createGithubClient, createRepoWebhook, deleteRepoWebhook, getBranchHead, getRepoWebhook, listEnvironmentNames, suggestPreviewEnvironment } from '@claudio/github';
@@ -212,6 +217,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		keySources,
 		automation: repo.automation ?? DEFAULT_AUTOMATION,
 		autoReview: { ...DEFAULT_AUTO_REVIEW, ...(repo.autoReview ?? {}) },
+		budget: await budgetState(db(), repo),
+		githubApp: settings && githubApp() ? { installed: Boolean(await installationFor(repo.fullName).catch(() => null)), slug: githubAppSlug() } : null,
 		slack: settings ? { hint: repo.slackWebhookHint, notifications: { ...DEFAULT_NOTIFICATIONS, ...(repo.notifications ?? {}) } } : null,
 		webhook,
 		webhookUrl: `${base}/webhooks/github`,
@@ -321,6 +328,8 @@ export const actions: Actions = {
 		if ((await listAnalyses(db(), { repoId: repo.id, activeOnly: true })).length > 0) {
 			return fail(400, { error: t('repo.analysisAlreadyRunning'), form: 'analyze' });
 		}
+		const blocked = await budgetBlocks(repo, t);
+		if (blocked) return fail(400, { error: blocked, form: 'analyze' });
 		const f = await request.formData();
 		const fixture = repo.fullName === DEMO_REPO && devFixtures() ? DEMO_FIXTURE : null;
 		const parsed = AnalysisRequestSchema.safeParse({
@@ -351,7 +360,8 @@ export const actions: Actions = {
 			roles: f.getAll('roles').map(String),
 			runInReviews: f.get('runInReviews') === 'on',
 			allowedHosts: parseHostList(text(f.get('allowedHosts'))),
-			allowAnyHost: f.get('allowAnyHost') === 'on'
+			allowAnyHost: f.get('allowAnyHost') === 'on',
+			viewports: viewportsOf(f)
 		};
 		if (!input.name || !input.description || !input.expectation) {
 			return fail(400, { error: t('repo.testFieldsRequired'), form: 'createTest' });
@@ -367,12 +377,14 @@ export const actions: Actions = {
 		const f = await request.formData();
 		const parsed = TestRunRequestSchema.safeParse({ repo: repo.fullName, instanceUrl: text(f.get('instanceUrl')), budget: f.get('budget'), language: locals.locale });
 		if (!parsed.success) return fail(400, { error: t('repo.instanceUrlRequired'), form: 'runTests' });
+		const blocked = await budgetBlocks(repo, t);
+		if (blocked) return fail(400, { error: blocked, form: 'runTests' });
 		const scripts = await listTestScripts(db(), repo.id);
 		if (scripts.length === 0) return fail(400, { error: t('repo.noTestsYet'), form: 'runTests' });
 		const batchId = randomUUID().slice(0, 8);
 		await createTestRuns(
 			db(),
-			scripts.map((s) => ({ scriptId: s.id, repoId: repo.id, request: parsed.data, batchId, startedBy: locals.user!.id }))
+			runsPerViewport(scripts.map((s) => ({ scriptId: s.id, repoId: repo.id, request: parsed.data, batchId, startedBy: locals.user!.id, viewports: s.viewports?.length ? s.viewports : ['desktop'] })))
 		);
 		redirect(303, `/repos/${repo.fullName}?tab=tests&batch=${batchId}`);
 	},
@@ -405,7 +417,8 @@ export const actions: Actions = {
 				strictness: pick(f.get('autoStrictness'), ['lenient', 'normal', 'strict'] as const, 'normal'),
 				postComment: f.get('autoComment') === 'on',
 				runTests: f.get('autoTests') === 'on',
-				followUp: f.get('autoFollowUp') === 'on'
+				followUp: f.get('autoFollowUp') === 'on',
+				viewports: viewportsOf(f)
 			}
 		);
 		// Webhooks set up before deployments were supported do not send deployment events yet.
@@ -440,6 +453,15 @@ export const actions: Actions = {
 			}
 		});
 		return { saved: 'slack' };
+	},
+	budget: async ({ params, request, locals }) => {
+		const { t } = serverI18n(locals.locale);
+		const repo = await loadRepo(params, locals.user, 'admin');
+		const raw = text((await request.formData()).get('monthlyBudget'));
+		const usd = parseBudget(raw);
+		if (raw && usd === null) return fail(400, { error: t('repo.budgetInvalid'), form: 'budget' });
+		await setMonthlyBudget(db(), repo.id, usd);
+		return { saved: 'budget' };
 	},
 	slackTest: async ({ params, locals }) => {
 		const { t } = serverI18n(locals.locale);

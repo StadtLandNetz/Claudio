@@ -31,6 +31,10 @@ export type DriverName = z.infer<typeof DriverNameSchema>;
 export const LanguageSchema = z.enum(["de", "en"]);
 export type Language = z.infer<typeof LanguageSchema>;
 
+/** Desktop (1280×800) or a phone (390×844, touch, mobile user agent). */
+export const ViewportSchema = z.enum(["desktop", "mobile"]);
+export type Viewport = z.infer<typeof ViewportSchema>;
+
 export const EvidenceKindSchema = z.enum(["screenshot", "trace", "console", "network", "note"]);
 
 export const EvidenceSchema = z.object({
@@ -40,6 +44,8 @@ export const EvidenceSchema = z.object({
   path: z.string().optional(),
   pageUrl: z.string().optional(),
   note: z.string().optional(),
+  /** Set when the screenshot was taken in the phone viewport. */
+  viewport: ViewportSchema.optional(),
   createdAt: z.string(),
 });
 export type Evidence = z.infer<typeof EvidenceSchema>;
@@ -125,6 +131,8 @@ export const ReviewRequestSchema = z.object({
   criteria: z.array(z.string().min(1)).optional(),
   /** Re-review: build on this earlier review of the same pull request and check only what changed since. */
   followUpOf: z.number().int().positive().optional(),
+  /** Where the app is checked: desktop, phone, or both (desktop first, then the changed screens on the phone). */
+  viewports: z.array(ViewportSchema).min(1).default(["desktop"]),
 });
 export type ReviewRequest = z.infer<typeof ReviewRequestSchema>;
 

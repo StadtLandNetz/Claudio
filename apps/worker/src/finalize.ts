@@ -11,7 +11,7 @@ import {
   freshAccessToken,
   type Db,
 } from "@claudio/db";
-import { createGithubClient, postPullRequestReview, setCommitStatus } from "@claudio/github";
+import { botClient, createGithubClient, postPullRequestReview, setCommitStatus } from "@claudio/github";
 
 const ACTIVE = new Set(["queued", "running"]);
 
@@ -59,10 +59,14 @@ export async function finalizeReview(db: Db, reviewId: number, publicBaseUrl: st
   }
 
   if (review.fixture) return;
-  const user = await getUser(db, repo.automationUserId ?? review.startedBy);
-  const token = user ? await freshAccessToken(db, user) : null;
-  if (!token) return;
-  const github = createGithubClient(token);
+  // Claudio's own identity (GitHub App) when installed, else the person who set up the automation or started the review.
+  let github = await botClient(repo.fullName).catch(() => null);
+  if (!github) {
+    const user = await getUser(db, repo.automationUserId ?? review.startedBy);
+    const token = user ? await freshAccessToken(db, user) : null;
+    if (!token) return;
+    github = createGithubClient(token);
+  }
   const url = publicBaseUrl ? `${publicBaseUrl}/reviews/${reviewId}` : undefined;
   const sha = review.headSha ?? review.report?.pr.headSha ?? null;
   const wantsStatus = Boolean(repo.automation?.commitStatus && sha);

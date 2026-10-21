@@ -9,13 +9,15 @@ import {
 	openHumanRequest,
 	rateFinding,
 	removeLesson,
+	setFindingIssue,
 	requestAbort,
 	setReviewCommentUrl,
 	FINDING_STATUSES
 } from '@claudio/db';
 import type { AccessLevel } from '@claudio/db';
-import { createGithubClient, postPullRequestReview } from '@claudio/github';
-import { userToken } from '#lib/server/auth.js';
+import { postPullRequestReview } from '@claudio/github';
+import { githubAs } from '#lib/server/runs.js';
+import { publicEvidenceUrl } from '#lib/server/signed.js';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { publicBaseUrl } from '#lib/server/env.js';
@@ -52,7 +54,9 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const tests: ReviewTestResult[] = testRuns.map((t) => ({ name: t.scriptName, outcome: t.outcome }));
 	const report = review.report;
 
-	const ratings = new Map(rows.map((r) => [r.finding.findingId, { status: r.finding.status, comment: r.finding.comment ?? '', by: r.ratedByLogin, at: r.finding.ratedAt }]));
+	const ratings = new Map(
+		rows.map((r) => [r.finding.findingId, { status: r.finding.status, comment: r.finding.comment ?? '', by: r.ratedByLogin, at: r.finding.ratedAt, issueUrl: r.finding.issueUrl ?? null }])
+	);
 	const dismissed = dismissedOf(rows);
 	const notes = notesOf(rows);
 	const requested = StrictnessSchema.safeParse(url.searchParams.get('strictness'));
@@ -107,7 +111,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 					findings: sortBySeverity(report.findings).map((f) => ({
 						...f,
 						blocking: blocking.has(f.id),
-						rating: ratings.get(f.id) ?? { status: 'proposed' as const, comment: '', by: null, at: null }
+						rating: ratings.get(f.id) ?? { status: 'proposed' as const, comment: '', by: null, at: null, issueUrl: null }
 					})),
 					evidence: Object.fromEntries(evidence.map((e) => [e.id, e])),
 					notes: report.notes,
@@ -118,7 +122,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 				}
 			: null,
 		eventCount,
-		human: await openHumanRequest(db(), 'review', review.id).then((h) => (h ? { id: h.id, reason: h.reason } : null)),
+		human: await openHumanRequest(db(), 'review', review.id).then((h) => (h ? { id: h.id, reason: h.reason, kind: h.kind, context: h.context, options: h.options ?? [] } : null)),
 		tests: testRuns
 			.map((t) => ({ id: t.id, scriptId: t.scriptId, name: t.scriptName, status: t.status, outcome: t.outcome, healed: t.healed, mode: t.mode, summary: t.report?.summary ?? '' }))
 			.reverse()
@@ -150,8 +154,8 @@ export const actions: Actions = {
 		const { t } = serverI18n(locals.locale);
 		if (!review.report) return fail(400, { error: t('review.noReport'), form: 'comment' });
 		if (review.fixture) return fail(400, { error: t('review.demoNoComment'), form: 'comment' });
-		const token = await userToken(locals.user!);
-		if (!token) return fail(400, { error: t('review.commentNeedsGithub'), form: 'comment' });
+		const github = await githubAs(review.repoFullName, locals.user);
+		if (!github) return fail(400, { error: t('review.commentNeedsGithub'), form: 'comment' });
 		const f = await request.formData();
 		const requested = StrictnessSchema.safeParse(f.get('strictness'));
 		const strictness = requested.success ? requested.data : review.report.request.strictness;
@@ -164,11 +168,52 @@ export const actions: Actions = {
 			// Blocking findings become a "changes requested" review, like after automated runs.
 			const requestChanges = withTests(verdict(review.report, strictness, dismissed), tests) === 'request_changes';
 			const lang = review.report.request.language;
-			const posted = await postPullRequestReview(createGithubClient(token), review.repoFullName, review.prNumber, body, requestChanges, REVIEW_SUPERSEDED[lang]);
+			const posted = await postPullRequestReview(github.client, review.repoFullName, review.prNumber, body, requestChanges, REVIEW_SUPERSEDED[lang]);
 			await setReviewCommentUrl(db(), review.id, posted.url);
 			return { commented: posted.url };
 		} catch (e) {
 			return fail(400, { error: t('review.commentRejected', { message: (e as Error).message }), form: 'comment' });
+		}
+	},
+	/** A confirmed finding becomes a GitHub issue: steps, expected and observed behaviour, screenshots, link back. */
+	issue: async ({ params, request, locals, url }) => {
+		const review = await loadReview(params.id, locals, 'write');
+		const { t } = serverI18n(locals.locale);
+		const findingId = String((await request.formData()).get('findingId') ?? '');
+		const report = review.report;
+		const finding = report?.findings.find((f) => f.id === findingId);
+		if (!report || !finding) return fail(400, { error: t('review.unknownFinding'), form: `issue:${findingId}` });
+		const row = (await listFindings(db(), review.id)).find((r) => r.finding.findingId === findingId)?.finding;
+		if (row?.status !== 'confirmed') return fail(400, { error: t('review.issueNeedsConfirmed'), form: `issue:${findingId}` });
+		if (row.issueUrl) return { issued: findingId, issueUrl: row.issueUrl };
+		if (review.fixture) return fail(400, { error: t('review.demoNoIssue'), form: `issue:${findingId}` });
+		const github = await githubAs(review.repoFullName, locals.user);
+		if (!github) return fail(400, { error: t('review.commentNeedsGithub'), form: `issue:${findingId}` });
+
+		const base = publicBaseUrl(url);
+		const { t: lt, labels } = serverI18n(report.request.language);
+		const shots = finding.evidenceIds
+			.map((id) => report.evidence.find((e) => e.id === id))
+			.flatMap((e) => (e?.path && e.kind === 'screenshot' ? [{ e, src: review.runId ? publicEvidenceUrl(base, review.runId, e.path) : null }] : []));
+		const body = [
+			finding.description.trim(),
+			finding.steps.length ? `\n### ${lt('review.issueSteps')}\n\n${finding.steps.map((s, k) => `${k + 1}. ${s}`).join('\n')}` : '',
+			finding.expected ? `\n**${lt('review.expected')}:** ${finding.expected}` : '',
+			finding.actual ? `\n**${lt('review.observed')}:** ${finding.actual}` : '',
+			finding.url ? `\n**URL:** ${finding.url}` : '',
+			shots.length ? `\n### ${lt('review.issueScreenshots')}\n\n${shots.map(({ e, src }) => (src ? `![${e.label}](${src})` : `- ${e.label}`)).join('\n\n')}` : '',
+			row.comment ? `\n> ${row.comment.trim().split('\n').join('\n> ')}` : '',
+			`\n---\n${lt('review.issueFooter', { severity: labels.severity[finding.severity], pr: review.prNumber, url: `${base}/reviews/${review.id}#finding-${finding.id}` })}`
+		]
+			.filter(Boolean)
+			.join('\n');
+		try {
+			const [owner, repo] = review.repoFullName.split('/') as [string, string];
+			const { data } = await github.client.rest.issues.create({ owner, repo, title: finding.title, body });
+			await setFindingIssue(db(), review.id, findingId, data.html_url);
+			return { issued: findingId, issueUrl: data.html_url };
+		} catch (e) {
+			return fail(400, { error: t('review.issueRejected', { message: (e as Error).message }), form: `issue:${findingId}` });
 		}
 	},
 	abort: async ({ params, locals }) => {

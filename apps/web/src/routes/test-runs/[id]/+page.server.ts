@@ -42,6 +42,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			healed: run.healed,
 			instanceUrl: run.instanceUrl,
 			budget: run.request.budget,
+			viewport: run.request.viewport ?? 'desktop',
 			rerecord: run.request.rerecord,
 			reviewId: run.reviewId,
 			stepsVersion: run.stepsVersion,
@@ -78,6 +79,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 						url: e.url,
 						expired: e.expired,
 						kind: e.kind,
+						viewport: e.viewport,
 						note: e.note ?? '',
 						createdAt: e.createdAt
 					})),
@@ -87,7 +89,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				}
 			: null,
 		eventCount,
-		human: await openHumanRequest(db(), 'test', run.id).then((h) => (h ? { id: h.id, reason: h.reason } : null))
+		human: await openHumanRequest(db(), 'test', run.id).then((h) => (h ? { id: h.id, reason: h.reason, kind: h.kind, context: h.context, options: h.options ?? [] } : null))
 	};
 };
 

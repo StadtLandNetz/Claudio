@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Modal from '#lib/components/Modal.svelte';
+	import ViewportChoice from '#lib/components/ViewportChoice.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import { i18n } from '#lib/i18n/index.js';
 	import { DEFAULT_TEST_BUDGET } from '#lib/labels.js';
@@ -40,6 +41,7 @@
 				<span class="muted">{i.t('test.notRecordedYet')}</span>
 			{/if}
 			{#if s.runInReviews}<span class="tag">{i.t('test.tagRunInReviews')}</span>{/if}
+			{#if s.viewports.includes('mobile')}<span class="tag">{s.viewports.includes('desktop') ? i.t('test.tagBothViewports') : i.t('test.tagMobile')}</span>{/if}
 			{#if s.allowAnyHost}<span class="tag">{i.t('test.tagAnyHost')}</span>{:else if s.allowedHosts.length}<span class="tag">{i.t('test.tagAllowedHosts', { hosts: s.allowedHosts.join(', ') })}</span>{/if}
 		</p>
 	</div>
@@ -129,7 +131,7 @@
 										<span class="faint">{run.reviewId ? i.t('test.inReview', { id: run.reviewId }) : i.t('test.byUser', { login: run.startedBy ?? '' })}</span>
 									</td>
 									<td><OutcomeBadge status={run.status} outcome={run.outcome} healed={run.healed} /></td>
-									<td>{run.mode ? i.labels.mode[run.mode] : '–'}{run.mode === 'replay' && run.stepsVersion ? ` v${run.stepsVersion}` : ''}</td>
+									<td>{run.mode ? i.labels.mode[run.mode] : '–'}{run.mode === 'replay' && run.stepsVersion ? ` v${run.stepsVersion}` : ''}{#if run.viewport === 'mobile'} <span class="tag">{i.t('review.viewportMobile')}</span>{/if}</td>
 									<td class="num">{run.durationMs !== null ? i.formatDuration(run.durationMs) : '–'}</td>
 									<td class="num">{i.formatUsd(run.costUsd)}</td>
 								</tr>
@@ -227,6 +229,8 @@
 					<span>{i.t('test.allowAnyHost')} <span class="faint">{i.t('test.allowAnyHostHint')}</span></span>
 				</label>
 			</fieldset>
+			<ViewportChoice selected={s.viewports} hint={false} />
+			<small class="faint">{i.t('test.viewportsHint')}</small>
 			<label class="check">
 				<input type="checkbox" name="runInReviews" checked={s.runInReviews} />
 				<span>{i.t('test.runInReviews')}</span>

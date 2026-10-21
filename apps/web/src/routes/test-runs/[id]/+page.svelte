@@ -4,6 +4,7 @@
 	import EvidenceThumbs, { type ThumbEvidence } from '#lib/components/EvidenceThumbs.svelte';
 	import Lightbox from '#lib/components/Lightbox.svelte';
 	import LiveLog from '#lib/components/LiveLog.svelte';
+	import AgentQuestion from '#lib/components/AgentQuestion.svelte';
 	import HumanTakeover from '#lib/components/HumanTakeover.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import LiveView from '#lib/components/LiveView.svelte';
@@ -105,7 +106,10 @@
 			<TraceTimeline bind:this={timeline} runId={r.runId} {markers} viewerUrl={viewerHref} downloadUrl={r.traceUrl} onopen={openMarker} />
 		{/if}
 
-		{#if active && data.human}
+		{#if active && data.human?.kind === 'question'}
+			<AgentQuestion requestId={data.human.id} question={data.human.reason} context={data.human.context} options={data.human.options} />
+			<LiveView src="/test-runs/{data.run.id}/live" url={run.instanceUrl} />
+		{:else if active && data.human}
 			<HumanTakeover src="/test-runs/{data.run.id}/live" requestId={data.human.id} reason={data.human.reason} url={run.instanceUrl} />
 		{:else if active}
 			<LiveView src="/test-runs/{data.run.id}/live" url={run.instanceUrl} />
@@ -216,6 +220,8 @@
 			<dd class="break">{run.instanceUrl}</dd>
 			<dt>{i.t('test.budget')}</dt>
 			<dd>{i.labels.testBudget[run.budget]}</dd>
+			<dt>{i.t('review.viewports')}</dt>
+			<dd>{run.viewport === 'mobile' ? i.t('review.viewportMobile') : i.t('review.viewportDesktop')}</dd>
 			{#if run.reviewId}
 				<dt>{i.t('test.partOf')}</dt>
 				<dd><a href="/reviews/{run.reviewId}">{i.t('test.reviewNumber', { id: run.reviewId })}</a></dd>

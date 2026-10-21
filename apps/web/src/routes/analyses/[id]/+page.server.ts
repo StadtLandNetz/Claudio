@@ -45,7 +45,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		evidence: (await withAvailability(a.runId, a.report?.evidence ?? (a.runId ? runEvidenceFromDisk(a.runId) : []))).filter((e) => e.kind === 'screenshot'),
 		findings: sortBySeverity(a.report?.findings ?? (a.runId ? runFindingsFromDisk(a.runId) : [])),
 		eventCount,
-		human: await openHumanRequest(db(), 'analysis', a.id).then((h) => (h ? { id: h.id, reason: h.reason } : null))
+		human: await openHumanRequest(db(), 'analysis', a.id).then((h) => (h ? { id: h.id, reason: h.reason, kind: h.kind, context: h.context, options: h.options ?? [] } : null))
 	};
 };
 

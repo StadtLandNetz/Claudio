@@ -14,6 +14,7 @@ export const DEFAULT_NOTIFICATIONS: NotificationSettings = {
 /** Something worth a message in the repository's Slack channel. */
 export type NotifyEvent =
   | { kind: "takeover"; run: "review" | "analysis" | "test"; id: number; what: string; reason: string }
+  | { kind: "question"; run: "review" | "analysis" | "test"; id: number; what: string; question: string; options: string[] }
   | {
       kind: "review";
       id: number;
@@ -34,13 +35,16 @@ export type NotifyEvent =
   | { kind: "automation"; started: boolean; prNumber: number; prTitle: string | null; trigger: string; reason: string; reviewId?: number }
   | { kind: "test"; id: number; name: string; outcome: string | null; status: string; summary: string }
   | { kind: "suite"; batchId: string; total: number; passed: number; failed: string[] }
-  | { kind: "analysis"; id: number; status: string; docs: number; error: string | null };
+  | { kind: "analysis"; id: number; status: string; docs: number; error: string | null }
+  | { kind: "budget"; spent: number; limit: number; exhausted: boolean };
 
 export type SlackMessage = { text: string; blocks: unknown[] };
 
 const T = {
   de: {
     takeover: "Claudio braucht dich",
+    question: "Claudio hat eine Frage",
+    answerIn: "Antworten im Review: der Lauf wartet, bis jemand antwortet",
     takeoverRun: { review: "Review", analysis: "Analyse", test: "Testlauf" },
     open: "Öffnen",
     verdict: { approve: "Abnahme empfohlen", request_changes: "Änderungen nötig", inconclusive: "Review unvollständig" },
@@ -60,10 +64,15 @@ const T = {
     analysisDone: "Wissensbasis aktualisiert",
     analysisFailed: "Analyse fehlgeschlagen",
     docs: "{n} Dokumente",
+    budgetWarn: "{pct} % des Monatsbudgets verbraucht",
+    budgetStop: "Monatsbudget erreicht: neue Läufe starten erst im nächsten Monat oder mit höherem Budget",
+    budgetLine: "{spent} von {limit} USD in diesem Monat",
     testMessage: "Testnachricht von Claudio: Benachrichtigungen für {repo} kommen hier an.",
   },
   en: {
     takeover: "Claudio needs you",
+    question: "Claudio has a question",
+    answerIn: "Answer in the review: the run waits until someone does",
     takeoverRun: { review: "Review", analysis: "Analysis", test: "Test run" },
     open: "Open",
     verdict: { approve: "Approval recommended", request_changes: "Changes needed", inconclusive: "Review incomplete" },
@@ -83,6 +92,9 @@ const T = {
     analysisDone: "Knowledge base updated",
     analysisFailed: "Analysis failed",
     docs: "{n} documents",
+    budgetWarn: "{pct} % of the monthly budget used",
+    budgetStop: "Monthly budget reached: new runs start next month or with a higher budget",
+    budgetLine: "{spent} of {limit} USD this month",
     testMessage: "Test message from Claudio: notifications for {repo} arrive here.",
   },
 } as const;
@@ -96,6 +108,7 @@ const link = (url: string | null, label: string) => (url ? `<${url}|${esc(label)
 export function wants(settings: NotificationSettings, e: NotifyEvent): boolean {
   switch (e.kind) {
     case "takeover":
+    case "question":
       return settings.takeover;
     case "review":
       return settings.reviews === "all" || (settings.reviews === "changes" && e.verdict !== "approve");
@@ -107,6 +120,8 @@ export function wants(settings: NotificationSettings, e: NotifyEvent): boolean {
       return settings.tests === "all" || (settings.tests === "failed" && e.failed.length > 0);
     case "analysis":
       return settings.analyses;
+    case "budget":
+      return true;
   }
 }
 
@@ -125,6 +140,14 @@ export function renderSlack(repo: string, e: NotifyEvent, opts: { language: Lang
       const path = `/${e.run === "review" ? "reviews" : e.run === "analysis" ? "analyses" : "test-runs"}/${e.id}`;
       const text = `${mention}:raising_hand: *${t.takeover}:* ${esc(e.reason)}`;
       return { text: `${t.takeover}: ${e.reason}`, blocks: [section(text), context(`${t.takeoverRun[e.run]} ${link(url(path), e.what)}`), ...button(path)] };
+    }
+    case "question": {
+      const path = `/${e.run === "review" ? "reviews" : e.run === "analysis" ? "analyses" : "test-runs"}/${e.id}`;
+      const opts = e.options.length ? `\n${e.options.map((o) => `• ${esc(o)}`).join("\n")}` : "";
+      return {
+        text: `${t.question}: ${e.question}`,
+        blocks: [section(`${mention}:speech_balloon: *${t.question}:* ${esc(e.question)}${opts}`), context(`${t.takeoverRun[e.run]} ${link(url(path), e.what)} · ${t.answerIn}`), ...button(path)],
+      };
     }
     case "review": {
       const path = `/reviews/${e.id}`;
@@ -170,6 +193,12 @@ export function renderSlack(repo: string, e: NotifyEvent, opts: { language: Lang
       const line = fill(t.suiteLine, { passed: e.passed, total: e.total });
       const text = `${icon} *${link(url(path), t.suite)}* · ${line}${e.failed.length ? `\n${t.failedTests}: ${e.failed.map(esc).join(", ")}` : ""}`;
       return { text: `${t.suite}: ${line}`, blocks: [section(text), context(), ...button(path)] };
+    }
+    case "budget": {
+      const path = `/repos/${repo}?tab=settings#budget`;
+      const word = e.exhausted ? t.budgetStop : fill(t.budgetWarn, { pct: Math.round((e.spent / e.limit) * 100) });
+      const line = fill(t.budgetLine, { spent: e.spent.toFixed(2), limit: e.limit.toFixed(2) });
+      return { text: `${word} (${repo})`, blocks: [section(`${mention}${e.exhausted ? ":no_entry:" : ":warning:"} *${esc(word)}*\n${line}`), context(), ...button(path)] };
     }
     case "analysis": {
       const path = `/analyses/${e.id}`;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BudgetTierSchema, EvidenceSchema, FindingSchema, LanguageSchema, RunCostSchema, RunStatusSchema } from "./schemas.js";
+import { BudgetTierSchema, EvidenceSchema, FindingSchema, LanguageSchema, RunCostSchema, RunStatusSchema, ViewportSchema } from "./schemas.js";
 
 /**
  * How Claudio finds an element. Role + accessible name first: it survives
@@ -64,6 +64,8 @@ export const TestScriptSchema = z.object({
   allowedHosts: z.array(z.string()).default([]),
   /** Let the test navigate anywhere. */
   allowAnyHost: z.boolean().default(false),
+  /** Each start runs the test once per viewport. */
+  viewports: z.array(ViewportSchema).min(1).default(["desktop"]),
 });
 export type TestScript = z.infer<typeof TestScriptSchema>;
 
@@ -79,6 +81,7 @@ export const TestRunRequestSchema = z.object({
   headed: z.boolean().default(false),
   /** Force a fresh recording even when steps exist. */
   rerecord: z.boolean().default(false),
+  viewport: ViewportSchema.default("desktop"),
 });
 export type TestRunRequest = z.infer<typeof TestRunRequestSchema>;
 

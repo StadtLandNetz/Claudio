@@ -11,14 +11,14 @@ Aufwand grob: S (Tage), M (ein bis zwei Wochen), L (mehr).
 
 ## Features
 
-- [ ] **Mobile Viewport** (S). Zweiter Durchgang der geänderten Screens in Smartphone-Breite.
+- [x] **Mobile Viewport** (S). Zweiter Durchgang der geänderten Screens in Smartphone-Breite.
 - [ ] **Deterministische Zusatzprüfungen** (S bis M). axe-core auf geänderten Screens, kaputte Links, visueller Vergleich gegen die Screenshots der Wissensbasis.
 - [ ] **Testsuite-Pflege** (M). Zeitpläne (z. B. nächtlich gegen Staging), Trend pro Test, Flakiness-Statistik.
 - [ ] **Regressionstests gezielt auswählen** (S). Statt aller `runInReviews`-Tests nur die, deren Schritte betroffene Routen berühren.
-- [ ] **Finding → GitHub-Issue** (S). Ein Klick legt aus einem bestätigten Finding ein Issue mit Schritten, Erwartung und Screenshot an.
+- [x] **Finding → GitHub-Issue** (S). Ein Klick legt aus einem bestätigten Finding ein Issue mit Schritten, Erwartung und Screenshot an.
 - [ ] **Testdaten aufräumen** (S). Liste der angelegten `claudio-<runId>-…`-Datensätze pro Lauf mit „erledigt“-Haken, optional ein Aufräum-Lauf.
-- [ ] **Bot-Identität über eine GitHub App** (M). Kommentare und Webhook-Läufe unabhängig vom Token einer Person.
-- [ ] **Kostendeckel** (S). Monatsbudget pro Repo mit Warnung und Stopp.
+- [x] **Bot-Identität über eine GitHub App** (M). Kommentare und Webhook-Läufe unabhängig vom Token einer Person.
+- [x] **Kostendeckel** (S). Monatsbudget pro Repo mit Warnung und Stopp.
 
 ## Claudio klüger machen
 
@@ -27,4 +27,4 @@ Aufwand grob: S (Tage), M (ein bis zwei Wochen), L (mehr).
 - [ ] **Tests aus der Analyse vorschlagen** (S). Die Analyse legt für die wichtigsten Kernflows Testbeschreibungen an, die eine Person freigibt.
 - [ ] **Lernen in beide Richtungen** (M). Auch bestätigte Findings auswerten; Qualitätsansicht „bestätigt vs. verworfen“ je Kategorie und Schweregrad; daraus Strenge und Prompt-Hinweise pro Repo kalibrieren.
 - [ ] **Flaky-Tests erkennen** (S). Fehlgeschlagenes Replay einmal wiederholen, Wiederholungsquote speichern; Judge-Schwelle aus der Historie kalibrieren statt fest 0,5.
-- [ ] **Rückfragen jenseits von CAPTCHAs** (S). `request_human_help` mit Benachrichtigung und Antwortfeld in der UI, damit der Agent bei unklaren Kriterien fragt statt „nicht testbar“ zu notieren.
+- [x] **Rückfragen jenseits von CAPTCHAs** (S). `request_human_help` mit Benachrichtigung und Antwortfeld in der UI, damit der Agent bei unklaren Kriterien fragt statt „nicht testbar“ zu notieren.

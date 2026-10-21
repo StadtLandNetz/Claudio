@@ -7,7 +7,13 @@ import type { BrowserAttachment } from "./driver.js";
  * and keystrokes, and resolves when they press "continue".
  */
 export type HumanOutcome = "resolved" | "cancelled" | "timeout";
-export type HumanBridge = { wait(reason: string): Promise<HumanOutcome> };
+/** What became of a question: an answer, or none (declined or nobody answered in time). */
+export type HumanAnswer = { outcome: HumanOutcome; answer: string | null };
+export type HumanBridge = {
+  wait(reason: string): Promise<HumanOutcome>;
+  /** Asks a person a question in the web UI (and Slack) and waits for the answer. */
+  ask?(question: string, opts: { context?: string; options?: string[] }): Promise<HumanAnswer>;
+};
 /** Created per run once the browser exists. */
 export type HumanBridgeFactory = (attachment: BrowserAttachment) => HumanBridge;
 

@@ -23,6 +23,7 @@ import {
   newRunId,
   nowIso,
   testProfile,
+  capBudget,
   type BudgetProfile,
   type JudgeVerdict,
   type KnowledgeBase,
@@ -42,6 +43,8 @@ import { describe, envWithout, mapStatus, modelEnv, writeKnowledgeFiles, type Ru
 import { createClaudioSdkServer } from "./sdk-tools.js";
 
 export type TestRunnerDeps = {
+  /** What is left of the repository's monthly budget (see RunnerDeps.remainingBudgetUsd). */
+  remainingBudgetUsd?: number | null;
   runsRoot?: string;
   projectRoot?: string;
   config: RepoConfig | null;
@@ -96,7 +99,7 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
   const store = new RunStore(runDir);
   const started = Date.now();
   const errors: string[] = [];
-  const profile = testProfile(request.budget);
+  const profile = capBudget(testProfile(request.budget), deps.remainingBudgetUsd);
   const abortController = deps.abortController ?? new AbortController();
   log(`run ${runId} → ${runDir}`);
   deps.onRunStarted?.({ runId, runDir });
@@ -108,7 +111,7 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
     runDir,
     instanceUrl: request.instanceUrl,
     headed: request.headed,
-    viewport: { width: 1280, height: 800 },
+    device: request.viewport,
     language: request.language,
   });
   const attachment = session.attachment;

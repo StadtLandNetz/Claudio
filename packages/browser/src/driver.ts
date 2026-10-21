@@ -1,3 +1,5 @@
+import type { Viewport } from "@claudio/core";
+import type { ViewportEmulation } from "./viewport.js";
 import type { Browser, BrowserContext, Page } from "playwright";
 import type { DriverName } from "@claudio/core";
 import type { CaptureBuffer } from "./capture.js";
@@ -19,6 +21,8 @@ export type BrowserAttachment = {
   cdpEndpoint: string;
   /** The page the agent most recently interacted with (best effort: last page in the context). */
   activePage(): Page | undefined;
+  /** Desktop or phone emulation of all pages. */
+  viewport?: ViewportEmulation;
 };
 
 export type DriverSession = {
@@ -42,7 +46,10 @@ export type DriverStartOptions = {
   headed: boolean;
   /** Explicit Chromium binary; defaults to Playwright's bundled browser or CLAUDIO_CHROMIUM_PATH. */
   chromiumPath?: string;
+  /** @deprecated use `device`; kept for callers that set a custom desktop size. */
   viewport?: { width: number; height: number };
+  /** Desktop (default) or phone emulation. */
+  device?: Viewport;
   language?: "de" | "en";
 };
 

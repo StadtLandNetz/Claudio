@@ -12,6 +12,7 @@ import { devFixtures } from '#lib/server/env.js';
 import { getPull, githubErrorMessage } from '#lib/server/github.js';
 import { createGithubClient } from '@claudio/github';
 import { serverI18n, type I18n } from '#lib/i18n/index.js';
+import { budgetBlocks, runsPerViewport, viewportsOf } from '#lib/server/runs.js';
 import type { Actions, PageServerLoad } from './$types';
 
 async function context(url: URL, user: App.Locals['user'], t: I18n['t']) {
@@ -81,6 +82,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const instance = await suggestedInstance(ctx, locals.user, t);
 	const [tests, previous] = await Promise.all([listTestScripts(db(), repo.id).then((all) => all.filter((t) => t.runInReviews)), previousOf(repo.id, prNumber)]);
 	return {
+		budgetBlocked: await budgetBlocks(repo, t),
 		previous,
 		reviewTests: tests.map((t) => t.name),
 		repo: repo.fullName,
@@ -109,6 +111,8 @@ export const actions: Actions = {
 		const { t } = serverI18n(locals.locale);
 		const { repo, prNumber, pr, fixture } = await context(url, locals.user, t);
 		if (!pr) return fail(400, { error: t('review.prLoadFailed') });
+		const blocked = await budgetBlocks(repo, t);
+		if (blocked) return fail(400, { error: blocked });
 		const f = await request.formData();
 		const parsed = ReviewRequestSchema.safeParse({
 			repo: repo.fullName,
@@ -124,6 +128,7 @@ export const actions: Actions = {
 			cloneRepo: !fixture,
 			extraInstructions: String(f.get('extraInstructions') ?? '').trim() || undefined,
 			criteria: criteriaOf(f),
+			viewports: viewportsOf(f),
 			followUpOf: f.get('followUp') === 'on' ? (await previousOf(repo.id, prNumber))?.id : undefined
 		});
 		if (!parsed.success) {
@@ -144,13 +149,14 @@ export const actions: Actions = {
 			const tests = (await listTestScripts(db(), repo.id)).filter((t) => t.runInReviews);
 			await createTestRuns(
 				db(),
-				tests.map((t) => ({
+				runsPerViewport(tests.map((t) => ({
 					scriptId: t.id,
 					repoId: repo.id,
 					reviewId: id,
 					request: { repo: repo.fullName, instanceUrl: parsed.data.instanceUrl, budget: 'quick' as const, language: parsed.data.language, headed: false, rerecord: false },
-					startedBy: locals.user!.id
-				}))
+					startedBy: locals.user!.id,
+					viewports: t.viewports?.length ? t.viewports : ['desktop']
+				})))
 			);
 		}
 		redirect(303, `/reviews/${id}`);

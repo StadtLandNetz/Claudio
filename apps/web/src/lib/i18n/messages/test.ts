@@ -113,7 +113,10 @@ export const de = {
 	instance: 'Instanz',
 	partOf: 'Teil von',
 	reviewNumber: 'Review #{id}',
-	finalPage: 'Endseite'
+	finalPage: 'Endseite',
+	viewportsHint: 'Mit beiden Haken läuft der Test zweimal. Aufgezeichnet und repariert wird der Desktop-Ablauf; der Smartphone-Lauf prüft ihn.',
+	tagMobile: 'Smartphone',
+	tagBothViewports: 'Desktop und Smartphone',
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
@@ -229,5 +232,8 @@ export const en: Translation<typeof de> = {
 	instance: 'Instance',
 	partOf: 'Part of',
 	reviewNumber: 'Review #{id}',
-	finalPage: 'Final page'
+	finalPage: 'Final page',
+	viewportsHint: 'With both ticked the test runs twice. The desktop flow is the one recorded and repaired; the phone run checks it.',
+	tagMobile: 'Phone',
+	tagBothViewports: 'Desktop and phone',
 };

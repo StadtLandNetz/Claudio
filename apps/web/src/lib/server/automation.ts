@@ -15,6 +15,7 @@ import {
 	type Repo
 } from '@claudio/db';
 import {
+	botClient,
 	createGithubClient,
 	decideTrigger,
 	findPreviewDeployment,
@@ -28,6 +29,7 @@ import {
 } from '@claudio/github';
 import { DEFAULT_LOCALE, isLocale, serverI18n, type Locale } from '#lib/i18n/index.js';
 import { keyOptional } from './anthropic.js';
+import { budgetBlocks, runsPerViewport } from './runs.js';
 import { db } from './db.js';
 import { DEMO_FIXTURE, DEMO_REPO } from './demo.js';
 import { devFixtures } from './env.js';
@@ -49,7 +51,8 @@ export const DEFAULT_AUTO_REVIEW: AutoReviewDefaults = {
 	strictness: 'normal',
 	postComment: true,
 	runTests: true,
-	followUp: true
+	followUp: true,
+	viewports: ['desktop']
 };
 
 export type EventResult = {
@@ -114,7 +117,9 @@ async function handleDecision(repo: Repo, settings: AutomationSettings, decision
 	const fixture = repo.fullName === DEMO_REPO && devFixtures() ? DEMO_FIXTURE : null;
 	const { token, userId, locale } = await automationUser(repo);
 	const { t } = serverI18n(locale);
-	const github = token && !fixture ? createGithubClient(token) : null;
+	// Claudio's own identity (GitHub App) when installed; otherwise the token of the person who set up the automation.
+	const bot = fixture ? null : await botClient(repo.fullName).catch(() => null);
+	const github = bot ?? (token && !fixture ? createGithubClient(token) : null);
 
 	// Every model call of this repo runs on its own key; without one, nothing starts.
 	if (!repo.anthropicKeyEnc && !keyOptional(repo)) {
@@ -134,6 +139,13 @@ async function handleDecision(repo: Repo, settings: AutomationSettings, decision
 	}
 
 	if (!repo.dataConfirmed) return { action: 'ignored', reason: 'the repository is not cleared for reviews (test data confirmation missing)', notice: t('system.notCleared') };
+	const blocked = await budgetBlocks(repo, t);
+	if (blocked) {
+		if (github && decision.kind === 'review' && decision.trigger === 'comment') {
+			await postPullRequestComment(github, repo.fullName, decision.prNumber, t('system.cannotReview', { reason: blocked })).catch(() => undefined);
+		}
+		return { action: 'ignored', reason: 'monthly budget used up', notice: blocked, prNumber: decision.kind === 'review' ? decision.prNumber : undefined };
+	}
 
 	// A review instance finished deploying: review the open PR it belongs to.
 	if (decision.kind === 'deployment') {
@@ -251,7 +263,8 @@ async function queueReview(
 		// The report, the PR comment and the commit status follow the language of the person the run acts for.
 		language: locale,
 		cloneRepo: !fixture,
-		followUpOf: previous?.id
+		followUpOf: previous?.id,
+		viewports: defaults.viewports?.length ? defaults.viewports : ['desktop']
 	});
 	if (!parsed.success) return { action: 'ignored', reason: `invalid review request: ${parsed.error.issues[0]?.message}` };
 
@@ -270,13 +283,14 @@ async function queueReview(
 		const tests = (await listTestScripts(db(), repo.id)).filter((t) => t.runInReviews);
 		await createTestRuns(
 			db(),
-			tests.map((t) => ({
+			runsPerViewport(tests.map((t) => ({
 				scriptId: t.id,
 				repoId: repo.id,
 				reviewId: id,
 				request: { repo: repo.fullName, instanceUrl, budget: 'quick' as const, language: parsed.data.language, headed: false, rerecord: false },
-				startedBy: userId
-			}))
+				startedBy: userId,
+				viewports: t.viewports?.length ? t.viewports : ['desktop']
+			})))
 		);
 	}
 

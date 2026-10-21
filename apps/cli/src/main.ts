@@ -40,6 +40,8 @@ program
   .option("--no-clone", "Skip cloning the PR branch for code analysis")
   .option("--model <id>", "Override the orchestrator model")
   .option("--instructions <text>", "Extra instructions for this run")
+  .option("--mobile", "Also check the changed screens on a phone (desktop first)", false)
+  .option("--mobile-only", "Review on a phone only", false)
   .option("--pr-context <path>", "Use a PullRequestContext JSON file instead of GitHub (offline runs)")
   .option("--repo-dir <path>", "Use an existing checkout instead of cloning the PR branch")
   .option("--config <path>", "Path to claudio.config.json", "claudio.config.json")
@@ -66,6 +68,7 @@ program
         cloneRepo: opts.clone,
         modelOverride: opts.model,
         extraInstructions: opts.instructions,
+        viewports: opts.mobileOnly ? ["mobile"] : opts.mobile ? ["desktop", "mobile"] : ["desktop"],
       },
       {
         runsRoot: resolve(opts.runs),

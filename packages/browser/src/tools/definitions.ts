@@ -33,6 +33,8 @@ export type ToolContext = {
   onLearning?: (text: string) => void;
   /** Re-review: the open findings of the earlier review. Enables recheck_finding. */
   followUp?: { reviewId: number; findings: Finding[] };
+  /** The viewports this run checks. With more than one, set_viewport switches between them. */
+  viewports?: ("desktop" | "mobile")[];
 };
 
 /** A tool definition that both the Agent SDK adapter and the stdio MCP server can consume. */
@@ -101,7 +103,8 @@ export function createClaudioTools(ctx: ToolContext): ClaudioTool<any>[] {
       }
       const file = join(store.evidenceDir, `${id}-${safe}.png`);
       await page.screenshot({ path: file, fullPage: false });
-      store.addEvidence({ id, kind: "screenshot", label, path: relative(ctx.runDir, file), note, pageUrl: page.url() });
+      const viewport = ctx.attachment?.viewport?.current();
+      store.addEvidence({ id, kind: "screenshot", label, path: relative(ctx.runDir, file), note, pageUrl: page.url(), ...(viewport === "mobile" ? { viewport } : {}) });
       return `Evidence ${id} captured: ${relative(ctx.runDir, file)} (${page.url()}).`;
     },
   });
@@ -248,9 +251,28 @@ export function createClaudioTools(ctx: ToolContext): ClaudioTool<any>[] {
   const tools: ClaudioTool<any>[] = [loginAs, captureEvidence, getConsole, getNetwork, reportFinding, recordAc, note, todoAdd, todoNext, todoDone];
   if (ctx.knowledgeDir) tools.push(writeKnowledgeTool(ctx.knowledgeDir));
   if (ctx.human) tools.push(humanHelpTool(ctx.human, ctx.attachment));
+  if (ctx.human?.ask) tools.push(askHumanTool(ctx.human, store));
   if (ctx.onLearning) tools.push(rememberLearningTool(ctx.onLearning));
   if (ctx.followUp?.findings.length) tools.push(recheckFindingTool(store, ctx.followUp));
+  if (ctx.attachment?.viewport && (ctx.viewports?.length ?? 0) > 1) tools.push(setViewportTool(ctx));
   return tools;
+}
+
+/** Switches the browser between desktop and phone emulation (reviews that check both). */
+export function setViewportTool(ctx: ToolContext): ClaudioTool<any> {
+  return def({
+    name: "set_viewport",
+    description:
+      "Switch the browser between the desktop viewport (1280×800) and a phone (390×844, touch, mobile user agent). Reload the page after switching, then take a fresh snapshot. Mention the viewport in findings that only occur on one of them.",
+    schema: { viewport: z.enum(["desktop", "mobile"]) },
+    handler: async ({ viewport }) => {
+      const emulation = ctx.attachment?.viewport;
+      if (!emulation) return "This browser cannot switch viewports.";
+      await emulation.set(viewport);
+      ctx.store.addNote(`viewport: ${viewport}`);
+      return `Viewport is now ${viewport}. Reload the page (browser_navigate to the current URL) and snapshot again.`;
+    },
+  });
 }
 
 /**
@@ -319,6 +341,38 @@ export function rememberLearningTool(onLearning: (text: string) => void): Claudi
  * Pauses the run until a person has dealt with something only a person may
  * handle: a CAPTCHA or bot check. The agent never solves those itself.
  */
+/** At most this many questions per run: a run that keeps asking should rather record what is unclear. */
+const MAX_QUESTIONS = 3;
+
+/**
+ * Lets the agent ask a person when the ticket leaves something open that changes
+ * the result (what a criterion means, which data to use, whether a behaviour is
+ * intended), instead of guessing or recording "not testable".
+ */
+export function askHumanTool(human: HumanBridge, store: RunStore): ClaudioTool<any> {
+  let asked = 0;
+  return def({
+    name: "ask_human",
+    description: `Ask a person a short question and wait for the answer (they get it in the web UI and in Slack). Use it when the ticket, the PR and the knowledge base leave open something that decides the result: what an acceptance criterion means, which data or role to use, whether a behaviour is intended. Do not ask what you can find out yourself, and not about CAPTCHAs (request_human_help). Offer two to four likely answers in options. At most ${MAX_QUESTIONS} questions per run.`,
+    schema: {
+      question: z.string().max(400).describe("One question, answerable in a sentence, in the report language"),
+      context: z.string().max(1200).optional().describe("What you found so far and why it matters for the result"),
+      options: z.array(z.string().max(160)).max(4).optional().describe("Likely answers the person can pick"),
+    },
+    handler: async ({ question, context, options }) => {
+      if (!human.ask) return "Asking is not available in this run. Decide yourself and record your assumption with note.";
+      if (asked >= MAX_QUESTIONS) return `You already asked ${MAX_QUESTIONS} questions. Decide yourself and record your assumption with note.`;
+      asked++;
+      const { outcome, answer } = await human.ask(question, { context, options });
+      store.addNote(`Frage an einen Menschen: ${question} → ${answer ? `Antwort: ${answer}` : outcome === "timeout" ? "keine Antwort (Zeit abgelaufen)" : "nicht beantwortet"}`);
+      if (answer) return `Answer from a person: ${answer}\nFollow it, and mention in the notes of the affected criterion that it is based on this answer.`;
+      return outcome === "timeout"
+        ? "Nobody answered in time. Decide yourself with the most plausible reading, say so in the criterion's notes, and continue."
+        : "The person did not answer the question. Decide yourself with the most plausible reading, say so in the criterion's notes, and continue.";
+    },
+  });
+}
+
 export function humanHelpTool(human: HumanBridge, attachment: BrowserAttachment | null): ClaudioTool<any> {
   return def({
     name: "request_human_help",

@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import KnowledgeView from '#lib/components/KnowledgeView.svelte';
 	import LiveLog from '#lib/components/LiveLog.svelte';
+	import AgentQuestion from '#lib/components/AgentQuestion.svelte';
 	import HumanTakeover from '#lib/components/HumanTakeover.svelte';
 	import LiveView from '#lib/components/LiveView.svelte';
 	import Severity from '#lib/components/Severity.svelte';
@@ -55,7 +56,10 @@
 			</p>
 		{/if}
 
-		{#if active && data.human}
+		{#if active && data.human?.kind === 'question'}
+			<AgentQuestion requestId={data.human.id} question={data.human.reason} context={data.human.context} options={data.human.options} />
+			<LiveView src="/analyses/{data.analysis.id}/live" url={a.instanceUrl} />
+		{:else if active && data.human}
 			<HumanTakeover src="/analyses/{data.analysis.id}/live" requestId={data.human.id} reason={data.human.reason} url={a.instanceUrl} />
 		{:else if active}
 			<LiveView src="/analyses/{data.analysis.id}/live" url={a.instanceUrl} />

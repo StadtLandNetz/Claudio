@@ -52,6 +52,7 @@ export const de = {
 	colTests: 'Tests',
 	colTotal: 'Summe',
 	runsHint: 'Die kleine Zahl neben einem Betrag ist die Anzahl der Läufe.',
+	budgetsTitle: 'Monatsbudgets',
 
 	// repos
 	reposTitle: 'Repositories · Claudio',
@@ -177,7 +178,15 @@ export const de = {
 	traceDismissed: 'Verworfen',
 	traceToReport: 'Im Bericht',
 	traceNow: 'An dieser Stelle',
-	traceNoMarkerYet: 'Bis hierher noch kein Finding, Kriterium oder keine Notiz.'
+	traceNoMarkerYet: 'Bis hierher noch kein Finding, Kriterium oder keine Notiz.',
+	agentAsks: 'Claudio hat eine Frage',
+	agentAsksHint: 'Der Lauf wartet auf deine Antwort.',
+	ownAnswer: 'Eigene Antwort',
+	ownAnswerPlaceholder: 'Kurz und konkret, z. B. „Ja, das Fahrzeug ist Pflicht.“',
+	sendAnswer: 'Antworten',
+	skipQuestion: 'Nicht beantworten, Claudio entscheidet',
+	answerFailed: 'Die Antwort kam nicht an. Bitte noch einmal versuchen.',
+	answerMissing: 'Bitte eine Antwort eingeben.',
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
@@ -229,6 +238,7 @@ export const en: Translation<typeof de> = {
 	colTests: 'Tests',
 	colTotal: 'Total',
 	runsHint: 'The small number next to an amount is the number of runs.',
+	budgetsTitle: 'Monthly budgets',
 
 	reposTitle: 'Repositories · Claudio',
 	repositories: 'Repositories',
@@ -344,5 +354,13 @@ export const en: Translation<typeof de> = {
 	traceDismissed: 'Dismissed',
 	traceToReport: 'In the report',
 	traceNow: 'At this point',
-	traceNoMarkerYet: 'No finding, criterion or note up to this point.'
+	traceNoMarkerYet: 'No finding, criterion or note up to this point.',
+	agentAsks: 'Claudio has a question',
+	agentAsksHint: 'The run waits for your answer.',
+	ownAnswer: 'Your own answer',
+	ownAnswerPlaceholder: 'Short and concrete, e.g. “Yes, the vehicle is required.”',
+	sendAnswer: 'Answer',
+	skipQuestion: 'Skip, let Claudio decide',
+	answerFailed: 'The answer did not arrive. Please try again.',
+	answerMissing: 'Please enter an answer.',
 };

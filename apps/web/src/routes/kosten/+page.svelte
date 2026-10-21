@@ -21,6 +21,20 @@
 	<p class="muted">{i.t('common.noRuns')}</p>
 {:else}
 	<p class="year">{i.t('common.yearTotal')} <strong>{i.formatUsd(data.yearTotal)}</strong></p>
+	{#if data.budgets.length}
+		<section class="budgets">
+			<h2>{i.t('common.budgetsTitle')}</h2>
+			<ul class="sheet">
+				{#each data.budgets as b (b.repo)}
+					<li class:warn={b.ratio >= 0.8} class:over={b.exhausted}>
+						<a href="/repos/{b.repo}?tab=settings#budget">{b.repo}</a>
+						<span class="bar" aria-hidden="true"><span style:width="{Math.min(100, Math.round(b.ratio * 100))}%"></span></span>
+						<span class="num">{i.formatUsd(b.spent)} / {i.formatUsd(b.limit)}</span>
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
 	{#each data.months as m (m.month)}
 		<section class="month">
 			<h2>{monthName(m.month)} <span class="sum">{i.formatUsd(m.total)}</span> <span class="faint">{i.t('common.runCount', { n: m.runs })}</span></h2>
@@ -48,6 +62,49 @@
 {/if}
 
 <style>
+	.budgets {
+		display: grid;
+		gap: 0.5rem;
+		margin-bottom: 1.75rem;
+		max-width: 46rem;
+	}
+	.budgets ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.budgets li {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 10rem auto;
+		gap: 0.75rem;
+		align-items: center;
+		padding: 0.5rem 0.75rem;
+		border-bottom: 1px solid var(--rule);
+	}
+	.budgets li:last-child {
+		border-bottom: 0;
+	}
+	.bar {
+		height: 0.4rem;
+		border-radius: 99px;
+		background: var(--sunken);
+		overflow: hidden;
+	}
+	.bar span {
+		display: block;
+		height: 100%;
+		background: var(--pass);
+	}
+	.warn .bar span {
+		background: var(--major);
+	}
+	.over .bar span {
+		background: var(--block);
+	}
+	.over .num {
+		color: var(--block);
+		font-weight: 500;
+	}
 	/* Amounts are emphasised by weight 500, never bold */
 	strong {
 		font-weight: 500;

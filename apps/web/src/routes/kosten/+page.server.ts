@@ -1,4 +1,4 @@
-import { costSummary } from '@claudio/db';
+import { budgetState, costSummary } from '@claudio/db';
 import { visibleRepos } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import type { PageServerLoad } from './$types';
@@ -7,7 +7,12 @@ type Cell = { runs: number; usd: number };
 type RepoRow = { repo: string; review: Cell; analysis: Cell; test: Cell; total: number };
 
 export const load: PageServerLoad = async ({ locals }) => {
-	const visible = new Set((await visibleRepos(locals.user!)).repos.map((r) => r.fullName));
+	const { repos: visibleList } = await visibleRepos(locals.user!);
+	const visible = new Set(visibleList.map((r) => r.fullName));
+	// Repositories with a monthly cap: how much of it this month has used.
+	const budgets = (
+		await Promise.all(visibleList.filter((r) => r.monthlyBudgetUsd).map(async (r) => ({ repo: r.fullName, ...(await budgetState(db(), r)) })))
+	).filter((b) => b.limit !== null);
 	const since = new Date();
 	since.setMonth(since.getMonth() - 11, 1);
 	since.setHours(0, 0, 0, 0);
@@ -29,5 +34,5 @@ export const load: PageServerLoad = async ({ locals }) => {
 			const list = [...repos.values()].sort((a, b) => b.total - a.total);
 			return { month, repos: list, total: list.reduce((n, r) => n + r.total, 0), runs: list.reduce((n, r) => n + r.review.runs + r.analysis.runs + r.test.runs, 0) };
 		});
-	return { months: result, yearTotal: result.reduce((n, m) => n + m.total, 0) };
+	return { months: result, yearTotal: result.reduce((n, m) => n + m.total, 0), budgets };
 };
