@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { i18n } from '#lib/i18n/index.js';
+	import { tooltip } from '#lib/tooltip.js';
 
 	const i = i18n();
 
@@ -12,12 +13,15 @@
 <!-- Styled by .status and .dot in app.css -->
 <span class="status">
 	<span class="dot {tone}" aria-hidden="true"></span>
-	{label}{#if healed && !live}<span class="healed" title={i.t('test.healedTitle')}>{i.t('test.healedSuffix')}</span>{/if}
+	{label}{#if healed && !live}<span class="healed" use:tooltip={i.t('test.healedHelp')}>{i.t('test.healedSuffix')}</span>{/if}
 </span>
 
 <style>
 	.healed {
 		font-weight: 400;
 		color: var(--ink-3);
+		cursor: help;
+		text-decoration: underline dotted color-mix(in srgb, var(--ink-3) 60%, transparent);
+		text-underline-offset: 0.2em;
 	}
 </style>

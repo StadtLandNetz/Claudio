@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageNav, { type Section } from '#lib/components/PageNav.svelte';
 	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
 
@@ -6,6 +7,10 @@
 	const i = i18n();
 	const monthName = (m: string) => new Intl.DateTimeFormat(i.locale === 'en' ? 'en-GB' : 'de-DE', { month: 'long', year: 'numeric' }).format(new Date(`${m}-01T12:00:00`));
 	const cell = (c: { runs: number; usd: number }) => (c.runs ? i.formatUsd(c.usd) : '–');
+	const sections = $derived<Section[]>([
+		...(data.budgets.length ? [{ id: 'budgets', label: i.t('common.budgetsTitle') }] : []),
+		...data.months.map((m) => ({ id: `m-${m.month}`, label: monthName(m.month), count: i.formatUsd(m.total) }))
+	]);
 </script>
 
 <svelte:head><title>{i.t('common.costsTitle')}</title></svelte:head>
@@ -17,12 +22,14 @@
 	</div>
 </div>
 
+{#if data.months.length}<PageNav title={i.t('common.costs')} {sections} />{/if}
+
 {#if data.months.length === 0}
 	<p class="muted">{i.t('common.noRuns')}</p>
 {:else}
 	<p class="year">{i.t('common.yearTotal')} <strong>{i.formatUsd(data.yearTotal)}</strong></p>
 	{#if data.budgets.length}
-		<section class="budgets">
+		<section class="budgets" id="budgets">
 			<h2>{i.t('common.budgetsTitle')}</h2>
 			<ul class="sheet">
 				{#each data.budgets as b (b.repo)}
@@ -36,7 +43,7 @@
 		</section>
 	{/if}
 	{#each data.months as m (m.month)}
-		<section class="month">
+		<section class="month" id="m-{m.month}">
 			<h2>{monthName(m.month)} <span class="sum">{i.formatUsd(m.total)}</span> <span class="faint">{i.t('common.runCount', { n: m.runs })}</span></h2>
 			<div class="sheet table">
 				<table class="list">

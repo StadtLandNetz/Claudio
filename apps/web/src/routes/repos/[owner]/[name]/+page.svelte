@@ -5,6 +5,7 @@
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import KnowledgeView from '#lib/components/KnowledgeView.svelte';
 	import Modal from '#lib/components/Modal.svelte';
+	import PageNav, { type Section } from '#lib/components/PageNav.svelte';
 	import ViewportChoice from '#lib/components/ViewportChoice.svelte';
 	import ReviewTable from '#lib/components/ReviewTable.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
@@ -46,6 +47,30 @@
 	let createOpen = $state(!!formError('createTest'));
 	let createError = $state<string | null>(formError('createTest'));
 	let creating = $state(false);
+
+	// The sticky header links to the parts of the long tabs.
+	const sections = $derived.by((): Section[] => {
+		if (data.tab === 'settings' && isAdmin) {
+			return [
+				{ id: 'budget', label: i.t('repo.navBudget') },
+				{ id: 'anthropic', label: i.t('repo.navKey'), tone: hasKey ? undefined : 'major', count: hasKey ? undefined : '!' },
+				{ id: 'general', label: i.t('repo.generalTitle') },
+				{ id: 'automation', label: i.t('repo.automationTitle') },
+				...(data.slack ? [{ id: 'slack', label: i.t('repo.slackTitle') }] : []),
+				{ id: 'roles', label: i.t('repo.roles'), count: data.roles.length || '!', tone: data.roles.length ? undefined : ('major' as const) },
+				{ id: 'erfahrungen', label: i.t('repo.navLearnings'), count: data.learnings.length || undefined },
+				{ id: 'lessons', label: i.t('repo.navLessons'), count: data.lessons.length || undefined },
+				{ id: 'remove', label: i.t('repo.removeTitle') }
+			];
+		}
+		if (data.tab === 'knowledge') {
+			const out: Section[] = [{ id: 'kb', label: i.t('analysis.sectionDocs') }];
+			if (!runningAnalysis && canWrite) out.push({ id: 'analyze', label: data.knowledge ? i.t('repo.updateKb') : i.t('repo.startAnalysis') });
+			if (data.analyses.length) out.push({ id: 'history', label: i.t('repo.pastAnalyses'), count: data.analyses.length });
+			return out;
+		}
+		return [];
+	});
 </script>
 
 <svelte:head><title>{data.repo.fullName} · Claudio</title></svelte:head>
@@ -69,12 +94,13 @@
 	</p>
 {/if}
 
-<div class="tab-head">
+{#snippet tabHeading()}
 	<h2>{i.t(tabs.find((t) => t.id === data.tab)?.label ?? 'repo.tabPulls')}</h2>
-	{#if data.tab === 'tests' && canWrite}
-		<button type="button" class="btn primary small" onclick={() => (createOpen = true)}>{i.t('repo.newTest')}</button>
-	{/if}
-</div>
+{/snippet}
+{#snippet newTestAction()}
+	<button type="button" class="btn primary small" onclick={() => (createOpen = true)}>{i.t('repo.newTest')}</button>
+{/snippet}
+<PageNav title={data.repo.fullName} heading={tabHeading} {sections} actions={data.tab === 'tests' && canWrite ? newTestAction : undefined} />
 
 {#if data.tab === 'pulls'}
 	{#if !canWrite}
@@ -276,7 +302,7 @@
 	{/if}
 
 	{#if data.knowledge}
-		<div class="kb-head">
+		<div class="kb-head" id="kb">
 			<p>
 				{i.t('repo.kbAsOf')} <code>{data.knowledge.commitSha.slice(0, 7)}</code>{data.knowledge.branch ? i.t('repo.kbOnBranch', { branch: data.knowledge.branch }) : ''},
 				{i.t('repo.kbAnalyzed', { date: i.formatDate(data.knowledge.analyzedAt), by: data.knowledge.startedBy ?? '' })}
@@ -294,7 +320,7 @@
 		<KnowledgeView docs={data.knowledge.docs} />
 		<p class="faint kb-use">{i.t('repo.kbUse')}</p>
 	{:else if !runningAnalysis}
-		<section class="empty-kb">
+		<section class="empty-kb" id="kb">
 			<h2>{i.t('repo.noKb')}</h2>
 			<p class="muted">{i.t('repo.noKbText')}</p>
 		</section>
@@ -302,11 +328,11 @@
 
 	{#if !runningAnalysis && canWrite}
 		{#if !ready}
-			<p class="notice">
+			<p class="notice" id="analyze">
 				{i.t('repo.analysisNeedsSetup')} <a href="?tab=settings">{i.t('repo.openSettings')}</a>
 			</p>
 		{:else}
-			<details class="sheet analyze" open={!data.knowledge || !!formError('analyze')}>
+			<details class="sheet analyze" id="analyze" open={!data.knowledge || !!formError('analyze')}>
 				<summary><strong>{data.knowledge ? i.t('repo.updateKb') : i.t('repo.startAnalysis')}</strong></summary>
 				<form method="POST" action="?tab=knowledge&/analyze" class="fields" onsubmit={() => (analyzing = true)}>
 					{#if formError('analyze')}<p class="notice error" role="alert">{formError('analyze')}</p>{/if}
@@ -349,7 +375,7 @@
 	{/if}
 
 	{#if data.analyses.length}
-		<section class="history">
+		<section class="history" id="history">
 			<h2>{i.t('repo.pastAnalyses')}</h2>
 			<div class="sheet table">
 				<table class="list">
@@ -464,7 +490,7 @@
 		</div>
 	</section>
 
-	<section class="part">
+	<section class="part" id="general">
 		<div class="intro">
 			<h2>{i.t('repo.generalTitle')}</h2>
 			<p class="muted">{i.t('repo.generalIntro')}</p>
@@ -500,7 +526,7 @@
 		</form>
 	</section>
 
-	<section class="part">
+	<section class="part" id="automation">
 		<div class="intro">
 			<h2>{i.t('repo.automationTitle')}</h2>
 			<p class="muted">{i.t('repo.automationIntro')}</p>
@@ -691,7 +717,7 @@
 		</section>
 	{/if}
 
-	<section class="part">
+	<section class="part" id="roles">
 		<div class="intro">
 			<h2>{i.t('repo.roles')}</h2>
 			<p class="muted">{i.t('repo.rolesIntro')}</p>
@@ -746,7 +772,7 @@
 		</div>
 	</section>
 
-	<section class="part">
+	<section class="part" id="lessons">
 		<div class="intro">
 			<h2>{i.t('repo.lessonsTitle')}</h2>
 			<p class="muted">{i.t('repo.lessonsIntro')}</p>
@@ -774,7 +800,7 @@
 		</div>
 	</section>
 
-	<section class="part">
+	<section class="part" id="remove">
 		<div class="intro">
 			<h2>{i.t('repo.removeTitle')}</h2>
 			<p class="muted">{i.t('repo.removeIntro')}</p>
@@ -836,16 +862,6 @@
 	.page-title {
 		align-items: center;
 		margin-bottom: 0.75rem;
-	}
-	.tab-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.75rem 1rem;
-		flex-wrap: wrap;
-		margin: 0 0 1rem;
-		padding-bottom: 0.6rem;
-		border-bottom: 1px solid var(--rule);
 	}
 	.notice {
 		margin-bottom: 1rem;

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageNav from '#lib/components/PageNav.svelte';
 	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
 
@@ -22,11 +23,19 @@
 	</div>
 </div>
 
+<PageNav
+	title={i.t('common.repositories')}
+	sections={[
+		{ id: 'eingerichtet', label: i.t('common.reposSetUp'), count: data.repos.length },
+		{ id: 'hinzufuegen', label: i.t('common.addFromGithub') }
+	]}
+/>
+
 {#if form?.error}
 	<p class="notice error" role="alert">{form.error}</p>
 {/if}
 
-<section class="block">
+<section class="block" id="eingerichtet">
 	<h2>{i.t('common.reposSetUp')}</h2>
 	{#if data.repos.length > 0}
 		<ul class="repos sheet">

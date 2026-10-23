@@ -6,6 +6,7 @@
 	import AgentQuestion from '#lib/components/AgentQuestion.svelte';
 	import HumanTakeover from '#lib/components/HumanTakeover.svelte';
 	import LiveView from '#lib/components/LiveView.svelte';
+	import PageNav, { type Section } from '#lib/components/PageNav.svelte';
 	import Severity from '#lib/components/Severity.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import { isActive } from '#lib/labels.js';
@@ -19,6 +20,19 @@
 	const a = $derived({ ...data.analysis, status: liveStatus ?? data.analysis.status });
 	const active = $derived(isActive(a.status));
 	const isUpdate = $derived(Boolean(a.previousCommitSha));
+
+	const showLog = $derived(isActive(data.analysis.status) || data.eventCount > 0);
+	const sections = $derived.by((): Section[] => {
+		const out: Section[] = [];
+		if (active) out.push({ id: 'live', label: i.t('common.sectionLive') });
+		if (showLog) out.push({ id: 'log', label: i.t('review.sectionLog') });
+		if (a.summaryHtml) out.push({ id: 'summary', label: i.t('analysis.summary') });
+		if (data.docs.length) out.push({ id: 'docs', label: i.t('analysis.sectionDocs'), count: data.docs.length });
+		if (data.findings.length) out.push({ id: 'findings', label: i.t('analysis.sectionFindings'), count: data.findings.length });
+		if (data.evidence.length) out.push({ id: 'screenshots', label: i.t('analysis.screenshots'), count: data.evidence.length });
+		if (a.errors.length) out.push({ id: 'problems', label: i.t('review.sectionProblems'), count: a.errors.length, tone: 'block' });
+		return out;
+	});
 </script>
 
 <svelte:head><title>{i.t('analysis.pageTitle', { repo: a.repo })}</title></svelte:head>
@@ -46,6 +60,8 @@
 	{/if}
 </div>
 
+<PageNav title={isUpdate ? i.t('analysis.titleUpdate') : i.t('analysis.titleAnalyse')} {sections} />
+
 <div class="layout">
 	<div class="main">
 		{#if active}
@@ -56,34 +72,40 @@
 			</p>
 		{/if}
 
-		{#if active && data.human?.kind === 'question'}
-			<AgentQuestion requestId={data.human.id} question={data.human.reason} context={data.human.context} options={data.human.options} />
-			<LiveView src="/analyses/{data.analysis.id}/live" url={a.instanceUrl} />
-		{:else if active && data.human}
-			<HumanTakeover src="/analyses/{data.analysis.id}/live" requestId={data.human.id} reason={data.human.reason} url={a.instanceUrl} />
-		{:else if active}
-			<LiveView src="/analyses/{data.analysis.id}/live" url={a.instanceUrl} />
+		{#if active}
+			<div class="stack" id="live">
+				{#if data.human?.kind === 'question'}
+					<AgentQuestion requestId={data.human.id} question={data.human.reason} context={data.human.context} options={data.human.options} />
+					<LiveView src="/analyses/{data.analysis.id}/live" url={a.instanceUrl} />
+				{:else if data.human}
+					<HumanTakeover src="/analyses/{data.analysis.id}/live" requestId={data.human.id} reason={data.human.reason} url={a.instanceUrl} />
+				{:else}
+					<LiveView src="/analyses/{data.analysis.id}/live" url={a.instanceUrl} />
+				{/if}
+			</div>
 		{/if}
 
-		{#if isActive(data.analysis.status) || data.eventCount > 0}
-			<LiveLog
-				streamUrl="/analyses/{data.analysis.id}/events"
-				count={data.eventCount}
-				active={isActive(data.analysis.status)}
-				onstatus={(s) => (liveStatus = s)}
-				online={(line) => /^Mensch (gebraucht|fertig):/.test(line) && invalidateAll()}
-			/>
+		{#if showLog}
+			<div id="log">
+				<LiveLog
+					streamUrl="/analyses/{data.analysis.id}/events"
+					count={data.eventCount}
+					active={isActive(data.analysis.status)}
+					onstatus={(s) => (liveStatus = s)}
+					online={(line) => /^Mensch (gebraucht|fertig):/.test(line) && invalidateAll()}
+				/>
+			</div>
 		{/if}
 
 		{#if a.summaryHtml}
-			<section class="block">
+			<section class="block" id="summary">
 				<h2>{i.t('analysis.summary')}</h2>
 				<div class="prose">{@html a.summaryHtml}</div>
 			</section>
 		{/if}
 
 		{#if data.docs.length}
-			<section class="block">
+			<section class="block" id="docs">
 				<h2>{i.t('analysis.docsFromRun')}</h2>
 				<KnowledgeView docs={data.docs} />
 			</section>
@@ -92,7 +114,7 @@
 		{/if}
 
 		{#if data.findings.length}
-			<section class="block">
+			<section class="block" id="findings">
 				<h2>{i.t('analysis.findings')}</h2>
 				<p class="muted">{i.t('analysis.findingsHint')}</p>
 				<ul class="findings sheet">
@@ -111,7 +133,7 @@
 		{/if}
 
 		{#if data.evidence.length}
-			<section class="block">
+			<section class="block" id="screenshots">
 				<h2>{i.t('analysis.screenshots')}</h2>
 				<div class="shots">
 					{#each data.evidence as ev (ev.id)}
@@ -132,7 +154,7 @@
 		{/if}
 
 		{#if a.errors.length}
-			<section class="block">
+			<section class="block" id="problems">
 				<h2>{i.t('analysis.runProblems')}</h2>
 				<ul class="errors">
 					{#each a.errors as err, n (n)}<li>{err}</li>{/each}
@@ -251,9 +273,13 @@
 	}
 
 	/* Meta column */
+	.stack {
+		display: grid;
+		gap: 1rem;
+	}
 	.meta {
 		position: sticky;
-		top: 1.5rem;
+		top: calc(var(--head-h) + 1.5rem);
 		display: grid;
 		gap: 1rem;
 	}

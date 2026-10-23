@@ -9,11 +9,14 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import LiveView from '#lib/components/LiveView.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
+	import PageNav, { type Section } from '#lib/components/PageNav.svelte';
 	import Severity from '#lib/components/Severity.svelte';
 	import TraceTimeline, { type Marker } from '#lib/components/TraceTimeline.svelte';
 	import { page } from '$app/state';
 	import { i18n } from '#lib/i18n/index.js';
 	import { isActive } from '#lib/labels.js';
+	import { tooltip } from '#lib/tooltip.js';
+	import { tick } from 'svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -62,6 +65,38 @@
 		secure = window.isSecureContext;
 	});
 	const viewerHref = $derived(hasTrace && secure && data.viewerAvailable && r?.traceUrl ? `/trace-viewer/index.html?trace=${encodeURIComponent(new URL(r.traceUrl, page.url.origin).href)}` : null);
+
+	// ---- steps: the first ones, all of them, or only those that failed or were repaired
+	const STEP_PREVIEW = 20;
+	let warningsOnly = $state(false);
+	let stepsExpanded = $state(false);
+	const steps = $derived(r?.steps ?? []);
+	const warnSteps = $derived(steps.filter((s) => !s.ok || s.healed || s.error));
+	const shownSteps = $derived(warningsOnly ? warnSteps : stepsExpanded ? steps : steps.slice(0, STEP_PREVIEW));
+	function collapseSteps() {
+		stepsExpanded = false;
+		tick().then(() => {
+			const el = document.getElementById('steps');
+			if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'start' });
+		});
+	}
+
+	// ---- the sections the sticky header links to, in page order
+	const showLog = $derived(isActive(data.run.status) || data.eventCount > 0);
+	const sections = $derived.by((): Section[] => {
+		const out: Section[] = [];
+		if (r?.timeline) out.push({ id: 'trace', label: i.t('review.sectionTrace') });
+		if (active) out.push({ id: 'live', label: i.t('common.sectionLive') });
+		if (showLog) out.push({ id: 'log', label: i.t('review.sectionLog') });
+		if (!r) return out;
+		if (r.judge) out.push({ id: 'judge', label: i.t('test.sectionJudge'), tone: r.judge.passed ? 'pass' : 'block', count: r.judge.passed ? '✓' : '✗' });
+		const failed = steps.filter((s) => !s.ok).length;
+		out.push({ id: 'steps', label: i.t('test.steps'), count: `${steps.length - failed}/${steps.length}`, tone: failed ? 'block' : warnSteps.length ? 'major' : 'pass' });
+		if (r.findings.length) out.push({ id: 'findings', label: i.t('test.findings'), count: r.findings.length, tone: 'major' });
+		if (r.evidence.length) out.push({ id: 'screenshots', label: i.t('test.screenshots'), count: r.evidence.length });
+		if (r.errors.length) out.push({ id: 'problems', label: i.t('test.sectionProblems'), count: r.errors.length, tone: 'block' });
+		return out;
+	});
 </script>
 
 <svelte:head><title>{i.t('test.runPageTitle', { name: run.scriptName })}</title></svelte:head>
@@ -79,6 +114,8 @@
 		</form>
 	{/if}
 </div>
+
+<PageNav title={i.t('test.runHeading', { name: run.scriptName })} {sections} />
 
 {#if r && !active}
 	<!-- The outcome: the one loud element on the page. -->
@@ -103,25 +140,31 @@
 <div class="layout">
 	<div class="main">
 		{#if r?.timeline}
-			<TraceTimeline bind:this={timeline} runId={r.runId} {markers} viewerUrl={viewerHref} downloadUrl={r.traceUrl} onopen={openMarker} />
+			<TraceTimeline bind:this={timeline} id="trace" runId={r.runId} {markers} viewerUrl={viewerHref} downloadUrl={r.traceUrl} onopen={openMarker} />
 		{/if}
 
-		{#if active && data.human?.kind === 'question'}
-			<AgentQuestion requestId={data.human.id} question={data.human.reason} context={data.human.context} options={data.human.options} />
-			<LiveView src="/test-runs/{data.run.id}/live" url={run.instanceUrl} />
-		{:else if active && data.human}
-			<HumanTakeover src="/test-runs/{data.run.id}/live" requestId={data.human.id} reason={data.human.reason} url={run.instanceUrl} />
-		{:else if active}
-			<LiveView src="/test-runs/{data.run.id}/live" url={run.instanceUrl} />
+		{#if active}
+			<div class="stack" id="live">
+				{#if data.human?.kind === 'question'}
+					<AgentQuestion requestId={data.human.id} question={data.human.reason} context={data.human.context} options={data.human.options} />
+					<LiveView src="/test-runs/{data.run.id}/live" url={run.instanceUrl} />
+				{:else if data.human}
+					<HumanTakeover src="/test-runs/{data.run.id}/live" requestId={data.human.id} reason={data.human.reason} url={run.instanceUrl} />
+				{:else}
+					<LiveView src="/test-runs/{data.run.id}/live" url={run.instanceUrl} />
+				{/if}
+			</div>
 		{/if}
-		{#if isActive(data.run.status) || data.eventCount > 0}
-			<LiveLog
-				streamUrl="/test-runs/{data.run.id}/events"
-				count={data.eventCount}
-				active={isActive(data.run.status)}
-				onstatus={(s) => (liveStatus = s)}
-				online={(line) => /^Mensch (gebraucht|fertig):/.test(line) && invalidateAll()}
-			/>
+		{#if showLog}
+			<div id="log">
+				<LiveLog
+					streamUrl="/test-runs/{data.run.id}/events"
+					count={data.eventCount}
+					active={isActive(data.run.status)}
+					onstatus={(s) => (liveStatus = s)}
+					online={(line) => /^Mensch (gebraucht|fertig):/.test(line) && invalidateAll()}
+				/>
+			</div>
 		{/if}
 
 		{#if r}
@@ -136,7 +179,7 @@
 			{/if}
 
 			{#if r.judge}
-				<section class="block">
+				<section class="block" id="judge">
 					<h2>{i.t('test.judgeHeading')}</h2>
 					<div class="sheet judge">
 						<p>
@@ -153,28 +196,55 @@
 				</section>
 			{/if}
 
-			<section class="block">
-				<h2>{i.t('test.steps')}</h2>
-				<ol class="steps sheet">
-					{#each r.steps as step (step.index)}
-						<li class:fail={!step.ok} class:assert={step.assertion}>
-							<span class="mark" aria-label={step.ok ? i.t('test.stepOk') : i.t('test.stepFailed')}><span class="dot {step.ok ? 'pass' : 'block'}" aria-hidden="true"></span></span>
-							<span class="txt">
-								{step.text}
-								{#if step.healed}<span class="tag">{i.t('test.healed')}</span>{/if}
-								{#if step.error}<span class="err">{step.error}</span>{/if}
-							</span>
-							<span class="ms faint">{step.durationMs} ms</span>
-						</li>
-					{/each}
-				</ol>
+			<section class="block" id="steps">
+				<div class="block-head">
+					<h2>{i.t('test.steps')}</h2>
+					{#if steps.length > STEP_PREVIEW || warnSteps.length}
+						<div class="chips" role="group" aria-label={i.t('test.steps')}>
+							<button type="button" class="chip-btn" aria-pressed={!warningsOnly} onclick={() => (warningsOnly = false)}>
+								{i.t('common.filterAll')} <span class="n">{steps.length}</span>
+							</button>
+							<button type="button" class="chip-btn" aria-pressed={warningsOnly} use:tooltip={i.t('test.stepsWarningsHelp')} onclick={() => (warningsOnly = true)}>
+								{i.t('common.onlyWarnings')} <span class="n">{warnSteps.length}</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+				{#if shownSteps.length}
+					<div class="sheet">
+						<ol class="steps">
+							{#each shownSteps as step (step.index)}
+								<li class:fail={!step.ok} class:assert={step.assertion}>
+									<span class="no">{step.index + 1}</span>
+									<span class="mark" aria-label={step.ok ? i.t('test.stepOk') : i.t('test.stepFailed')}><span class="dot {step.ok ? 'pass' : 'block'}" aria-hidden="true"></span></span>
+									<span class="txt">
+										{step.text}
+										<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+										{#if step.healed}<span class="tag healed" tabindex="0" use:tooltip={i.t('test.healedHelp')}>{i.t('test.healed')}</span>{/if}
+										{#if step.error}<span class="err">{step.error}</span>{/if}
+									</span>
+									<span class="ms faint">{step.durationMs} ms</span>
+								</li>
+							{/each}
+						</ol>
+						{#if !warningsOnly && steps.length > STEP_PREVIEW}
+							<div class="more-row">
+								<button type="button" aria-expanded={stepsExpanded} onclick={() => (stepsExpanded ? collapseSteps() : (stepsExpanded = true))}>
+									{stepsExpanded ? i.t('common.showLess') : i.t('common.showAll', { n: steps.length })}
+								</button>
+							</div>
+						{/if}
+					</div>
+				{:else}
+					<p class="muted">{i.t('test.noWarnings')}</p>
+				{/if}
 				{#if r.mode === 'record'}
 					<p class="faint">{i.t('test.discardedAttempts')}</p>
 				{/if}
 			</section>
 
 			{#if r.findings.length}
-				<section class="block">
+				<section class="block" id="findings">
 					<h2>{i.t('test.findings')}</h2>
 					<ul class="findings sheet">
 						{#each r.findings as f (f.id)}
@@ -186,8 +256,8 @@
 									<p>{f.description}</p>
 								</div>
 								{#if hasTrace}
-									<button type="button" class="btn ghost small jump" title={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: {f.id}" onclick={() => timeline?.jumpTo(anchorOf(f.evidenceIds, f.createdAt))}>
-										<Icon name="film" size={12} />
+									<button type="button" class="btn ghost small jump" use:tooltip={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: {f.id}" onclick={() => timeline?.jumpTo(anchorOf(f.evidenceIds, f.createdAt))}>
+										<Icon name="play" size={12} />
 									</button>
 								{/if}
 							</li>
@@ -197,14 +267,14 @@
 			{/if}
 
 			{#if r.evidence.length}
-				<section class="block">
+				<section class="block" id="screenshots">
 					<h2>{i.t('test.screenshots')}</h2>
 					<EvidenceThumbs items={r.evidence} layout="grid" onopen={openEv} onjump={hasTrace ? jumpEv : undefined} />
 				</section>
 			{/if}
 
 			{#if r.errors.length}
-				<section class="block">
+				<section class="block" id="problems">
 					<h2>{i.t('test.runProblems')}</h2>
 					<ul class="errors">{#each r.errors as e, i (i)}<li>{e}</li>{/each}</ul>
 				</section>
@@ -313,6 +383,17 @@
 		display: grid;
 		gap: 0.6rem;
 	}
+	.block-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.5rem 1rem;
+		flex-wrap: wrap;
+	}
+	.stack {
+		display: grid;
+		gap: 1rem;
+	}
 
 	.judge {
 		padding: 0.875rem 1rem;
@@ -332,7 +413,6 @@
 		list-style: none;
 		margin: 0;
 		padding: 0;
-		counter-reset: step;
 	}
 	.steps li {
 		display: grid;
@@ -340,13 +420,11 @@
 		gap: 0.5rem;
 		padding: 0.35rem 0.75rem;
 		border-bottom: 1px solid var(--rule);
-		counter-increment: step;
 	}
 	.steps li:last-child {
 		border-bottom: 0;
 	}
-	.steps li::before {
-		content: counter(step);
+	.no {
 		text-align: right;
 		font-size: var(--text-xs);
 		line-height: 1.625;
@@ -374,6 +452,9 @@
 		margin-left: 0.3rem;
 		color: var(--major);
 		border-color: color-mix(in srgb, var(--major) 40%, transparent);
+	}
+	.tag.healed {
+		cursor: help;
 	}
 	.ms {
 		white-space: nowrap;
@@ -419,7 +500,7 @@
 	/* Meta column */
 	.meta {
 		position: sticky;
-		top: 1.5rem;
+		top: calc(var(--head-h) + 1.5rem);
 	}
 	.meta dl {
 		margin: 0;

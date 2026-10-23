@@ -325,6 +325,10 @@ export const de = {
 	appInstalled: 'Installiert: Kommentare, Reviews, Commit-Status und Issues kommen von Claudio selbst, unabhängig vom Token einer Person.',
 	appMissing: 'Nicht auf diesem Repository installiert: Claudio schreibt mit dem Token der Person, die die Automatisierung eingerichtet hat.',
 	appInstall: 'App auf GitHub installieren',
+	navBudget: 'Budget',
+	navKey: 'API-Key',
+	navLearnings: 'Erfahrungen',
+	navLessons: 'Entscheidungen',
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
@@ -646,4 +650,8 @@ export const en: Translation<typeof de> = {
 	appInstalled: 'Installed: comments, reviews, commit statuses and issues come from Claudio itself, independent of anyone’s token.',
 	appMissing: 'Not installed on this repository: Claudio writes with the token of the person who set up the automation.',
 	appInstall: 'Install the app on GitHub',
+	navBudget: 'Budget',
+	navKey: 'API key',
+	navLearnings: 'Learnings',
+	navLessons: 'Decisions',
 };

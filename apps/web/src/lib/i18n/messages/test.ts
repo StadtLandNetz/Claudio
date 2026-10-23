@@ -117,6 +117,13 @@ export const de = {
 	viewportsHint: 'Mit beiden Haken läuft der Test zweimal. Aufgezeichnet und repariert wird der Desktop-Ablauf; der Smartphone-Lauf prüft ihn.',
 	tagMobile: 'Smartphone',
 	tagBothViewports: 'Desktop und Smartphone',
+	healedHelp: 'Ein aufgezeichneter Schritt passte nicht mehr zur Oberfläche, etwa weil ein Button umbenannt oder verschoben wurde. Claudio hat das Element im Lauf neu gesucht, den Ablauf zu Ende gebracht und die reparierten Schritte als neue Version gespeichert. Prüf, ob die Änderung gewollt war; sonst ist es eine Regression.',
+	stepsWarningsHelp: 'Fehlgeschlagene und reparierte Schritte',
+	noWarnings: 'Keine fehlgeschlagenen oder reparierten Schritte.',
+	sectionFlow: 'Ablauf',
+	sectionRuns: 'Läufe',
+	sectionJudge: 'Bewertung',
+	sectionProblems: 'Probleme',
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
@@ -236,4 +243,11 @@ export const en: Translation<typeof de> = {
 	viewportsHint: 'With both ticked the test runs twice. The desktop flow is the one recorded and repaired; the phone run checks it.',
 	tagMobile: 'Phone',
 	tagBothViewports: 'Desktop and phone',
+	healedHelp: 'A recorded step no longer matched the page, for example because a button was renamed or moved. Claudio found the element again during the run, finished the flow and saved the repaired steps as a new version. Check whether the change was intended; otherwise it is a regression.',
+	stepsWarningsHelp: 'Failed and repaired steps',
+	noWarnings: 'No failed or repaired steps.',
+	sectionFlow: 'Flow',
+	sectionRuns: 'Runs',
+	sectionJudge: 'Judgement',
+	sectionProblems: 'Problems',
 };

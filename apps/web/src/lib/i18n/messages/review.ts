@@ -169,6 +169,13 @@ export const de = {
 	issueScreenshots: 'Screenshots',
 	issueFooter: '{severity} · gefunden von Claudio im Review von PR #{pr}: {url}',
 	budgetBlocked: 'Kein Start möglich: {reason}',
+	sectionTrace: 'Aufzeichnung',
+	sectionFollowUp: 'Nachprüfung',
+	sectionTests: 'Tests',
+	sectionCriteria: 'Kriterien',
+	sectionComment: 'PR-Kommentar',
+	sectionProblems: 'Probleme',
+	sectionLog: 'Verlauf',
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
@@ -338,4 +345,11 @@ export const en: Translation<typeof de> = {
 	issueScreenshots: 'Screenshots',
 	issueFooter: '{severity} · found by Claudio in the review of PR #{pr}: {url}',
 	budgetBlocked: 'Cannot start: {reason}',
+	sectionTrace: 'Recording',
+	sectionFollowUp: 'Re-review',
+	sectionTests: 'Tests',
+	sectionCriteria: 'Criteria',
+	sectionComment: 'PR comment',
+	sectionProblems: 'Problems',
+	sectionLog: 'Log',
 };

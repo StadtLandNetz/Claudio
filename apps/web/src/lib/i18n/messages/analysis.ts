@@ -40,7 +40,9 @@ export const de = {
 	sourceFixture: 'Demo-Checkout statt GitHub',
 
 	// KnowledgeView.svelte
-	documents: 'Dokumente'
+	documents: 'Dokumente',
+	sectionDocs: 'Wissensbasis',
+	sectionFindings: 'Fehler',
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
@@ -80,5 +82,7 @@ export const en: Translation<typeof de> = {
 	metaSource: 'Source',
 	sourceFixture: 'Demo checkout instead of GitHub',
 
-	documents: 'Documents'
+	documents: 'Documents',
+	sectionDocs: 'Knowledge base',
+	sectionFindings: 'Bugs',
 };

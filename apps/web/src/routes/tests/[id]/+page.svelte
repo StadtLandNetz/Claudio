@@ -3,6 +3,7 @@
 	import Modal from '#lib/components/Modal.svelte';
 	import ViewportChoice from '#lib/components/ViewportChoice.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
+	import PageNav, { type Section } from '#lib/components/PageNav.svelte';
 	import { i18n } from '#lib/i18n/index.js';
 	import { DEFAULT_TEST_BUDGET } from '#lib/labels.js';
 	import type { PageProps } from './$types';
@@ -24,6 +25,17 @@
 	function toggleCompare(id: number, on: boolean) {
 		compare = on ? [...compare.filter((x) => x !== id), id].slice(-2) : compare.filter((x) => x !== id);
 	}
+
+	// Long recordings show their first steps; the rest on request.
+	const STEP_PREVIEW = 20;
+	let stepsExpanded = $state(false);
+	const shownSteps = $derived(stepsExpanded ? s.steps : s.steps.slice(0, STEP_PREVIEW));
+
+	const sections = $derived<Section[]>([
+		{ id: 'flow', label: i.t('test.sectionFlow') },
+		{ id: 'steps', label: i.t('test.recordedSteps'), count: s.steps.length || undefined },
+		{ id: 'runs', label: i.t('test.sectionRuns'), count: data.runs.length || undefined }
+	]);
 </script>
 
 <svelte:head><title>{i.t('test.pageTitle', { name: s.name })}</title></svelte:head>
@@ -50,20 +62,22 @@
 	{/if}
 </div>
 
+<PageNav title={s.name} {sections} />
+
 {#if data.isNew}
 	<p class="notice ok">{i.t('test.created')}</p>
 {/if}
 
 <div class="layout">
 	<div class="main">
-		<section class="block">
+		<section class="block" id="flow">
 			<h2>{i.t('test.flow')}</h2>
 			<p class="pre">{s.description}</p>
 			<h3>{i.t('test.expectedResult')}</h3>
 			<p class="pre">{s.expectation}</p>
 		</section>
 
-		<section class="block">
+		<section class="block" id="steps">
 			<div class="row">
 				<h2>{i.t('test.recordedSteps')}</h2>
 				{#if s.steps.length}
@@ -71,14 +85,23 @@
 				{/if}
 			</div>
 			{#if s.steps.length}
-				<ol class="steps sheet">
-					{#each s.steps as step, i (i)}
-						<li class:assert={step.assertion}>
-							<span class="mark" aria-hidden="true"></span>
-							{step.text}
-						</li>
-					{/each}
-				</ol>
+				<div class="sheet">
+					<ol class="steps">
+						{#each shownSteps as step, i (i)}
+							<li class:assert={step.assertion}>
+								<span class="mark" aria-hidden="true"></span>
+								{step.text}
+							</li>
+						{/each}
+					</ol>
+					{#if s.steps.length > STEP_PREVIEW}
+						<div class="more-row">
+							<button type="button" aria-expanded={stepsExpanded} onclick={() => (stepsExpanded = !stepsExpanded)}>
+								{stepsExpanded ? i.t('common.showLess') : i.t('common.showAll', { n: s.steps.length })}
+							</button>
+						</div>
+					{/if}
+				</div>
 				<form method="POST" action="?/reset" class="reset" use:enhance>
 					<button class="btn small" type="submit">{i.t('test.discardRecording')}</button>
 					<span class="faint">{i.t('test.discardRecordingHint')}</span>
@@ -88,7 +111,7 @@
 			{/if}
 		</section>
 
-		<section class="block">
+		<section class="block" id="runs">
 			<div class="row">
 				<h2>{i.t('test.runs')}</h2>
 				{#if data.runs.length > 1}
@@ -370,7 +393,7 @@
 	/* Side column */
 	.side {
 		position: sticky;
-		top: 1.5rem;
+		top: calc(var(--head-h) + 1.5rem);
 	}
 	.run {
 		padding: 1rem;
