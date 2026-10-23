@@ -46,7 +46,7 @@
 					{/if}
 					{#if onjump && ev.createdAt}
 						<button type="button" class="jump" title={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: {ev.id}" onclick={() => onjump(ev)}>
-							<Icon name="film" size={12} />
+							<Icon name="play" size={12} />
 						</button>
 					{/if}
 				</div>

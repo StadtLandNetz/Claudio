@@ -29,16 +29,18 @@
 	/**
 	 * The run's Playwright trace as a timeline: the screen at any moment, the markers
 	 * of what the review found, and every browser action and agent step in order. The
-	 * panel under the controls tells what was found at the playhead. `jumpTo(iso)`
-	 * seeks to a report timestamp and scrolls the timeline into view.
+	 * list under the controls follows the playhead, the panel below it tells what was
+	 * found there. `jumpTo(iso)` seeks to a report timestamp and scrolls the timeline
+	 * into view; the screen is kept short enough that track and list fit with it.
 	 */
 	let {
+		id,
 		runId,
 		markers,
 		viewerUrl = null,
 		downloadUrl = null,
 		onopen
-	}: { runId: string; markers: Marker[]; viewerUrl?: string | null; downloadUrl?: string | null; onopen?: (m: Marker) => void } = $props();
+	}: { id?: string; runId: string; markers: Marker[]; viewerUrl?: string | null; downloadUrl?: string | null; onopen?: (m: Marker) => void } = $props();
 	const i = i18n();
 
 	let status = $state<'loading' | 'ready' | 'missing' | 'error'>('loading');
@@ -312,7 +314,7 @@
 </script>
 
 {#if status !== 'missing'}
-	<section class="trace sheet" class:flash bind:this={root} aria-label={i.t('common.trace')}>
+	<section class="trace sheet" {id} class:flash bind:this={root} aria-label={i.t('common.trace')}>
 		<header>
 			<h2>{i.t('common.trace')}</h2>
 			{#if urlAt}<span class="url faint" title={urlAt}>{urlAt}</span>{/if}
@@ -398,6 +400,17 @@
 					<li><span class="tick console error"></span>{i.t('common.traceKindConsole')}</li>
 				</ul>
 			</div>
+			<ol class="events" bind:this={list} aria-label={i.t('common.traceEvents')}>
+				{#each events as e, k (e.key)}
+					<li class="{e.kind} {e.tone ?? ''}" class:current={k === currentIdx} class:dismissed={e.dismissed}>
+						<button type="button" onclick={() => seek(e.t, true)}>
+							<span class="at">{fmt(e.t)}</span>
+							<span class="kind">{kindLabel[e.kind]?.() ?? e.kind}</span>
+							<span class="label">{#if e.blocking}<span class="blk tagged">{i.t('common.traceBlocking')}</span>{/if}{e.label}</span>
+						</button>
+					</li>
+				{/each}
+			</ol>
 			<!-- What the run found at this point: the story of the findings and notes as you scrub -->
 			<div class="now" aria-live="polite">
 				<p class="now-head faint">{i.t('common.traceNow')}{#if activeMarkers.length}, {fmt(activeMarkers[0]!.t)}{/if}</p>
@@ -424,17 +437,6 @@
 					{/each}
 				{/if}
 			</div>
-			<ol class="events" bind:this={list} aria-label={i.t('common.traceEvents')}>
-				{#each events as e, k (e.key)}
-					<li class="{e.kind} {e.tone ?? ''}" class:current={k === currentIdx} class:dismissed={e.dismissed}>
-						<button type="button" onclick={() => seek(e.t, true)}>
-							<span class="at">{fmt(e.t)}</span>
-							<span class="kind">{kindLabel[e.kind]?.() ?? e.kind}</span>
-							<span class="label">{#if e.blocking}<span class="blk">{i.t('common.traceBlocking')}</span> {/if}{e.label}</span>
-						</button>
-					</li>
-				{/each}
-			</ol>
 		{/if}
 	</section>
 {/if}
@@ -475,9 +477,12 @@
 	.note {
 		padding: 0.6rem 0.75rem;
 	}
+	/* Short enough that track, controls and list fit under it in one screen */
 	.screen {
 		position: relative;
 		aspect-ratio: 16 / 10;
+		max-height: max(12rem, calc(100dvh - 32rem));
+		width: 100%;
 		background: var(--sunken);
 	}
 	.screen img {
@@ -667,7 +672,7 @@
 		display: grid;
 		gap: 0.5rem;
 		padding: 0.6rem 0.75rem;
-		border-bottom: 1px solid var(--rule);
+		border-top: 1px solid var(--rule);
 		background: color-mix(in srgb, var(--accent) 3%, var(--sheet));
 	}
 	.now-head {
@@ -726,6 +731,9 @@
 	.blk {
 		color: var(--block);
 		font-weight: 500;
+	}
+	.blk.tagged {
+		margin-right: 0.4rem;
 	}
 	.dis {
 		color: var(--ink-3);
