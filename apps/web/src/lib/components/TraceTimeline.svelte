@@ -548,8 +548,9 @@
 		width: 1px;
 		background: var(--ink-3);
 	}
-	/* Easier to hover than the 1px line itself */
-	.tick::before {
+	/* Easier to hover than the 1px line itself; only in the lanes, where the tick is positioned
+	   (in the legend the area would spread over the whole timeline and swallow every click) */
+	.lane .tick::before {
 		content: '';
 		position: absolute;
 		inset: 0 -3px;
