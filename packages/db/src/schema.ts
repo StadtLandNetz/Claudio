@@ -417,6 +417,10 @@ export const findings = mysqlTable(
     ratedAt: datetime("rated_at", { mode: "date" }),
     /** GitHub issue created from this finding. */
     issueUrl: varchar("issue_url", { length: 500 }),
+    /** A comment for the developers, separate from the reason of the rating; goes into the PR comment and the issue. */
+    note: text("note"),
+    noteBy: ref("note_by"),
+    noteAt: datetime("note_at", { mode: "date" }),
   },
   (t) => [uniqueIndex("findings_review_finding_idx").on(t.reviewId, t.findingId)],
 );

@@ -75,6 +75,7 @@ const L = {
     testsPassed: "bestanden",
     testsFailed: "Fehlgeschlagen",
     notes: "Bewertungen im Review",
+    devNote: "Hinweis für die Entwicklung",
     confirmedBy: "bestätigt von",
     dismissedBy: "verworfen von",
     followUp: "Nachprüfung von Review #{id}",
@@ -116,6 +117,7 @@ const L = {
     testsPassed: "passed",
     testsFailed: "Failed",
     notes: "Review ratings",
+    devNote: "Note for the developers",
     confirmedBy: "confirmed by",
     dismissedBy: "dismissed by",
     followUp: "Re-review of review #{id}",
@@ -192,7 +194,18 @@ export const REVIEW_SUPERSEDED: Record<Language, string> = {
 export type ReviewTestResult = { name: string; outcome: "passed" | "failed" | "inconclusive" | null };
 
 /** A person's rating of a finding, with the reason they gave. */
-export type FindingNote = { findingId: string; status: "confirmed" | "dismissed"; comment: string | null; by: string | null };
+/**
+ * What people added to a finding: the rating with its reason, and separately a
+ * comment for the developers (`note`), which a finding can carry without a rating.
+ */
+export type FindingNote = {
+  findingId: string;
+  status: "proposed" | "confirmed" | "dismissed";
+  comment: string | null;
+  by: string | null;
+  note?: string | null;
+  noteBy?: string | null;
+};
 
 /**
  * How a person adjusted a finished report: strictness and findings they dismissed, plus the review's regression tests.
@@ -378,8 +391,17 @@ export function renderPrComment(report: ReviewReport, reportUrl?: string, opts: 
       const n = notes.get(f.id)!;
       const label = `[${t.severity[f.severity]}] ${f.title}`;
       const by = n.by ? ` @${n.by}` : "";
-      lines.push(n.status === "confirmed" ? `- ✅ **${label}** — ${t.confirmedBy}${by}` : `- ❌ ~~${label}~~ — ${t.dismissedBy}${by}`);
-      n.comment?.trim().split("\n").forEach((l) => lines.push(`  > ${l}`));
+      if (n.status === "confirmed") lines.push(`- ✅ **${label}** — ${t.confirmedBy}${by}`);
+      else if (n.status === "dismissed") lines.push(`- ❌ ~~${label}~~ — ${t.dismissedBy}${by}`);
+      else lines.push(`- 💬 **${label}**`);
+      const reason = n.status === "proposed" ? "" : (n.comment?.trim() ?? "");
+      if (reason) reason.split("\n").forEach((l) => lines.push(`  > ${l}`));
+      const note = n.note?.trim();
+      if (note) {
+        if (reason) lines.push("");
+        const who = n.noteBy ? ` (@${n.noteBy})` : "";
+        note.split("\n").forEach((l, k) => lines.push(k === 0 ? `  > 💬 **${t.devNote}**${who}: ${l}` : `  > ${l}`));
+      }
     });
   }
   if (reportUrl) {

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, getTableColumns, gt, inArray, lt, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/mysql-core";
 import type {
   AnalysisReport,
   AnalysisRequest,
@@ -1037,10 +1038,12 @@ export async function humanInputsSince(db: Db, requestId: number, afterId: numbe
 // ---------------------------------------------------------------- findings
 
 export async function listFindings(db: Db, reviewId: number) {
+  const noteAuthor = alias(users, "note_author");
   return db
-    .select({ finding: findings, ratedByLogin: users.login })
+    .select({ finding: findings, ratedByLogin: users.login, noteByLogin: noteAuthor.login })
     .from(findings)
     .leftJoin(users, eq(users.id, findings.ratedBy))
+    .leftJoin(noteAuthor, eq(noteAuthor.id, findings.noteBy))
     .where(eq(findings.reviewId, reviewId))
     .orderBy(asc(findings.id));
 }
@@ -1054,6 +1057,14 @@ export async function rateFinding(
   await db
     .update(findings)
     .set({ status: input.status, comment: input.comment, ratedBy: input.userId, ratedAt: new Date() })
+    .where(and(eq(findings.reviewId, reviewId), eq(findings.findingId, findingId)));
+}
+
+/** The comment for the developers on a finding; empty removes it. Independent of the rating. */
+export async function setFindingNote(db: Db, reviewId: number, findingId: string, input: { note: string | null; userId: number }): Promise<void> {
+  await db
+    .update(findings)
+    .set({ note: input.note, noteBy: input.note ? input.userId : null, noteAt: input.note ? new Date() : null })
     .where(and(eq(findings.reviewId, reviewId), eq(findings.findingId, findingId)));
 }
 
