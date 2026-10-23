@@ -7,13 +7,17 @@
 	import HumanTakeover from '#lib/components/HumanTakeover.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import LiveView from '#lib/components/LiveView.svelte';
+	import Modal from '#lib/components/Modal.svelte';
+	import PageNav, { type Section } from '#lib/components/PageNav.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import { invalidateAll } from '$app/navigation';
 	import Severity from '#lib/components/Severity.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import TraceTimeline, { type Marker } from '#lib/components/TraceTimeline.svelte';
 	import { page } from '$app/state';
+	import { tick, untrack } from 'svelte';
 	import { isActive } from '#lib/labels.js';
+	import { tooltip } from '#lib/tooltip.js';
 	import { parseNotes } from '#lib/notes.js';
 	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
@@ -31,14 +35,73 @@
 	const active = $derived(isActive(review.status));
 
 	// ---- findings
+	type ReportFinding = NonNullable<PageProps['data']['report']>['findings'][number];
 	let showDismissed = $state(true);
-	// Findings whose saved reason is open for editing; the others show it as a comment.
-	let editing = $state(new Set<string>());
-	function stopEditing(id: string) {
-		const next = new Set(editing);
-		next.delete(id);
-		editing = next;
+	// Filter by type (category); counts follow the "show dismissed" switch.
+	let findingType = $state<string | null>(null);
+	const visibleFindings = $derived((report?.findings ?? []).filter((f) => showDismissed || f.rating.status !== 'dismissed'));
+	const findingTypes = $derived.by(() => {
+		const m = new Map<string, number>();
+		for (const f of visibleFindings) m.set(f.category, (m.get(f.category) ?? 0) + 1);
+		return [...m].sort((a, b) => b[1] - a[1]);
+	});
+	const shownFindings = $derived(findingType ? visibleFindings.filter((f) => f.category === findingType) : visibleFindings);
+
+	// Confirming and dismissing each ask for their own reason in a dialog; the comment for the developers is separate.
+	type RateDraft = { id: string; title: string; status: 'confirmed' | 'dismissed'; comment: string };
+	let rateDraft = $state<RateDraft | null>(null);
+	let rateOpen = $state(false);
+	let rateBusy = $state(false);
+	let rateError = $state<string | null>(null);
+	function openRate(f: ReportFinding, status: RateDraft['status']) {
+		rateDraft = { id: f.id, title: f.title, status, comment: f.rating.status === status ? f.rating.comment : '' };
+		rateError = null;
+		rateOpen = true;
 	}
+	// The finding whose comment for the developers is open for editing.
+	let noting = $state<string | null>(null);
+	const submitOnCmdEnter = (e: KeyboardEvent) => {
+		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) (e.currentTarget as HTMLTextAreaElement).form?.requestSubmit();
+	};
+
+	// ---- acceptance criteria: the first few, all of them, or only those that need attention
+	const AC_PREVIEW = 4;
+	let acWarningsOnly = $state(false);
+	let acExpanded = $state(false);
+	const acRows = $derived((report?.acceptanceCriteria ?? []).map((ac, k) => ({ ac, n: k + 1 })));
+	const acWarnings = $derived(acRows.filter((r) => r.ac.status !== 'passed'));
+	const acShown = $derived(acWarningsOnly ? acWarnings : acExpanded ? acRows : acRows.slice(0, AC_PREVIEW));
+	function collapseAc() {
+		acExpanded = false;
+		tick().then(() => {
+			const el = document.getElementById('criteria');
+			if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'start' });
+		});
+	}
+
+	// Links from the timeline (or shared ones) may point at a criterion or finding that a filter hides: show it, then go there.
+	async function revealHash() {
+		const target = decodeURIComponent(location.hash.slice(1));
+		if (!target || document.getElementById(target)) return;
+		const fid = /^finding-(.+)$/.exec(target)?.[1];
+		if (/^ac-\d+$/.test(target)) {
+			acWarningsOnly = false;
+			acExpanded = true;
+		} else if (fid) {
+			const f = report?.findings.find((x) => x.id === fid);
+			if (!f) return;
+			findingType = null;
+			if (f.rating.status === 'dismissed') showDismissed = true;
+		} else return;
+		await tick();
+		document.getElementById(target)?.scrollIntoView({ block: 'start' });
+	}
+	$effect(() => {
+		untrack(() => revealHash());
+		window.addEventListener('hashchange', revealHash);
+		return () => window.removeEventListener('hashchange', revealHash);
+	});
+
 	let includeNotes = $state(true);
 	const preview = $derived(includeNotes && data.commentPreviewWithNotes ? data.commentPreviewWithNotes : data.commentPreview);
 	const counts = $derived.by(() => {
@@ -118,6 +181,35 @@
 	const viewerHref = $derived(
 		hasTrace && secure && data.viewerAvailable && report?.files.trace ? `/trace-viewer/index.html?trace=${encodeURIComponent(new URL(report.files.trace, page.url.origin).href)}` : null
 	);
+
+	// ---- the sections the sticky header links to, in page order
+	const showLog = $derived(isActive(data.review.status) || data.eventCount > 0);
+	const showComment = $derived(Boolean(report) && !review.fixture && review.status !== 'queued' && review.status !== 'running');
+	const sections = $derived.by((): Section[] => {
+		const out: Section[] = [];
+		if (hasTrace && report) out.push({ id: 'trace', label: i.t('review.sectionTrace') });
+		if (active) out.push({ id: 'live', label: i.t('common.sectionLive') });
+		if (showLog) out.push({ id: 'log', label: i.t('review.sectionLog') });
+		if (!report) return out;
+		if (report.followUp) out.push({ id: 'followup', label: i.t('review.sectionFollowUp') });
+		if (report.summaryHtml) out.push({ id: 'summary', label: i.t('review.summary') });
+		if (data.tests.length) {
+			const failed = data.tests.some((t) => t.outcome === 'failed');
+			out.push({ id: 'tests', label: i.t('review.sectionTests'), count: `${testsPassed}/${data.tests.length}`, tone: failed ? 'block' : testsActive ? undefined : 'pass' });
+		}
+		const acFailed = acRows.some((r) => r.ac.status === 'failed');
+		out.push({
+			id: 'criteria',
+			label: i.t('review.sectionCriteria'),
+			count: acRows.length ? `${acPassed}/${acRows.length}` : undefined,
+			tone: acFailed ? 'block' : acWarnings.length ? 'major' : acRows.length ? 'pass' : undefined
+		});
+		out.push({ id: 'findings', label: i.t('review.findings'), count: counts.open, tone: counts.blocking ? 'block' : undefined });
+		if (gallery.length) out.push({ id: 'screenshots', label: i.t('review.screenshots'), count: gallery.length });
+		if (showComment) out.push({ id: 'comment', label: i.t('review.sectionComment') });
+		if (report.errors.length) out.push({ id: 'problems', label: i.t('review.sectionProblems'), count: report.errors.length, tone: 'block' });
+		return out;
+	});
 </script>
 
 <svelte:head><title>#{review.prNumber} {review.prTitle ?? ''} · Claudio</title></svelte:head>
@@ -139,6 +231,8 @@
 		<a class="btn small" href="/reviews/new?repo={encodeURIComponent(review.repo)}&pr={review.prNumber}">{i.t('review.reReview')}</a>
 	{/if}
 </div>
+
+<PageNav title="#{review.prNumber} {review.prTitle ?? ''}" {sections} />
 
 {#if report}
 	<!-- The verdict: the one loud element on the page. -->
@@ -188,19 +282,24 @@
 <div class="layout">
 	<div class="main">
 		{#if hasTrace && report && data.review.runId}
-			<TraceTimeline bind:this={timeline} runId={data.review.runId} {markers} viewerUrl={viewerHref} downloadUrl={report.files.trace} onopen={openMarker} />
+			<TraceTimeline bind:this={timeline} id="trace" runId={data.review.runId} {markers} viewerUrl={viewerHref} downloadUrl={report.files.trace} onopen={openMarker} />
 		{/if}
 
-		{#if active && data.human?.kind === 'question'}
-			<AgentQuestion requestId={data.human.id} question={data.human.reason} context={data.human.context} options={data.human.options} />
-			<LiveView src="/reviews/{data.review.id}/live" url={review.instanceUrl} />
-		{:else if active && data.human}
-			<HumanTakeover src="/reviews/{data.review.id}/live" requestId={data.human.id} reason={data.human.reason} url={review.instanceUrl} />
-		{:else if active}
-			<LiveView src="/reviews/{data.review.id}/live" url={review.instanceUrl} />
+		{#if active}
+			<div class="stack" id="live">
+				{#if data.human?.kind === 'question'}
+					<AgentQuestion requestId={data.human.id} question={data.human.reason} context={data.human.context} options={data.human.options} />
+					<LiveView src="/reviews/{data.review.id}/live" url={review.instanceUrl} />
+				{:else if data.human}
+					<HumanTakeover src="/reviews/{data.review.id}/live" requestId={data.human.id} reason={data.human.reason} url={review.instanceUrl} />
+				{:else}
+					<LiveView src="/reviews/{data.review.id}/live" url={review.instanceUrl} />
+				{/if}
+			</div>
 		{/if}
 
-		{#if isActive(data.review.status) || data.eventCount > 0}
+		{#if showLog}
+			<div id="log">
 			<LiveLog
 				streamUrl="/reviews/{data.review.id}/events"
 				count={data.eventCount}
@@ -208,6 +307,7 @@
 				onstatus={(s) => (liveStatus = s)}
 				online={(line) => /^Mensch (gebraucht|fertig):/.test(line) && invalidateAll()}
 			/>
+			</div>
 		{/if}
 
 		{#if report}
@@ -215,7 +315,7 @@
 				{@const fu = report.followUp}
 				{@const fixed = fu.rechecks.filter((r) => r.status === 'fixed')}
 				{@const open = fu.rechecks.filter((r) => r.status !== 'fixed')}
-				<section class="block followup">
+				<section class="block followup" id="followup">
 					<div class="block-head">
 						<h2>{i.t('review.followUpOf', { id: fu.reviewId })}</h2>
 						<a class="faint" href="/reviews/{fu.reviewId}">{i.t('review.followUpOpen', { id: fu.reviewId })}</a>
@@ -244,14 +344,14 @@
 			{/if}
 
 			{#if report.summaryHtml}
-				<section class="block">
+				<section class="block" id="summary">
 					<h2>{i.t('review.summary')}</h2>
 					<div class="prose">{@html report.summaryHtml}</div>
 				</section>
 			{/if}
 
 			{#if data.tests.length}
-				<section class="block">
+				<section class="block" id="tests">
 					<h2>{i.t('review.regressionTests')}</h2>
 					<ul class="tests sheet">
 						{#each data.tests as t (t.id)}
@@ -267,159 +367,232 @@
 				</section>
 			{/if}
 
-			<section class="block">
-				<h2>{i.t('review.acceptanceCriteria')}</h2>
-				{#if report.acceptanceCriteria.length}
-					<ul class="ac sheet">
-						{#each report.acceptanceCriteria as ac, idx (idx)}
-							<li class={ac.status} id="ac-{idx + 1}">
-								<span class="ac-status">
-									{i.labels.ac[ac.status]}
-									{#if ac.carriedFrom}<span class="carried" title={i.t('review.carriedHint')}>{i.t('review.carriedFrom', { id: ac.carriedFrom })}</span>{/if}
-								</span>
-								<div>
-									<div class="crit-row">
-										<p class="criterion">{ac.criterion}</p>
-										{#if hasTrace}
-											<button type="button" class="btn ghost small jump" title={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: {idx + 1}" onclick={() => timeline?.jumpTo(anchorOf(ac.evidenceIds, ac.createdAt))}>
-												<Icon name="film" size={12} />
-											</button>
+			<section class="block" id="criteria">
+				<div class="block-head">
+					<h2>{i.t('review.acceptanceCriteria')}</h2>
+					{#if acRows.length > AC_PREVIEW || acWarnings.length}
+						<div class="chips" role="group" aria-label={i.t('review.acceptanceCriteria')}>
+							<button type="button" class="chip-btn" aria-pressed={!acWarningsOnly} onclick={() => (acWarningsOnly = false)}>
+								{i.t('common.filterAll')} <span class="n">{acRows.length}</span>
+							</button>
+							<button type="button" class="chip-btn" aria-pressed={acWarningsOnly} use:tooltip={i.t('review.acWarningsHelp')} onclick={() => (acWarningsOnly = true)}>
+								{i.t('common.onlyWarnings')} <span class="n">{acWarnings.length}</span>
+							</button>
+						</div>
+					{/if}
+				</div>
+				{#if !acRows.length}
+					<p class="muted">{i.t('review.noAcRated')}</p>
+				{:else if !acShown.length}
+					<p class="muted">{i.t('review.noAcWarnings')}</p>
+				{:else}
+					<div class="sheet">
+						<ul class="ac">
+							{#each acShown as { ac, n } (n)}
+								<li class={ac.status} id="ac-{n}">
+									<span class="ac-status">
+										{i.labels.ac[ac.status]}
+										{#if ac.carriedFrom}<span class="carried" use:tooltip={i.t('review.carriedHint')}>{i.t('review.carriedFrom', { id: ac.carriedFrom })}</span>{/if}
+									</span>
+									<div>
+										<div class="crit-row">
+											<p class="criterion">{ac.criterion}</p>
+											{#if hasTrace}
+												<button type="button" class="btn ghost small jump" use:tooltip={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: AC{n}" onclick={() => timeline?.jumpTo(anchorOf(ac.evidenceIds, ac.createdAt))}>
+													<Icon name="play" size={12} />
+												</button>
+											{/if}
+										</div>
+										{#if ac.notes}<p class="faint">{ac.notes}</p>{/if}
+										{#if ac.evidenceIds.length}
+											<div class="ac-ev"><EvidenceThumbs items={evidenceOf(ac.evidenceIds)} onopen={openEv} onjump={hasTrace ? jumpEv : undefined} /></div>
 										{/if}
 									</div>
-									{#if ac.notes}<p class="faint">{ac.notes}</p>{/if}
-									{#if ac.evidenceIds.length}
-										<div class="ac-ev"><EvidenceThumbs items={evidenceOf(ac.evidenceIds)} onopen={openEv} onjump={hasTrace ? jumpEv : undefined} /></div>
-									{/if}
-								</div>
-							</li>
-						{/each}
-					</ul>
-				{:else}
-					<p class="muted">{i.t('review.noAcRated')}</p>
+								</li>
+							{/each}
+						</ul>
+						{#if !acWarningsOnly && acRows.length > AC_PREVIEW}
+							<div class="more-row">
+								<button type="button" aria-expanded={acExpanded} onclick={() => (acExpanded ? collapseAc() : (acExpanded = true))}>
+									{acExpanded ? i.t('common.showLess') : i.t('common.showAll', { n: acRows.length })}
+								</button>
+							</div>
+						{/if}
+					</div>
 				{/if}
 			</section>
 
-			<section class="block">
+			<section class="block" id="findings">
 				<div class="block-head">
 					<h2>{i.t('review.findings')}</h2>
-					{#if counts.dismissed > 0}
-						<label class="check small">
-							<input type="checkbox" bind:checked={showDismissed} />
-							<span>{i.t('review.showDismissed', { n: counts.dismissed })}</span>
-						</label>
-					{/if}
+					<div class="head-tools">
+						{#if findingTypes.length > 1 || findingType}
+							<div class="chips" role="group" aria-label={i.t('review.findingsByType')}>
+								<button type="button" class="chip-btn" aria-pressed={findingType === null} onclick={() => (findingType = null)}>
+									{i.t('common.filterAll')} <span class="n">{visibleFindings.length}</span>
+								</button>
+								{#each findingTypes as [cat, n] (cat)}
+									<button type="button" class="chip-btn" aria-pressed={findingType === cat} onclick={() => (findingType = findingType === cat ? null : cat)}>
+										{i.labels.category[cat] ?? cat} <span class="n">{n}</span>
+									</button>
+								{/each}
+							</div>
+						{/if}
+						{#if counts.dismissed > 0}
+							<label class="check small">
+								<input type="checkbox" bind:checked={showDismissed} />
+								<span>{i.t('review.showDismissed', { n: counts.dismissed })}</span>
+							</label>
+						{/if}
+					</div>
 				</div>
 				{#if report.findings.length === 0}
 					<p class="muted">{i.t('review.noFindings')}</p>
+				{:else if shownFindings.length === 0}
+					<p class="muted">{i.t('review.noFindingsOfType')}</p>
 				{/if}
-				{#each report.findings as f (f.id)}
-					{#if showDismissed || f.rating.status !== 'dismissed'}
-						<article class="finding sheet {f.rating.status}" class:blocking={f.blocking} id="finding-{f.id}">
-							<header>
-								<Severity severity={f.severity} />
-								<span class="cat">{i.labels.category[f.category] ?? f.category}</span>
-								{#if f.blocking}<span class="blk">{i.t('review.blocksApproval')}</span>{/if}
-								{#if f.previous}
-									<a class="prev {f.previous.status}" href="/reviews/{f.previous.reviewId}#finding-{f.previous.findingId}">
-										{f.previous.status === 'still_open' ? i.t('review.stillOpenFrom', { id: f.previous.reviewId, fid: f.previous.findingId }) : i.t('review.notRecheckedFrom', { id: f.previous.reviewId, fid: f.previous.findingId })}
-									</a>
-								{/if}
-								<span class="fid faint">{f.id}</span>
-								{#if hasTrace}
-									<button type="button" class="btn ghost small jump" title={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: {f.id}" onclick={() => timeline?.jumpTo(anchorOf(f.evidenceIds, f.createdAt))}>
-										<Icon name="film" size={12} />
-									</button>
-								{/if}
-							</header>
-							<h3>{f.title}</h3>
-							<p class="desc">{f.description}</p>
-							{#if f.steps.length}
-								<ol class="steps">
-									{#each f.steps as step, idx (idx)}<li>{step}</li>{/each}
-								</ol>
+				{#each shownFindings as f (f.id)}
+					<article class="finding sheet {f.rating.status}" class:blocking={f.blocking} id="finding-{f.id}">
+						<header>
+							<Severity severity={f.severity} />
+							<span class="cat">{i.labels.category[f.category] ?? f.category}</span>
+							{#if f.blocking}<span class="blk">{i.t('review.blocksApproval')}</span>{/if}
+							{#if f.previous}
+								<a class="prev {f.previous.status}" href="/reviews/{f.previous.reviewId}#finding-{f.previous.findingId}">
+									{f.previous.status === 'still_open' ? i.t('review.stillOpenFrom', { id: f.previous.reviewId, fid: f.previous.findingId }) : i.t('review.notRecheckedFrom', { id: f.previous.reviewId, fid: f.previous.findingId })}
+								</a>
 							{/if}
-							{#if f.expected || f.actual}
-								<dl class="ea">
-									{#if f.expected}<dt>{i.t('review.expected')}</dt><dd>{f.expected}</dd>{/if}
-									{#if f.actual}<dt>{i.t('review.observed')}</dt><dd>{f.actual}</dd>{/if}
-								</dl>
+							<span class="fid faint">{f.id}</span>
+							{#if hasTrace}
+								<button type="button" class="btn ghost small jump" use:tooltip={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: {f.id}" onclick={() => timeline?.jumpTo(anchorOf(f.evidenceIds, f.createdAt))}>
+									<Icon name="play" size={12} />
+								</button>
 							{/if}
-							{#if f.url}<p class="faint url">{f.url}</p>{/if}
-							{#if f.evidenceIds.length}
-								<EvidenceThumbs items={evidenceOf(f.evidenceIds)} onopen={openEv} onjump={hasTrace ? jumpEv : undefined} />
-							{/if}
+						</header>
+						<h3>{f.title}</h3>
+						<p class="desc">{f.description}</p>
+						{#if f.steps.length}
+							<ol class="steps">
+								{#each f.steps as step, idx (idx)}<li>{step}</li>{/each}
+							</ol>
+						{/if}
+						{#if f.expected || f.actual}
+							<dl class="ea">
+								{#if f.expected}<dt>{i.t('review.expected')}</dt><dd>{f.expected}</dd>{/if}
+								{#if f.actual}<dt>{i.t('review.observed')}</dt><dd>{f.actual}</dd>{/if}
+							</dl>
+						{/if}
+						{#if f.url}<p class="faint url">{f.url}</p>{/if}
+						{#if f.evidenceIds.length}
+							<EvidenceThumbs items={evidenceOf(f.evidenceIds)} onopen={openEv} onjump={hasTrace ? jumpEv : undefined} />
+						{/if}
 
-							{#if f.rating.comment && f.rating.status !== 'proposed' && !editing.has(f.id)}
-								<div class="note {f.rating.status}">
-									<p class="note-head">
-										<strong>{f.rating.by ?? i.t('review.unknownUser')}</strong>
-										<span>{f.rating.status === 'confirmed' ? i.t('review.hasConfirmed') : i.t('review.hasDismissed')}</span>
-										{#if f.rating.at}<span class="faint">· {i.formatDate(f.rating.at)}</span>{/if}
-									</p>
-									<p class="note-body">{f.rating.comment}</p>
-								</div>
-							{/if}
+						<!-- The rating with its reason -->
+						{#if f.rating.status !== 'proposed' && f.rating.comment}
+							<div class="note {f.rating.status}">
+								<p class="note-head">
+									<strong>{f.rating.by ?? i.t('review.unknownUser')}</strong>
+									<span>{f.rating.status === 'confirmed' ? i.t('review.hasConfirmed') : i.t('review.hasDismissed')}</span>
+									{#if f.rating.at}<span class="faint">· {i.formatDate(f.rating.at)}</span>{/if}
+									{#if data.canWrite}
+										<button type="button" class="linkish" onclick={() => openRate(f, f.rating.status === 'confirmed' ? 'confirmed' : 'dismissed')}>{i.t('review.editReason')}</button>
+									{/if}
+								</p>
+								<p class="note-body">{f.rating.comment}</p>
+							</div>
+						{/if}
 
+						<!-- The comment for the developers, independent of the rating -->
+						{#if noting === f.id}
 							<form
 								method="POST"
-								action="?/rate"
-								class="rate"
+								action="?/note"
+								class="dev-form"
 								use:enhance={() =>
 									async ({ result, update }) => {
 										await update({ reset: false });
-										if (result.type === 'success') stopEditing(f.id);
+										if (result.type === 'success') noting = null;
 									}}
 							>
 								<input type="hidden" name="findingId" value={f.id} />
-								{#if f.rating.comment && !editing.has(f.id)}
-									<input type="hidden" name="comment" value={f.rating.comment} />
-								{:else}
-									<label class="comment">
-										<span class="visually-hidden">{i.t('review.commentOn', { id: f.id })}</span>
-										<textarea name="comment" rows="2" value={f.rating.comment} placeholder={i.t('review.reasonPlaceholder')}></textarea>
-									</label>
+								<label class="field">
+									<span>{i.t('review.devNote')}</span>
+									<!-- svelte-ignore a11y_autofocus -->
+									<textarea name="note" rows="3" value={f.rating.note} placeholder={i.t('review.devNotePlaceholder')} autofocus onkeydown={submitOnCmdEnter}></textarea>
+									<small>{i.t('review.devNoteHelp')}</small>
+								</label>
+								<div class="actions">
+									<button class="btn primary small" type="submit">{i.t('review.devNoteSave')}</button>
+									<button class="btn ghost small" type="button" onclick={() => (noting = null)}>{i.t('common.cancel')}</button>
+									{#if f.rating.note}<button class="btn ghost danger small" type="submit" name="clearNote" value="1">{i.t('review.devNoteRemove')}</button>{/if}
+								</div>
+							</form>
+						{:else if f.rating.note}
+							<div class="note dev">
+								<p class="note-head">
+									<Icon name="comment" size={12} />
+									<strong>{f.rating.noteBy ?? i.t('review.unknownUser')}</strong>
+									<span>{i.t('review.devNote')}</span>
+									{#if f.rating.noteAt}<span class="faint">· {i.formatDate(f.rating.noteAt)}</span>{/if}
+									{#if data.canWrite}<button type="button" class="linkish" onclick={() => (noting = f.id)}>{i.t('review.devNoteEdit')}</button>{/if}
+								</p>
+								<p class="note-body">{f.rating.note}</p>
+							</div>
+						{/if}
+
+						{#if data.canWrite}
+							<div class="rate">
+								{#if noting !== f.id && !f.rating.note}
+									<button type="button" class="btn ghost small" use:tooltip={i.t('review.devNoteHelp')} onclick={() => (noting = f.id)}>
+										<Icon name="comment" size={12} />
+										{i.t('review.devNoteAdd')}
+									</button>
+								{/if}
+								{#if f.rating.by && !(f.rating.status !== 'proposed' && f.rating.comment)}
+									<span class="faint rated">
+										{i.t(f.rating.status === 'confirmed' ? 'review.confirmedBy' : f.rating.status === 'dismissed' ? 'review.dismissedBy' : 'review.resetBy', { user: f.rating.by })}{f.rating.at ? `, ${i.formatDate(f.rating.at)}` : ''}
+									</span>
 								{/if}
 								<div class="rate-buttons" role="group" aria-label={i.t('review.rating')}>
-									<button class="btn small" class:on={f.rating.status === 'confirmed'} name="status" value="confirmed" aria-pressed={f.rating.status === 'confirmed'}>
+									<button type="button" class="btn small" class:on={f.rating.status === 'confirmed'} aria-pressed={f.rating.status === 'confirmed'} use:tooltip={i.t('review.confirmHelp')} onclick={() => openRate(f, 'confirmed')}>
 										{i.t('review.confirm')}
 									</button>
-									<button class="btn small" class:on-dismiss={f.rating.status === 'dismissed'} name="status" value="dismissed" aria-pressed={f.rating.status === 'dismissed'}>
+									<button type="button" class="btn small" class:on-dismiss={f.rating.status === 'dismissed'} aria-pressed={f.rating.status === 'dismissed'} use:tooltip={i.t('review.dismissHelp')} onclick={() => openRate(f, 'dismissed')}>
 										{i.t('review.dismiss')}
 									</button>
 									{#if f.rating.status !== 'proposed'}
-										<button class="btn small" name="status" value="proposed">{i.t('review.reset')}</button>
-									{/if}
-									{#if f.rating.comment && !editing.has(f.id)}
-										<button type="button" class="btn small" onclick={() => (editing = new Set(editing).add(f.id))}>{i.t('review.editReason')}</button>
-									{/if}
-								</div>
-								{#if f.rating.by && !(f.rating.comment && f.rating.status !== 'proposed')}
-									<p class="faint rated">
-										{i.t(f.rating.status === 'confirmed' ? 'review.confirmedBy' : f.rating.status === 'dismissed' ? 'review.dismissedBy' : 'review.resetBy', { user: f.rating.by })}{f.rating.at ? `, ${i.formatDate(f.rating.at)}` : ''}
-									</p>
-								{/if}
-							</form>
-							{#if f.rating.status === 'confirmed' && data.canWrite && !review.fixture}
-								{@const issueError = form && 'error' in form && form.form === `issue:${f.id}` ? form.error : null}
-								<div class="issue-row">
-									{#if f.rating.issueUrl}
-										<a href={f.rating.issueUrl} target="_blank" rel="noopener noreferrer">{i.t('review.issueOpen', { n: f.rating.issueUrl.split('/').pop() ?? '' })} <Icon name="external" size={12} /></a>
-									{:else}
-										<form method="POST" action="?/issue" use:enhance={() => async ({ update }) => update({ reset: false })}>
+										<form method="POST" action="?/rate" use:enhance={() => async ({ update }) => update({ reset: false })}>
 											<input type="hidden" name="findingId" value={f.id} />
-											<button class="btn small" type="submit">{i.t('review.issueCreate')}</button>
+											<button class="btn ghost small" name="status" value="proposed" use:tooltip={i.t('review.resetHelp')}>{i.t('review.reset')}</button>
 										</form>
 									{/if}
-									{#if issueError}<span class="notice error" role="alert">{issueError}</span>{/if}
 								</div>
-							{/if}
-						</article>
-					{/if}
+							</div>
+						{:else if f.rating.by && f.rating.status !== 'proposed' && !f.rating.comment}
+							<p class="faint rated">
+								{i.t(f.rating.status === 'confirmed' ? 'review.confirmedBy' : 'review.dismissedBy', { user: f.rating.by })}{f.rating.at ? `, ${i.formatDate(f.rating.at)}` : ''}
+							</p>
+						{/if}
+						{#if f.rating.status === 'confirmed' && data.canWrite && !review.fixture}
+							{@const issueError = form && 'error' in form && form.form === `issue:${f.id}` ? form.error : null}
+							<div class="issue-row">
+								{#if f.rating.issueUrl}
+									<a href={f.rating.issueUrl} target="_blank" rel="noopener noreferrer">{i.t('review.issueOpen', { n: f.rating.issueUrl.split('/').pop() ?? '' })} <Icon name="external" size={12} /></a>
+								{:else}
+									<form method="POST" action="?/issue" use:enhance={() => async ({ update }) => update({ reset: false })}>
+										<input type="hidden" name="findingId" value={f.id} />
+										<button class="btn small" type="submit">{i.t('review.issueCreate')}</button>
+									</form>
+								{/if}
+								{#if issueError}<span class="notice error" role="alert">{issueError}</span>{/if}
+							</div>
+						{/if}
+					</article>
 				{/each}
 			</section>
 
 			{#if gallery.length}
-				<section class="block">
+				<section class="block" id="screenshots">
 					<div class="block-head">
 						<h2>{i.t('review.screenshots')}</h2>
 						<span class="faint">{i.t('common.screenshotsExpire')}</span>
@@ -428,8 +601,8 @@
 				</section>
 			{/if}
 
-			{#if !review.fixture && review.status !== 'queued' && review.status !== 'running'}
-				<section class="block comment">
+			{#if showComment}
+				<section class="block comment" id="comment">
 					<h2>{i.t('review.prComment')}</h2>
 					{#if commentUrl}
 						<p class="notice ok">{i.t('review.commentPosted')} <a href={commentUrl} target="_blank" rel="noopener noreferrer">{i.t('review.openComment')}</a></p>
@@ -459,7 +632,7 @@
 			{/if}
 
 			{#if report.errors.length}
-				<section class="block">
+				<section class="block" id="problems">
 					<h2>{i.t('review.runProblems')}</h2>
 					<ul class="errors">
 						{#each report.errors as err, idx (idx)}<li>{err}</li>{/each}
@@ -534,6 +707,59 @@
 </div>
 
 <Lightbox bind:item={lightbox} />
+
+<Modal
+	bind:open={rateOpen}
+	title={rateDraft ? i.t(rateDraft.status === 'confirmed' ? 'review.confirmTitle' : 'review.dismissTitle', { id: rateDraft.id }) : ''}
+	locked={rateBusy}
+>
+	{#if rateDraft}
+		<form
+			id="rate-form"
+			method="POST"
+			action="?/rate"
+			class="fields"
+			use:enhance={() => {
+				rateBusy = true;
+				return async ({ result, update }) => {
+					rateBusy = false;
+					if (result.type === 'failure') {
+						rateError = String(result.data?.error ?? '');
+						return;
+					}
+					await update({ reset: false });
+					rateOpen = false;
+				};
+			}}
+		>
+			<input type="hidden" name="findingId" value={rateDraft.id} />
+			<input type="hidden" name="status" value={rateDraft.status} />
+			<div class="rate-what">
+				<p class="rate-title">{rateDraft.title}</p>
+				<p class="muted">{rateDraft.status === 'confirmed' ? i.t('review.confirmHelp') : i.t('review.dismissHelp')}</p>
+			</div>
+			{#if rateError}<p class="notice error" role="alert">{rateError}</p>{/if}
+			<label class="field">
+				<span>{rateDraft.status === 'confirmed' ? i.t('review.confirmReason') : i.t('review.dismissReason')}</span>
+				<textarea
+					name="comment"
+					rows="4"
+					value={rateDraft.comment}
+					placeholder={rateDraft.status === 'confirmed' ? i.t('review.confirmReasonPlaceholder') : i.t('review.dismissReasonPlaceholder')}
+					onkeydown={submitOnCmdEnter}
+				></textarea>
+				<small>{rateDraft.status === 'confirmed' ? i.t('review.confirmReasonHint') : i.t('review.dismissReasonHint')}</small>
+			</label>
+		</form>
+	{/if}
+	{#snippet footer()}
+		<span class="spacer"></span>
+		<button type="button" class="btn ghost" onclick={() => (rateOpen = false)}>{i.t('common.cancel')}</button>
+		<button type="submit" form="rate-form" class="btn primary" disabled={rateBusy}>
+			{rateDraft?.status === 'dismissed' ? i.t('review.dismiss') : i.t('review.confirm')}
+		</button>
+	{/snippet}
+</Modal>
 
 <style>
 	.page-title h1 {
@@ -664,10 +890,15 @@
 	.ac li:last-child {
 		border-bottom: 0;
 	}
-	/* Links from the timeline land here; keep the target clear of the page's top edge */
-	.ac li,
-	.finding {
-		scroll-margin-top: 1rem;
+	.head-tools {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem 1rem;
+		flex-wrap: wrap;
+	}
+	.stack {
+		display: grid;
+		gap: 1rem;
 	}
 	.carried {
 		display: block;
@@ -722,6 +953,8 @@
 	.ac-status {
 		display: inline-flex;
 		flex-wrap: wrap;
+		align-self: start;
+		padding-top: 0.1rem;
 		align-items: center;
 		gap: 0.4rem;
 		font-weight: 500;
@@ -769,7 +1002,7 @@
 	.finding.blocking {
 		border-left: 2px solid var(--block);
 	}
-	.finding.dismissed > :not(.note, .rate) {
+	.finding.dismissed > :not(.note, .rate, .dev-form) {
 		opacity: 0.55;
 	}
 	.finding.dismissed h3 {
@@ -831,19 +1064,34 @@
 		margin-top: 0.15rem;
 		border-top: 1px solid var(--rule);
 	}
-	.comment {
-		flex: 1;
-		min-width: 12rem;
+	.dev-form {
+		display: grid;
+		gap: 0.5rem;
 	}
-	.comment textarea {
-		width: 100%;
-		min-height: var(--control-h);
-		max-height: 12rem;
-		padding: 0.3rem 0.5rem;
-		font: inherit;
-		font-size: var(--text-sm);
-		resize: vertical;
+	.dev-form textarea {
+		min-height: 4.5rem;
+		max-height: 14rem;
 		field-sizing: content;
+	}
+	.linkish {
+		margin-left: auto;
+		padding: 0;
+		border: 0;
+		background: none;
+		font: inherit;
+		font-size: var(--text-xs);
+		color: var(--ink-3);
+		cursor: pointer;
+	}
+	.linkish:hover {
+		color: var(--accent);
+	}
+	.rate-what {
+		display: grid;
+		gap: 0.25rem;
+	}
+	.rate-title {
+		font-weight: 500;
 	}
 	.note {
 		display: grid;
@@ -856,6 +1104,14 @@
 	}
 	.note.confirmed {
 		border-left-color: var(--pass);
+	}
+	.note.dev {
+		border-left-color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 4%, var(--sheet));
+	}
+	.note-head :global(svg) {
+		align-self: center;
+		color: var(--accent);
 	}
 	.note p {
 		margin: 0;
@@ -878,6 +1134,7 @@
 	.rate-buttons {
 		display: flex;
 		gap: 0.35rem;
+		margin-left: auto;
 	}
 	.btn.on {
 		background: var(--pass-soft);
@@ -899,7 +1156,7 @@
 		margin: 0;
 	}
 	.rated {
-		width: 100%;
+		min-width: 0;
 	}
 	.comment form {
 		justify-self: start;
@@ -925,7 +1182,7 @@
 	/* Meta column */
 	.meta {
 		position: sticky;
-		top: 1.5rem;
+		top: calc(var(--head-h) + 1.5rem);
 		display: grid;
 		gap: 1rem;
 	}
