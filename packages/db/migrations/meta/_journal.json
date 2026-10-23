@@ -127,6 +127,13 @@
       "when": 1792742139125,
       "tag": "0017_finding_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1792792575246,
+      "tag": "0018_finding_activity",
+      "breakpoints": true
     }
   ]
 }

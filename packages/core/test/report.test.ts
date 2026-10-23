@@ -97,15 +97,15 @@ describe("ratings in the PR comment", () => {
     { findingId: "F1", status: "confirmed" as const, comment: null, by: "anna" },
     { findingId: "F2", status: "dismissed" as const, comment: "Abwesende sind nicht verplanbar.\nDaher gewollt.", by: "janik" },
   ];
-  it("adds the comment for the developers, also on unrated findings", () => {
+  it("adds the comments of the thread, also on unrated findings", () => {
     const c = renderPrComment(report(), undefined, {
       notes: [
-        { findingId: "F1", status: "confirmed", comment: "Auch auf Staging.", by: "anna", note: "Liegt am Validator.\nSiehe trips.ts", noteBy: "lars" },
-        { findingId: "F2", status: "proposed", comment: null, by: null, note: "Bitte mit UX klären", noteBy: "lars" },
+        { findingId: "F1", status: "confirmed", comment: "Auch auf Staging.", by: "anna", comments: [{ by: "lars", body: "Liegt am Validator.\nSiehe trips.ts" }, { by: "anna", body: "Ticket folgt" }] },
+        { findingId: "F2", status: "proposed", comment: null, by: null, comments: [{ by: "lars", body: "Bitte mit UX klären" }] },
       ],
     });
-    expect(c).toContain("  > Auch auf Staging.\n\n  > 💬 **Hinweis für die Entwicklung** (@lars): Liegt am Validator.\n  > Siehe trips.ts");
-    expect(c).toMatch(/- 💬 \*\*\[[^\]]+\] [^*]+\*\*\n  > 💬 \*\*Hinweis für die Entwicklung\*\* \(@lars\): Bitte mit UX klären/);
+    expect(c).toContain("  > Auch auf Staging.\n\n  > 💬 **@lars:** Liegt am Validator.\n  > Siehe trips.ts\n\n  > 💬 **@anna:** Ticket folgt");
+    expect(c).toMatch(/- 💬 \*\*\[[^\]]+\] [^*]+\*\*\n\n  > 💬 \*\*@lars:\*\* Bitte mit UX klären/);
   });
   it("leaves the comment unchanged without notes", () => {
     expect(renderPrComment(report(), undefined, { notes: [] })).toBe(renderPrComment(report()));

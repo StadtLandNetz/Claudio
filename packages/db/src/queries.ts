@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, getTableColumns, gt, inArray, lt, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/mysql-core";
 import type {
   AnalysisReport,
   AnalysisRequest,
@@ -26,6 +25,7 @@ import { decrypt, encrypt, sha256 } from "./crypto.js";
 import {
   agentLearnings,
   analyses,
+  findingActivity,
   findings,
   runArtifacts,
   repoAccess,
@@ -45,6 +45,8 @@ import {
   type AutoReviewDefaults,
   type Lesson,
   type NotificationSettings,
+  type FindingActivity,
+  type FindingActivityKind,
   type FindingStatus,
   type HumanInputPayload,
   type HumanRequest,
@@ -1121,12 +1123,10 @@ export async function humanInputsSince(db: Db, requestId: number, afterId: numbe
 // ---------------------------------------------------------------- findings
 
 export async function listFindings(db: Db, reviewId: number) {
-  const noteAuthor = alias(users, "note_author");
   return db
-    .select({ finding: findings, ratedByLogin: users.login, noteByLogin: noteAuthor.login })
+    .select({ finding: findings, ratedByLogin: users.login })
     .from(findings)
     .leftJoin(users, eq(users.id, findings.ratedBy))
-    .leftJoin(noteAuthor, eq(noteAuthor.id, findings.noteBy))
     .where(eq(findings.reviewId, reviewId))
     .orderBy(asc(findings.id));
 }
@@ -1143,12 +1143,32 @@ export async function rateFinding(
     .where(and(eq(findings.reviewId, reviewId), eq(findings.findingId, findingId)));
 }
 
-/** The comment for the developers on a finding; empty removes it. Independent of the rating. */
-export async function setFindingNote(db: Db, reviewId: number, findingId: string, input: { note: string | null; userId: number }): Promise<void> {
-  await db
-    .update(findings)
-    .set({ note: input.note, noteBy: input.note ? input.userId : null, noteAt: input.note ? new Date() : null })
-    .where(and(eq(findings.reviewId, reviewId), eq(findings.findingId, findingId)));
+export type FindingActivityItem = FindingActivity & { login: string; avatarUrl: string | null };
+
+/** The thread of every finding of a review, oldest first. */
+export async function listFindingActivity(db: Db, reviewId: number): Promise<FindingActivityItem[]> {
+  const rows = await db
+    .select({ a: findingActivity, login: users.login, avatarUrl: users.avatarUrl })
+    .from(findingActivity)
+    .innerJoin(users, eq(users.id, findingActivity.userId))
+    .where(eq(findingActivity.reviewId, reviewId))
+    .orderBy(asc(findingActivity.id));
+  return rows.map((r) => ({ ...r.a, login: r.login, avatarUrl: r.avatarUrl }));
+}
+
+export async function addFindingActivity(
+  db: Db,
+  input: { reviewId: number; findingId: string; userId: number; kind: FindingActivityKind; body: string | null },
+): Promise<void> {
+  await db.insert(findingActivity).values(input);
+}
+
+/** Removes a comment, only its author's own; ratings stay in the thread. */
+export async function deleteFindingComment(db: Db, reviewId: number, id: number, userId: number): Promise<boolean> {
+  const [res] = await db
+    .delete(findingActivity)
+    .where(and(eq(findingActivity.id, id), eq(findingActivity.reviewId, reviewId), eq(findingActivity.userId, userId), eq(findingActivity.kind, "comment")));
+  return res.affectedRows === 1;
 }
 
 /** Remembers the GitHub issue created from a finding (only rated findings can become one, so the row exists). */

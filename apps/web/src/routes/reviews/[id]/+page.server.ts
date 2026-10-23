@@ -13,21 +13,25 @@ import {
 	type Verdict
 } from '@claudio/core';
 import {
+	addFindingActivity,
 	addLesson,
 	countEvents,
+	deleteFindingComment,
 	findingStatuses,
 	getReview,
 	listPrHistory,
+	listFindingActivity,
 	listFindings,
 	listTestRuns,
 	openHumanRequest,
 	rateFinding,
 	removeLesson,
 	setFindingIssue,
-	setFindingNote,
 	requestAbort,
 	setReviewCommentUrl,
-	FINDING_STATUSES
+	FINDING_ACTIVITY_KINDS,
+	type FindingActivityItem,
+	type FindingActivityKind
 } from '@claudio/db';
 import type { AccessLevel } from '@claudio/db';
 import { postPullRequestReview } from '@claudio/github';
@@ -55,13 +59,16 @@ async function loadReview(idParam: string, locals: App.Locals, min: AccessLevel 
 
 const dismissedOf = (rows: Awaited<ReturnType<typeof listFindings>>) =>
 	rows.filter((r) => r.finding.status === 'dismissed').map((r) => r.finding.findingId);
-// Ratings with their reasons, and the comments for the developers (which need no rating).
-const notesOf = (rows: Awaited<ReturnType<typeof listFindings>>): FindingNote[] =>
-	rows.flatMap((r) =>
-		r.finding.status === 'proposed' && !r.finding.note
+const commentsOf = (activity: FindingActivityItem[], findingId: string) =>
+	activity.filter((a) => a.findingId === findingId && a.kind === 'comment' && a.body).map((a) => ({ by: a.login, body: a.body! }));
+// The current ratings with their reasons, and the comments of each thread (which need no rating).
+const notesOf = (rows: Awaited<ReturnType<typeof listFindings>>, activity: FindingActivityItem[]): FindingNote[] =>
+	rows.flatMap((r) => {
+		const comments = commentsOf(activity, r.finding.findingId);
+		return r.finding.status === 'proposed' && !comments.length
 			? []
-			: [{ findingId: r.finding.findingId, status: r.finding.status, comment: r.finding.comment, by: r.ratedByLogin, note: r.finding.note, noteBy: r.noteByLogin }]
-	);
+			: [{ findingId: r.finding.findingId, status: r.finding.status, comment: r.finding.comment, by: r.ratedByLogin, comments }];
+	});
 
 /**
  * Every review of the pull request with its findings, for the comparison in the
@@ -88,8 +95,9 @@ async function prHistory(review: { id: number; repoId: number; prNumber: number 
 
 export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const review = await loadReview(params.id, locals, 'read');
-	const [rows, eventCount, testRuns] = await Promise.all([
+	const [rows, activity, eventCount, testRuns] = await Promise.all([
 		listFindings(db(), review.id),
+		listFindingActivity(db(), review.id),
 		countEvents(db(), { reviewId: review.id }),
 		listTestRuns(db(), { reviewId: review.id }, 100)
 	]);
@@ -104,15 +112,16 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 				comment: r.finding.comment ?? '',
 				by: r.ratedByLogin,
 				at: r.finding.ratedAt,
-				issueUrl: r.finding.issueUrl ?? null,
-				note: r.finding.note ?? '',
-				noteBy: r.noteByLogin,
-				noteAt: r.finding.noteAt
+				issueUrl: r.finding.issueUrl ?? null
 			}
 		])
 	);
 	const dismissed = dismissedOf(rows);
-	const notes = notesOf(rows);
+	const notes = notesOf(rows, activity);
+	const threadOf = (findingId: string) =>
+		activity
+			.filter((a) => a.findingId === findingId)
+			.map((a) => ({ id: a.id, kind: a.kind, body: a.body ?? '', by: a.login, avatarUrl: a.avatarUrl, at: a.createdAt, mine: a.userId === locals.user?.id }));
 	const requested = StrictnessSchema.safeParse(url.searchParams.get('strictness'));
 	const strictness = requested.success ? requested.data : (report?.request.strictness ?? review.request.strictness);
 	const blocking = report ? new Set(blockingFindings(report, strictness, dismissed).map((f) => f.id)) : new Set<string>();
@@ -167,7 +176,8 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 					findings: sortBySeverity(report.findings).map((f) => ({
 						...f,
 						blocking: blocking.has(f.id),
-						rating: ratings.get(f.id) ?? { status: 'proposed' as const, comment: '', by: null, at: null, issueUrl: null, note: '', noteBy: null, noteAt: null }
+						rating: ratings.get(f.id) ?? { status: 'proposed' as const, comment: '', by: null, at: null, issueUrl: null },
+						activity: threadOf(f.id)
 					})),
 					evidence: Object.fromEntries(evidence.map((e) => [e.id, e])),
 					notes: report.notes,
@@ -187,36 +197,44 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 };
 
 export const actions: Actions = {
-	rate: async ({ params, request, locals }) => {
+	/**
+	 * One entry in a finding's thread: a comment, or a rating whose text is its reason.
+	 * Confirming and dismissing set the current rating; reset takes it back.
+	 */
+	activity: async ({ params, request, locals }) => {
 		const review = await loadReview(params.id, locals, 'write');
 		const { t } = serverI18n(locals.locale);
 		const f = await request.formData();
 		const findingId = String(f.get('findingId') ?? '');
-		const status = String(f.get('status') ?? '');
-		if (!(FINDING_STATUSES as readonly string[]).includes(status)) return fail(400, { error: t('review.unknownRating') });
+		const form = `activity:${findingId}`;
+		const kind = String(f.get('kind') ?? '') as FindingActivityKind;
+		if (!FINDING_ACTIVITY_KINDS.includes(kind)) return fail(400, { error: t('review.unknownRating'), form });
 		const finding = review.report?.findings.find((x) => x.id === findingId);
-		if (!finding) return fail(400, { error: t('review.unknownFinding') });
-		// The reason belongs to the rating: taking the rating back drops it.
-		const comment = status === 'proposed' ? null : String(f.get('comment') ?? '').trim().slice(0, 2000) || null;
-		await rateFinding(db(), review.id, findingId, { status: status as (typeof FINDING_STATUSES)[number], comment, userId: locals.user!.id });
-		// A dismissal with a reason teaches later reviews of this repo; undoing it forgets the lesson.
-		if (status === 'dismissed' && comment) {
-			await addLesson(db(), review.repoId, { text: `${finding.title}: ${comment}`, reviewId: review.id, findingId, by: locals.user!.login, at: new Date().toISOString() });
-		} else {
-			await removeLesson(db(), review.repoId, { reviewId: review.id, findingId });
+		if (!finding) return fail(400, { error: t('review.unknownFinding'), form });
+		const body = kind === 'reset' ? null : String(f.get('body') ?? '').trim().slice(0, 4000) || null;
+		if (kind === 'comment' && !body) return fail(400, { error: t('review.commentEmpty'), form });
+		const userId = locals.user!.id;
+		await addFindingActivity(db(), { reviewId: review.id, findingId, userId, kind, body });
+		if (kind !== 'comment') {
+			const status = kind === 'reset' ? 'proposed' : kind;
+			await rateFinding(db(), review.id, findingId, { status, comment: body, userId });
+			// A dismissal with a reason teaches later reviews of this repo; any other rating forgets the lesson.
+			if (kind === 'dismissed' && body) {
+				await addLesson(db(), review.repoId, { text: `${finding.title}: ${body}`, reviewId: review.id, findingId, by: locals.user!.login, at: new Date().toISOString() });
+			} else {
+				await removeLesson(db(), review.repoId, { reviewId: review.id, findingId });
+			}
 		}
-		return { rated: findingId };
+		return { posted: findingId };
 	},
-	/** The comment for the developers: independent of the rating, it goes into the PR comment and the issue. */
-	note: async ({ params, request, locals }) => {
+	/** Removes one of your own comments; ratings stay in the thread as a record. */
+	deleteComment: async ({ params, request, locals }) => {
 		const review = await loadReview(params.id, locals, 'write');
-		const { t } = serverI18n(locals.locale);
-		const f = await request.formData();
-		const findingId = String(f.get('findingId') ?? '');
-		if (!review.report?.findings.some((x) => x.id === findingId)) return fail(400, { error: t('review.unknownFinding'), form: `note:${findingId}` });
-		const note = f.get('clearNote') ? null : String(f.get('note') ?? '').trim().slice(0, 4000) || null;
-		await setFindingNote(db(), review.id, findingId, { note, userId: locals.user!.id });
-		return { noted: findingId };
+		const id = Number((await request.formData()).get('id'));
+		if (!Number.isInteger(id) || !(await deleteFindingComment(db(), review.id, id, locals.user!.id))) {
+			return fail(400, { error: serverI18n(locals.locale).t('review.commentNotYours'), form: 'deleteComment' });
+		}
+		return { deleted: id };
 	},
 	comment: async ({ params, request, locals, url }) => {
 		const review = await loadReview(params.id, locals, 'write');
@@ -228,9 +246,9 @@ export const actions: Actions = {
 		const f = await request.formData();
 		const requested = StrictnessSchema.safeParse(f.get('strictness'));
 		const strictness = requested.success ? requested.data : review.report.request.strictness;
-		const rows = await listFindings(db(), review.id);
+		const [rows, activity] = await Promise.all([listFindings(db(), review.id), listFindingActivity(db(), review.id)]);
 		const dismissed = dismissedOf(rows);
-		const notes = f.get('includeNotes') ? notesOf(rows) : [];
+		const notes = f.get('includeNotes') ? notesOf(rows, activity) : [];
 		const tests = (await listTestRuns(db(), { reviewId: review.id }, 100)).map((t) => ({ name: t.scriptName, outcome: t.outcome }));
 		const body = renderPrComment(review.report, `${publicBaseUrl(url)}/reviews/${review.id}`, { strictness, dismissedIds: dismissed, tests, notes });
 		try {
@@ -260,6 +278,7 @@ export const actions: Actions = {
 		if (!github) return fail(400, { error: t('review.commentNeedsGithub'), form: `issue:${findingId}` });
 
 		const base = publicBaseUrl(url);
+		const comments = commentsOf(await listFindingActivity(db(), review.id), findingId);
 		const { t: lt, labels } = serverI18n(report.request.language);
 		const shots = finding.evidenceIds
 			.map((id) => report.evidence.find((e) => e.id === id))
@@ -271,8 +290,8 @@ export const actions: Actions = {
 			finding.actual ? `\n**${lt('review.observed')}:** ${finding.actual}` : '',
 			finding.url ? `\n**URL:** ${finding.url}` : '',
 			shots.length ? `\n### ${lt('review.issueScreenshots')}\n\n${shots.map(({ e, src }) => (src ? `![${e.label}](${src})` : `- ${e.label}`)).join('\n\n')}` : '',
-			row.note?.trim() ? `\n### ${lt('review.devNote')}\n\n${row.note.trim()}` : '',
 			row.comment?.trim() ? `\n> **${lt('review.reason')}:** ${row.comment.trim().split('\n').join('\n> ')}` : '',
+			comments.length ? `\n### ${lt('review.issueComments')}\n\n${comments.map((c) => `**@${c.by}:** ${c.body.trim()}`).join('\n\n')}` : '',
 			`\n---\n${lt('review.issueFooter', { severity: labels.severity[finding.severity], pr: review.prNumber, url: `${base}/reviews/${review.id}#finding-${finding.id}` })}`
 		]
 			.filter(Boolean)

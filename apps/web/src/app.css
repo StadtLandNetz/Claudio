@@ -701,41 +701,26 @@ table.list tbody tr:hover td {
 	color: var(--ink);
 }
 
-/* Filter chips above a list: all, or only what needs attention */
-.chips {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.3rem;
-}
-.chip-btn {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.35rem;
-	height: 1.5rem;
-	padding: 0 0.5rem;
-	border: 1px solid var(--rule-strong);
-	border-radius: 999px;
-	background: var(--sheet);
-	font: inherit;
+/* A small select next to a segmented control (e.g. the type of findings) */
+.mini-select {
+	width: auto;
+	height: 1.625rem;
+	padding: 0 1.6rem 0 0.5rem;
+	border: 0;
+	border-radius: var(--radius-s);
+	background-color: var(--sunken);
 	font-size: var(--text-xs);
 	font-weight: 500;
 	color: var(--ink-2);
 	cursor: pointer;
-	white-space: nowrap;
 }
-.chip-btn:hover {
-	color: var(--ink);
-	background: var(--sunken);
-}
-.chip-btn[aria-pressed='true'] {
-	border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-	background: var(--accent-soft);
+.mini-select:hover {
 	color: var(--ink);
 }
-.chip-btn .n {
-	color: var(--ink-3);
-}
-.chip-btn:disabled {
-	opacity: 0.5;
-	cursor: default;
+/* The tools on the right of a section heading: filters, switches */
+.list-tools {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	flex-wrap: wrap;
 }

@@ -8,8 +8,8 @@
 	import HumanTakeover from '#lib/components/HumanTakeover.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import LiveView from '#lib/components/LiveView.svelte';
-	import Modal from '#lib/components/Modal.svelte';
 	import PageNav, { type Section } from '#lib/components/PageNav.svelte';
+	import Seg from '#lib/components/Seg.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import { invalidateAll } from '$app/navigation';
 	import Severity from '#lib/components/Severity.svelte';
@@ -36,46 +36,49 @@
 	const active = $derived(isActive(review.status));
 
 	// ---- findings
-	type ReportFinding = NonNullable<PageProps['data']['report']>['findings'][number];
-	let showDismissed = $state(true);
-	// Filter by type (category); counts follow the "show dismissed" switch.
-	let findingType = $state<string | null>(null);
-	const visibleFindings = $derived((report?.findings ?? []).filter((f) => showDismissed || f.rating.status !== 'dismissed'));
+	// Filters: by rating (all, open, dismissed) and by type; both start fresh on every page.
+	let findingStatus = $state<'all' | 'open' | 'dismissed'>('all');
+	let findingType = $state('');
+	const byStatus = $derived(
+		(report?.findings ?? []).filter((f) => findingStatus === 'all' || (findingStatus === 'dismissed') === (f.rating.status === 'dismissed'))
+	);
 	const findingTypes = $derived.by(() => {
 		const m = new Map<string, number>();
-		for (const f of visibleFindings) m.set(f.category, (m.get(f.category) ?? 0) + 1);
+		for (const f of byStatus) m.set(f.category, (m.get(f.category) ?? 0) + 1);
 		return [...m].sort((a, b) => b[1] - a[1]);
 	});
-	const shownFindings = $derived(findingType ? visibleFindings.filter((f) => f.category === findingType) : visibleFindings);
+	const shownFindings = $derived(findingType ? byStatus.filter((f) => f.category === findingType) : byStatus);
 	// "Current" shows this review's findings; "per review" compares them across the reviews of the pull request.
 	let findingsView = $state<'current' | 'history'>('current');
 	function showFinding(id: string) {
 		findingsView = 'current';
-		findingType = null;
-		showDismissed = true;
+		findingType = '';
+		findingStatus = 'all';
 		tick().then(() => document.getElementById(`finding-${id}`)?.scrollIntoView({ block: 'start' }));
 	}
 
-	// Confirming and dismissing each ask for their own reason in a dialog; the comment for the developers is separate.
-	type RateDraft = { id: string; title: string; status: 'confirmed' | 'dismissed'; comment: string };
-	let rateDraft = $state<RateDraft | null>(null);
-	let rateOpen = $state(false);
-	let rateBusy = $state(false);
-	let rateError = $state<string | null>(null);
-	function openRate(f: ReportFinding, status: RateDraft['status']) {
-		rateDraft = { id: f.id, title: f.title, status, comment: f.rating.status === status ? f.rating.comment : '' };
-		rateError = null;
-		rateOpen = true;
-	}
-	// The finding whose comment for the developers is open for editing.
-	let noting = $state<string | null>(null);
-	const submitOnCmdEnter = (e: KeyboardEvent) => {
-		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) (e.currentTarget as HTMLTextAreaElement).form?.requestSubmit();
+	// The thread of a finding: one field, and comment, confirm and dismiss as equal actions on it.
+	let drafts = $state<Record<string, string>>({});
+	let sending = $state<string | null>(null);
+	const verb: Record<string, () => string> = {
+		comment: () => i.t('review.actComment'),
+		confirmed: () => i.t('review.actConfirmed'),
+		dismissed: () => i.t('review.actDismissed'),
+		reset: () => i.t('review.actReset')
 	};
+	const statusTip = (f: ReportFinding) =>
+		f.rating.by ? i.t('review.statusTip', { status: i.t(f.rating.status === 'confirmed' ? 'review.statusConfirmed' : 'review.statusDismissed'), user: f.rating.by, date: i.formatDate(f.rating.at) }) : '';
+	const sendOnCmdEnter = (e: KeyboardEvent) => {
+		if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+		const form = (e.currentTarget as HTMLTextAreaElement).form;
+		form?.requestSubmit(form.querySelector<HTMLButtonElement>('button[value="comment"]') ?? undefined);
+	};
+	type ReportFinding = NonNullable<PageProps['data']['report']>['findings'][number];
 
 	// ---- acceptance criteria: the first few, all of them, or only those that need attention
 	const AC_PREVIEW = 4;
-	let acWarningsOnly = $state(false);
+	let acFilter = $state<'all' | 'warnings'>('all');
+	const acWarningsOnly = $derived(acFilter === 'warnings');
 	let acExpanded = $state(false);
 	const acRows = $derived((report?.acceptanceCriteria ?? []).map((ac, k) => ({ ac, n: k + 1 })));
 	const acWarnings = $derived(acRows.filter((r) => r.ac.status !== 'passed'));
@@ -94,14 +97,14 @@
 		if (!target || document.getElementById(target)) return;
 		const fid = /^finding-(.+)$/.exec(target)?.[1];
 		if (/^ac-\d+$/.test(target)) {
-			acWarningsOnly = false;
+			acFilter = 'all';
 			acExpanded = true;
 		} else if (fid) {
 			const f = report?.findings.find((x) => x.id === fid);
 			if (!f) return;
 			findingsView = 'current';
-			findingType = null;
-			if (f.rating.status === 'dismissed') showDismissed = true;
+			findingType = '';
+			findingStatus = 'all';
 		} else return;
 		await tick();
 		document.getElementById(target)?.scrollIntoView({ block: 'start' });
@@ -205,16 +208,29 @@
 		if (report.summaryHtml) out.push({ id: 'summary', label: i.t('review.summary') });
 		if (data.tests.length) {
 			const failed = data.tests.some((t) => t.outcome === 'failed');
-			out.push({ id: 'tests', label: i.t('review.sectionTests'), count: `${testsPassed}/${data.tests.length}`, tone: failed ? 'block' : testsActive ? undefined : 'pass' });
+			out.push({
+				id: 'tests',
+				label: i.t('review.sectionTests'),
+				count: `${testsPassed}/${data.tests.length}`,
+				tone: failed ? 'block' : testsActive ? undefined : 'pass',
+				tip: i.t('review.tipTests', { passed: testsPassed, total: data.tests.length })
+			});
 		}
 		const acFailed = acRows.some((r) => r.ac.status === 'failed');
 		out.push({
 			id: 'criteria',
 			label: i.t('review.sectionCriteria'),
 			count: acRows.length ? `${acPassed}/${acRows.length}` : undefined,
-			tone: acFailed ? 'block' : acWarnings.length ? 'major' : acRows.length ? 'pass' : undefined
+			tone: acFailed ? 'block' : acWarnings.length ? 'major' : acRows.length ? 'pass' : undefined,
+			tip: i.t('review.tipCriteria', { passed: acPassed, total: acRows.length })
 		});
-		out.push({ id: 'findings', label: i.t('review.findings'), count: counts.open, tone: counts.blocking ? 'block' : undefined });
+		out.push({
+			id: 'findings',
+			label: i.t('review.findings'),
+			count: counts.open,
+			tone: counts.blocking ? 'block' : undefined,
+			tip: i.t('review.tipFindings', { open: counts.open, blocking: counts.blocking })
+		});
 		if (gallery.length) out.push({ id: 'screenshots', label: i.t('review.screenshots'), count: gallery.length });
 		if (showComment) out.push({ id: 'comment', label: i.t('review.sectionComment') });
 		if (report.errors.length) out.push({ id: 'problems', label: i.t('review.sectionProblems'), count: report.errors.length, tone: 'block' });
@@ -381,14 +397,14 @@
 				<div class="block-head">
 					<h2>{i.t('review.acceptanceCriteria')}</h2>
 					{#if acRows.length > AC_PREVIEW || acWarnings.length}
-						<div class="chips" role="group" aria-label={i.t('review.acceptanceCriteria')}>
-							<button type="button" class="chip-btn" aria-pressed={!acWarningsOnly} onclick={() => (acWarningsOnly = false)}>
-								{i.t('common.filterAll')} <span class="n">{acRows.length}</span>
-							</button>
-							<button type="button" class="chip-btn" aria-pressed={acWarningsOnly} use:tooltip={i.t('review.acWarningsHelp')} onclick={() => (acWarningsOnly = true)}>
-								{i.t('common.onlyWarnings')} <span class="n">{acWarnings.length}</span>
-							</button>
-						</div>
+						<Seg
+							bind:value={acFilter}
+							label={i.t('review.acceptanceCriteria')}
+							options={[
+								{ value: 'all', label: i.t('common.filterAll'), count: acRows.length },
+								{ value: 'warnings', label: i.t('common.onlyWarnings'), count: acWarnings.length, tip: i.t('review.acWarningsHelp') }
+							]}
+						/>
 					{/if}
 				</div>
 				{#if !acRows.length}
@@ -437,34 +453,37 @@
 					<div class="title-row">
 						<h2>{i.t('review.findings')}</h2>
 						{#if data.history.length > 1}
-							<div class="seg" role="group" aria-label={i.t('review.findingsView')}>
-								<button type="button" aria-pressed={findingsView === 'current'} onclick={() => (findingsView = 'current')}>{i.t('review.findingsViewCurrent')}</button>
-								<button type="button" aria-pressed={findingsView === 'history'} use:tooltip={i.t('review.findingsViewHistoryHelp')} onclick={() => (findingsView = 'history')}>
-									{i.t('review.findingsViewHistory')} <span class="faint">{data.history.length}</span>
-								</button>
-							</div>
+							<Seg
+								bind:value={findingsView}
+								label={i.t('review.findingsView')}
+								options={[
+									{ value: 'current', label: i.t('review.findingsViewCurrent'), tip: i.t('review.findingsViewCurrentHelp') },
+									{ value: 'history', label: i.t('review.findingsViewHistory'), count: data.history.length, tip: i.t('review.findingsViewHistoryHelp') }
+								]}
+							/>
 						{/if}
 					</div>
-					<div class="head-tools" hidden={findingsView === 'history'}>
-						{#if findingTypes.length > 1 || findingType}
-							<div class="chips" role="group" aria-label={i.t('review.findingsByType')}>
-								<button type="button" class="chip-btn" aria-pressed={findingType === null} onclick={() => (findingType = null)}>
-									{i.t('common.filterAll')} <span class="n">{visibleFindings.length}</span>
-								</button>
-								{#each findingTypes as [cat, n] (cat)}
-									<button type="button" class="chip-btn" aria-pressed={findingType === cat} onclick={() => (findingType = findingType === cat ? null : cat)}>
-										{i.labels.category[cat] ?? cat} <span class="n">{n}</span>
-									</button>
-								{/each}
-							</div>
-						{/if}
-						{#if counts.dismissed > 0}
-							<label class="check small">
-								<input type="checkbox" bind:checked={showDismissed} />
-								<span>{i.t('review.showDismissed', { n: counts.dismissed })}</span>
-							</label>
-						{/if}
-					</div>
+					{#if findingsView === 'current' && report.findings.length}
+						<div class="list-tools">
+							{#if counts.dismissed > 0}
+								<Seg
+									bind:value={findingStatus}
+									label={i.t('review.findingsStatusLabel')}
+									options={[
+										{ value: 'all', label: i.t('common.filterAll'), count: report.findings.length },
+										{ value: 'open', label: i.t('review.statusOpen'), count: counts.open, tip: i.t('review.statusOpenHelp') },
+										{ value: 'dismissed', label: i.t('review.statusDismissed'), count: counts.dismissed, tip: i.t('review.statusDismissedHelp') }
+									]}
+								/>
+							{/if}
+							{#if findingTypes.length > 1 || findingType}
+								<select class="mini-select" bind:value={findingType} aria-label={i.t('review.findingsByType')}>
+									<option value="">{i.t('review.typeAll')}</option>
+									{#each findingTypes as [cat, n] (cat)}<option value={cat}>{i.labels.category[cat] ?? cat} ({n})</option>{/each}
+								</select>
+							{/if}
+						</div>
+					{/if}
 				</div>
 				{#if findingsView === 'history'}
 					<FindingHistory reviews={data.history} currentId={review.id} onopen={showFinding} />
@@ -479,6 +498,12 @@
 							<Severity severity={f.severity} />
 							<span class="cat">{i.labels.category[f.category] ?? f.category}</span>
 							{#if f.blocking}<span class="blk">{i.t('review.blocksApproval')}</span>{/if}
+							{#if f.rating.status !== 'proposed'}
+								<span class="state {f.rating.status}" use:tooltip={statusTip(f)}>
+									<Icon name={f.rating.status === 'confirmed' ? 'check' : 'x'} size={10} />
+									{f.rating.status === 'confirmed' ? i.t('review.statusConfirmed') : i.t('review.statusDismissed')}
+								</span>
+							{/if}
 							{#if f.previous}
 								<a class="prev {f.previous.status}" href="/reviews/{f.previous.reviewId}#finding-{f.previous.findingId}">
 									{f.previous.status === 'still_open' ? i.t('review.stillOpenFrom', { id: f.previous.reviewId, fid: f.previous.findingId }) : i.t('review.notRecheckedFrom', { id: f.previous.reviewId, fid: f.previous.findingId })}
@@ -509,104 +534,95 @@
 							<EvidenceThumbs items={evidenceOf(f.evidenceIds)} onopen={openEv} onjump={hasTrace ? jumpEv : undefined} />
 						{/if}
 
-						<!-- The rating with its reason -->
-						{#if f.rating.status !== 'proposed' && f.rating.comment}
-							<div class="note {f.rating.status}">
-								<p class="note-head">
-									<strong>{f.rating.by ?? i.t('review.unknownUser')}</strong>
-									<span>{f.rating.status === 'confirmed' ? i.t('review.hasConfirmed') : i.t('review.hasDismissed')}</span>
-									{#if f.rating.at}<span class="faint">· {i.formatDate(f.rating.at)}</span>{/if}
-									{#if data.canWrite}
-										<button type="button" class="linkish" onclick={() => openRate(f, f.rating.status === 'confirmed' ? 'confirmed' : 'dismissed')}>{i.t('review.editReason')}</button>
-									{/if}
-								</p>
-								<p class="note-body">{f.rating.comment}</p>
-							</div>
-						{/if}
-
-						<!-- The comment for the developers, independent of the rating -->
-						{#if noting === f.id}
-							<form
-								method="POST"
-								action="?/note"
-								class="dev-form"
-								use:enhance={() =>
-									async ({ result, update }) => {
-										await update({ reset: false });
-										if (result.type === 'success') noting = null;
-									}}
-							>
-								<input type="hidden" name="findingId" value={f.id} />
-								<label class="field">
-									<span>{i.t('review.devNote')}</span>
-									<!-- svelte-ignore a11y_autofocus -->
-									<textarea name="note" rows="3" value={f.rating.note} placeholder={i.t('review.devNotePlaceholder')} autofocus onkeydown={submitOnCmdEnter}></textarea>
-									<small>{i.t('review.devNoteHelp')}</small>
-								</label>
-								<div class="actions">
-									<button class="btn primary small" type="submit">{i.t('review.devNoteSave')}</button>
-									<button class="btn ghost small" type="button" onclick={() => (noting = null)}>{i.t('common.cancel')}</button>
-									{#if f.rating.note}<button class="btn ghost danger small" type="submit" name="clearNote" value="1">{i.t('review.devNoteRemove')}</button>{/if}
-								</div>
-							</form>
-						{:else if f.rating.note}
-							<div class="note dev">
-								<p class="note-head">
-									<Icon name="comment" size={12} />
-									<strong>{f.rating.noteBy ?? i.t('review.unknownUser')}</strong>
-									<span>{i.t('review.devNote')}</span>
-									{#if f.rating.noteAt}<span class="faint">· {i.formatDate(f.rating.noteAt)}</span>{/if}
-									{#if data.canWrite}<button type="button" class="linkish" onclick={() => (noting = f.id)}>{i.t('review.devNoteEdit')}</button>{/if}
-								</p>
-								<p class="note-body">{f.rating.note}</p>
-							</div>
-						{/if}
-
-						{#if data.canWrite}
-							<div class="rate">
-								{#if noting !== f.id && !f.rating.note}
-									<button type="button" class="btn ghost small" use:tooltip={i.t('review.devNoteHelp')} onclick={() => (noting = f.id)}>
-										<Icon name="comment" size={12} />
-										{i.t('review.devNoteAdd')}
-									</button>
+						<!-- The thread: ratings and comments as equal entries, then one field for all three actions -->
+						{#if f.activity.length || data.canWrite}
+							<div class="thread">
+								{#if f.activity.length}
+									<ol class="entries" aria-label={i.t('review.activityLabel', { id: f.id })}>
+										{#each f.activity as a (a.id)}
+											<li class="entry {a.kind}">
+												<span class="badge {a.kind}" aria-hidden="true">
+													<Icon name={a.kind === 'confirmed' ? 'check' : a.kind === 'dismissed' ? 'x' : a.kind === 'reset' ? 'skip-back' : 'comment'} size={10} />
+												</span>
+												<div class="entry-main">
+													<div class="entry-head">
+														<strong>{a.by}</strong>
+														<span>{verb[a.kind]?.()}</span>
+														<span class="faint">{i.formatDate(a.at)}</span>
+														{#if a.mine && a.kind === 'comment' && data.canWrite}
+															<form method="POST" action="?/deleteComment" class="del" use:enhance={() => async ({ update }) => update({ reset: false })}>
+																<input type="hidden" name="id" value={a.id} />
+																<button type="submit" class="linkish">{i.t('review.deleteComment')}</button>
+															</form>
+														{/if}
+													</div>
+													{#if a.body}<p class="entry-body">{a.body}</p>{/if}
+												</div>
+											</li>
+										{/each}
+									</ol>
 								{/if}
-								{#if f.rating.by && !(f.rating.status !== 'proposed' && f.rating.comment)}
-									<span class="faint rated">
-										{i.t(f.rating.status === 'confirmed' ? 'review.confirmedBy' : f.rating.status === 'dismissed' ? 'review.dismissedBy' : 'review.resetBy', { user: f.rating.by })}{f.rating.at ? `, ${i.formatDate(f.rating.at)}` : ''}
-									</span>
-								{/if}
-								<div class="rate-buttons" role="group" aria-label={i.t('review.rating')}>
-									<button type="button" class="btn small" class:on={f.rating.status === 'confirmed'} aria-pressed={f.rating.status === 'confirmed'} use:tooltip={i.t('review.confirmHelp')} onclick={() => openRate(f, 'confirmed')}>
-										{i.t('review.confirm')}
-									</button>
-									<button type="button" class="btn small" class:on-dismiss={f.rating.status === 'dismissed'} aria-pressed={f.rating.status === 'dismissed'} use:tooltip={i.t('review.dismissHelp')} onclick={() => openRate(f, 'dismissed')}>
-										{i.t('review.dismiss')}
-									</button>
-									{#if f.rating.status !== 'proposed'}
-										<form method="POST" action="?/rate" use:enhance={() => async ({ update }) => update({ reset: false })}>
-											<input type="hidden" name="findingId" value={f.id} />
-											<button class="btn ghost small" name="status" value="proposed" use:tooltip={i.t('review.resetHelp')}>{i.t('review.reset')}</button>
-										</form>
-									{/if}
-								</div>
-							</div>
-						{:else if f.rating.by && f.rating.status !== 'proposed' && !f.rating.comment}
-							<p class="faint rated">
-								{i.t(f.rating.status === 'confirmed' ? 'review.confirmedBy' : 'review.dismissedBy', { user: f.rating.by })}{f.rating.at ? `, ${i.formatDate(f.rating.at)}` : ''}
-							</p>
-						{/if}
-						{#if f.rating.status === 'confirmed' && data.canWrite && !review.fixture}
-							{@const issueError = form && 'error' in form && form.form === `issue:${f.id}` ? form.error : null}
-							<div class="issue-row">
-								{#if f.rating.issueUrl}
-									<a href={f.rating.issueUrl} target="_blank" rel="noopener noreferrer">{i.t('review.issueOpen', { n: f.rating.issueUrl.split('/').pop() ?? '' })} <Icon name="external" size={12} /></a>
-								{:else}
-									<form method="POST" action="?/issue" use:enhance={() => async ({ update }) => update({ reset: false })}>
+								{#if data.canWrite}
+									{@const activityError = form && 'error' in form && form.form === `activity:${f.id}` ? form.error : null}
+									<form
+										method="POST"
+										action="?/activity"
+										class="composer"
+										use:enhance={() => {
+											sending = f.id;
+											return async ({ result, update }) => {
+												await update({ reset: false });
+												sending = null;
+												if (result.type === 'success') drafts[f.id] = '';
+											};
+										}}
+									>
 										<input type="hidden" name="findingId" value={f.id} />
-										<button class="btn small" type="submit">{i.t('review.issueCreate')}</button>
+										<label class="visually-hidden" for="composer-{f.id}">{i.t('review.composerLabel', { id: f.id })}</label>
+										<textarea
+											id="composer-{f.id}"
+											name="body"
+											rows="1"
+											placeholder={i.t('review.composerPlaceholder')}
+											value={drafts[f.id] ?? ''}
+											oninput={(e) => (drafts[f.id] = e.currentTarget.value)}
+											onkeydown={sendOnCmdEnter}
+										></textarea>
+										{#if activityError}<p class="notice error" role="alert">{activityError}</p>{/if}
+										<div class="composer-actions">
+											{#if f.rating.status === 'confirmed' && !review.fixture}
+												{#if f.rating.issueUrl}
+													<a class="btn ghost small" href={f.rating.issueUrl} target="_blank" rel="noopener noreferrer">{i.t('review.issueOpen', { n: f.rating.issueUrl.split('/').pop() ?? '' })} <Icon name="external" size={12} /></a>
+												{:else}
+													<button type="submit" class="btn ghost small" form="issue-{f.id}" use:tooltip={i.t('review.issueHelp')}>{i.t('review.issueCreate')}</button>
+												{/if}
+											{/if}
+											<span class="spacer"></span>
+											<button type="submit" class="btn small" name="kind" value="comment" disabled={sending === f.id || !drafts[f.id]?.trim()} use:tooltip={i.t('review.commentBtnHelp')}>
+												<Icon name="comment" size={12} />
+												{i.t('review.doComment')}
+											</button>
+											<button type="submit" class="btn small" name="kind" value="confirmed" disabled={sending === f.id} aria-pressed={f.rating.status === 'confirmed'} use:tooltip={i.t('review.confirmHelp')}>
+												<Icon name="check" size={12} />
+												{i.t('review.confirm')}
+											</button>
+											<button type="submit" class="btn small" name="kind" value="dismissed" disabled={sending === f.id} aria-pressed={f.rating.status === 'dismissed'} use:tooltip={i.t('review.dismissHelp')}>
+												<Icon name="x" size={12} />
+												{i.t('review.dismiss')}
+											</button>
+											{#if f.rating.status !== 'proposed'}
+												<button type="submit" class="btn ghost small" name="kind" value="reset" disabled={sending === f.id} use:tooltip={i.t('review.resetHelp')}>{i.t('review.reset')}</button>
+											{/if}
+										</div>
 									</form>
+									{#if f.rating.status === 'confirmed' && !review.fixture && !f.rating.issueUrl}
+										{@const issueError = form && 'error' in form && form.form === `issue:${f.id}` ? form.error : null}
+										<form id="issue-{f.id}" method="POST" action="?/issue" hidden use:enhance={() => async ({ update }) => update({ reset: false })}>
+											<input type="hidden" name="findingId" value={f.id} />
+										</form>
+										{#if issueError}<p class="notice error" role="alert">{issueError}</p>{/if}
+									{/if}
 								{/if}
-								{#if issueError}<span class="notice error" role="alert">{issueError}</span>{/if}
 							</div>
 						{/if}
 					</article>
@@ -730,58 +746,6 @@
 
 <Lightbox bind:item={lightbox} />
 
-<Modal
-	bind:open={rateOpen}
-	title={rateDraft ? i.t(rateDraft.status === 'confirmed' ? 'review.confirmTitle' : 'review.dismissTitle', { id: rateDraft.id }) : ''}
-	locked={rateBusy}
->
-	{#if rateDraft}
-		<form
-			id="rate-form"
-			method="POST"
-			action="?/rate"
-			class="fields"
-			use:enhance={() => {
-				rateBusy = true;
-				return async ({ result, update }) => {
-					rateBusy = false;
-					if (result.type === 'failure') {
-						rateError = String(result.data?.error ?? '');
-						return;
-					}
-					await update({ reset: false });
-					rateOpen = false;
-				};
-			}}
-		>
-			<input type="hidden" name="findingId" value={rateDraft.id} />
-			<input type="hidden" name="status" value={rateDraft.status} />
-			<div class="rate-what">
-				<p class="rate-title">{rateDraft.title}</p>
-				<p class="muted">{rateDraft.status === 'confirmed' ? i.t('review.confirmHelp') : i.t('review.dismissHelp')}</p>
-			</div>
-			{#if rateError}<p class="notice error" role="alert">{rateError}</p>{/if}
-			<label class="field">
-				<span>{rateDraft.status === 'confirmed' ? i.t('review.confirmReason') : i.t('review.dismissReason')}</span>
-				<textarea
-					name="comment"
-					rows="4"
-					value={rateDraft.comment}
-					placeholder={rateDraft.status === 'confirmed' ? i.t('review.confirmReasonPlaceholder') : i.t('review.dismissReasonPlaceholder')}
-					onkeydown={submitOnCmdEnter}
-				></textarea>
-				<small>{rateDraft.status === 'confirmed' ? i.t('review.confirmReasonHint') : i.t('review.dismissReasonHint')}</small>
-			</label>
-		</form>
-	{/if}
-	{#snippet footer()}
-		<span class="spacer"></span>
-		<button type="button" class="btn ghost" onclick={() => (rateOpen = false)}>{i.t('common.cancel')}</button>
-		<button type="submit" form="rate-form" class="btn primary" disabled={rateBusy}>
-			{rateDraft?.status === 'dismissed' ? i.t('review.dismiss') : i.t('review.confirm')}
-		</button>
-	{/snippet}
-</Modal>
 
 <style>
 	.page-title h1 {
@@ -918,15 +882,6 @@
 		gap: 0.75rem;
 		flex-wrap: wrap;
 	}
-	.head-tools[hidden] {
-		display: none;
-	}
-	.head-tools {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem 1rem;
-		flex-wrap: wrap;
-	}
 	.stack {
 		display: grid;
 		gap: 1rem;
@@ -1033,7 +988,7 @@
 	.finding.blocking {
 		border-left: 2px solid var(--block);
 	}
-	.finding.dismissed > :not(.note, .rate, .dev-form) {
+	.finding.dismissed > :not(.thread, header) {
 		opacity: 0.55;
 	}
 	.finding.dismissed h3 {
@@ -1086,26 +1041,69 @@
 		word-break: break-all;
 		font-family: var(--mono);
 	}
-	.rate {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
-		flex-wrap: wrap;
-		padding-top: 0.6rem;
+	/* The thread under a finding: entries in order, then one field for comment, confirm and dismiss */
+	.thread {
+		display: grid;
+		gap: 0.6rem;
+		padding-top: 0.7rem;
 		margin-top: 0.15rem;
 		border-top: 1px solid var(--rule);
 	}
-	.dev-form {
+	.entries {
 		display: grid;
+		gap: 0.6rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.entry {
+		display: grid;
+		grid-template-columns: 1.25rem minmax(0, 1fr);
 		gap: 0.5rem;
 	}
-	.dev-form textarea {
-		min-height: 4.5rem;
-		max-height: 14rem;
-		field-sizing: content;
+	.badge {
+		display: grid;
+		place-items: center;
+		width: 1.25rem;
+		height: 1.25rem;
+		border-radius: 50%;
+		background: var(--sunken);
+		color: var(--ink-2);
+	}
+	.badge.confirmed {
+		background: var(--pass-soft);
+		color: var(--pass);
+	}
+	.badge.comment {
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+	.entry-main {
+		display: grid;
+		gap: 0.15rem;
+		min-width: 0;
+	}
+	.entry-head {
+		display: flex;
+		align-items: baseline;
+		gap: 0.4rem;
+		flex-wrap: wrap;
+		font-size: var(--text-xs);
+		color: var(--ink-2);
+		line-height: 1.25rem;
+	}
+	.entry-head strong {
+		font-weight: 500;
+		color: var(--ink);
+	}
+	.entry-body {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.del {
+		margin-left: auto;
 	}
 	.linkish {
-		margin-left: auto;
 		padding: 0;
 		border: 0;
 		background: none;
@@ -1115,79 +1113,51 @@
 		cursor: pointer;
 	}
 	.linkish:hover {
-		color: var(--accent);
+		color: var(--block);
 	}
-	.rate-what {
+	.composer {
 		display: grid;
-		gap: 0.25rem;
+		gap: 0.5rem;
 	}
-	.rate-title {
-		font-weight: 500;
+	.composer textarea {
+		min-height: var(--control-h);
+		max-height: 14rem;
+		padding: 0.3rem 0.5rem;
+		resize: none;
+		field-sizing: content;
 	}
-	.note {
-		display: grid;
-		gap: 0.2rem;
-		padding: 0.5rem 0.75rem;
-		border: 1px solid var(--rule);
-		border-left: 2px solid var(--ink-3);
-		border-radius: var(--radius-s);
-		background: var(--sunken);
-	}
-	.note.confirmed {
-		border-left-color: var(--pass);
-	}
-	.note.dev {
-		border-left-color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 4%, var(--sheet));
-	}
-	.note-head :global(svg) {
-		align-self: center;
-		color: var(--accent);
-	}
-	.note p {
-		margin: 0;
-	}
-	.note-head {
+	.composer-actions {
 		display: flex;
-		gap: 0.4rem;
-		flex-wrap: wrap;
-		font-size: var(--text-xs);
-		color: var(--ink-2);
-	}
-	.note-head strong {
-		color: var(--ink);
-		font-weight: 500;
-	}
-	.note-body {
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
-	}
-	.rate-buttons {
-		display: flex;
+		align-items: center;
 		gap: 0.35rem;
-		margin-left: auto;
+		flex-wrap: wrap;
 	}
-	.btn.on {
-		background: var(--pass-soft);
-		border-color: color-mix(in srgb, var(--pass) 50%, transparent);
-		color: var(--pass);
+	.composer-actions .spacer {
+		flex: 1;
 	}
-	.btn.on-dismiss {
+	/* The rating in force: the same subdued "pressed" look for confirm and dismiss */
+	.composer-actions .btn[aria-pressed='true'] {
 		background: var(--sunken);
 		border-color: var(--ink-3);
 	}
-	.issue-row {
-		display: flex;
+	.state {
+		display: inline-flex;
 		align-items: center;
-		gap: 0.6rem;
-		flex-wrap: wrap;
-		font-size: var(--text-sm);
+		gap: 0.25rem;
+		padding: 0 0.35rem;
+		border-radius: 999px;
+		font-weight: 500;
+		line-height: 1.5;
+		background: var(--sunken);
+		color: var(--ink-2);
+		cursor: default;
 	}
-	.issue-row .notice {
+	.state.confirmed {
+		background: var(--pass-soft);
+		color: var(--pass);
+	}
+	.thread .notice {
 		margin: 0;
-	}
-	.rated {
-		min-width: 0;
 	}
 	.comment form {
 		justify-self: start;

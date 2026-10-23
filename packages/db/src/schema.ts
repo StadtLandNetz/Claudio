@@ -417,12 +417,29 @@ export const findings = mysqlTable(
     ratedAt: datetime("rated_at", { mode: "date" }),
     /** GitHub issue created from this finding. */
     issueUrl: varchar("issue_url", { length: 500 }),
-    /** A comment for the developers, separate from the reason of the rating; goes into the PR comment and the issue. */
-    note: text("note"),
-    noteBy: ref("note_by"),
-    noteAt: datetime("note_at", { mode: "date" }),
   },
   (t) => [uniqueIndex("findings_review_finding_idx").on(t.reviewId, t.findingId)],
+);
+
+export const FINDING_ACTIVITY_KINDS = ["comment", "confirmed", "dismissed", "reset"] as const;
+export type FindingActivityKind = (typeof FINDING_ACTIVITY_KINDS)[number];
+
+/**
+ * What people did with a finding, in order: comments, and every rating with its
+ * reason. `findings.status` and `comment` hold the current rating; this is the thread.
+ */
+export const findingActivity = mysqlTable(
+  "finding_activity",
+  {
+    id: id(),
+    reviewId: ref("review_id").notNull(),
+    findingId: varchar("finding_id", { length: 20 }).notNull(),
+    userId: ref("user_id").notNull(),
+    kind: mysqlEnum("kind", FINDING_ACTIVITY_KINDS).notNull(),
+    body: text("body"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("finding_activity_review_idx").on(t.reviewId, t.findingId)],
 );
 
 export type User = typeof users.$inferSelect;
@@ -430,6 +447,7 @@ export type Repo = typeof repos.$inferSelect;
 export type RepoRole = typeof repoRoles.$inferSelect;
 export type Review = typeof reviews.$inferSelect;
 export type FindingRow = typeof findings.$inferSelect;
+export type FindingActivity = typeof findingActivity.$inferSelect;
 export type Analysis = typeof analyses.$inferSelect;
 export type TestScriptRow = typeof testScripts.$inferSelect;
 export type TestRun = typeof testRuns.$inferSelect;
