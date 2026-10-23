@@ -83,7 +83,8 @@ export const SIMILAR_ENOUGH = 0.55;
  * first against the review before, then against problems seen earlier.
  */
 export function buildHistory(reviews: HistReview[]): HistoryStep[] {
-	type Lineage = { key: string; last: HistFinding; lastReview: number; lastFindingId: string; seen: boolean[] };
+	// Every wording a problem had so far counts when matching, not only the latest.
+	type Lineage = { key: string; versions: HistFinding[]; lastReview: number; lastFindingId: string; seen: boolean[] };
 	const lineages: Lineage[] = [];
 	const byFinding = new Map<string, Lineage>();
 	const at = (rid: number, fid: string) => `${rid}:${fid}`;
@@ -106,7 +107,7 @@ export function buildHistory(reviews: HistReview[]): HistoryStep[] {
 		const pool = (onlyPrev: boolean) => lineages.filter((l) => !taken.has(l) && (onlyPrev ? prev && l.lastReview === prev.id : true));
 		for (const onlyPrev of [true, false]) {
 			const pairs = open
-				.flatMap((f) => pool(onlyPrev).map((lin) => ({ f, lin, score: similarity(f, lin.last) })))
+				.flatMap((f) => pool(onlyPrev).map((lin) => ({ f, lin, score: Math.max(...lin.versions.map((v) => similarity(f, v))) })))
 				.filter((p) => p.score >= SIMILAR_ENOUGH)
 				.sort((a, b) => b.score - a.score);
 			for (const p of pairs) {
@@ -118,7 +119,7 @@ export function buildHistory(reviews: HistReview[]): HistoryStep[] {
 		}
 		// 3. Whatever is left is new.
 		for (const f of open) {
-			const lin: Lineage = { key: `L${lineages.length + 1}`, last: f, lastReview: r.id, lastFindingId: f.id, seen: reviews.map(() => false) };
+			const lin: Lineage = { key: `L${lineages.length + 1}`, versions: [], lastReview: r.id, lastFindingId: f.id, seen: reviews.map(() => false) };
 			lineages.push(lin);
 			assigned.push({ lin, f });
 		}
@@ -127,9 +128,9 @@ export function buildHistory(reviews: HistReview[]): HistoryStep[] {
 			byFinding.set(at(r.id, a.f.id), a.lin);
 		}
 		perReview.push(assigned);
-		// Remember the latest version of each problem for the next reviews.
+		// Remember this wording of each problem for the next reviews.
 		for (const a of assigned) {
-			a.lin.last = a.f;
+			a.lin.versions.push(a.f);
 			a.lin.lastReview = r.id;
 			a.lin.lastFindingId = a.f.id;
 		}
@@ -156,4 +157,39 @@ export function buildHistory(reviews: HistReview[]): HistoryStep[] {
 			: [];
 		return { review, prev, rows, gone };
 	});
+}
+
+/** What a review says about a problem: reported (and not dismissed), dismissed, fixed by a re-review, gone (no longer reported), or nothing. */
+export type CellState = 'open' | 'dismissed' | 'fixed' | 'gone' | 'none';
+export type MatrixCell = { state: CellState; f: HistFinding | null };
+/** One problem through all reviews; `first` is the review it first appeared in. */
+export type MatrixRow = { key: string; first: number; cells: MatrixCell[] };
+
+const RANK: Record<Severity, number> = { blocker: 3, major: 2, minor: 1, suggestion: 0 };
+
+/**
+ * The comparison as a table: a row per problem, a column per review. A problem
+ * shows where it was reported, and in the review after its last report whether
+ * that review fixed it or simply did not report it any more.
+ */
+export function buildMatrix(reviews: HistReview[]): { rows: MatrixRow[]; steps: HistoryStep[] } {
+	const steps = buildHistory(reviews);
+	const rows = new Map<string, MatrixRow>();
+	const rowOf = (key: string, idx: number) => {
+		let row = rows.get(key);
+		if (!row) {
+			row = { key, first: idx, cells: reviews.map(() => ({ state: 'none' as CellState, f: null })) };
+			rows.set(key, row);
+		}
+		return row;
+	};
+	steps.forEach((st, idx) => {
+		for (const r of st.rows) rowOf(r.key, idx).cells[idx] = { state: r.f.rating === 'dismissed' ? 'dismissed' : 'open', f: r.f };
+		for (const g of st.gone) rowOf(g.key, idx).cells[idx] = { state: g.fixed ? 'fixed' : 'gone', f: g.f };
+	});
+	const firstFinding = (row: MatrixRow) => row.cells.find((c) => c.f)!.f!;
+	return {
+		steps,
+		rows: [...rows.values()].sort((a, b) => a.first - b.first || RANK[firstFinding(b).severity] - RANK[firstFinding(a).severity])
+	};
 }

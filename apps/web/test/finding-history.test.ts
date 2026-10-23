@@ -65,3 +65,20 @@ describe('findings across the reviews of a pull request', () => {
 		expect(fu.gone).toEqual([expect.objectContaining({ fixed: true, f: expect.objectContaining({ id: 'F2' }) })]);
 	});
 });
+
+describe('the comparison table', () => {
+	it('has a row per problem with its state in every review', async () => {
+		const { buildMatrix } = await import('../src/lib/finding-history.js');
+		const { rows } = buildMatrix([
+			r(16, [f('F1', 'Formular hat kein Pflichtfeld Fahrzeug'), f('F2', 'XSS in der Liste'), f('F3', 'Suche liefert HTTP 500')]),
+			r(17, [f('F1', 'Anders formuliert', { previous: { reviewId: 16, findingId: 'F1', status: 'still_open' }, rating: 'dismissed' })], { followUpOf: 16, fixed: ['F2'] }),
+			r(18, [f('F1', 'Formular hat kein Pflichtfeld Fahrzeug')])
+		]);
+		const states = rows.map((row) => row.cells.map((c) => c.state));
+		expect(states).toEqual([
+			['open', 'dismissed', 'open'],
+			['open', 'fixed', 'none'],
+			['open', 'gone', 'none']
+		]);
+	});
+});
