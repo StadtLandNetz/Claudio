@@ -5,6 +5,8 @@ import type {
   AnalysisReport,
   AnalysisRequest,
   Determinism,
+  Finding,
+  FollowUp,
   KnowledgeBase,
   KnowledgeDoc,
   LoginStep,
@@ -458,6 +460,87 @@ export async function listReviewDigests(db: Db, opts: { repoId?: number; repoIds
         }
       : null,
   }));
+}
+
+/** A review of a pull request as the findings history needs it: what the verdict needs plus the findings without their evidence. */
+export type PrHistoryItem = {
+  id: number;
+  createdAt: Date;
+  status: Review["status"];
+  report: ReportLike & {
+    findings: Pick<Finding, "id" | "severity" | "category" | "title" | "url" | "acceptanceCriterion" | "previous">[];
+    followUp: Pick<FollowUp, "reviewId" | "rechecks"> | null;
+  };
+};
+
+/**
+ * The finished reviews of one pull request that have a report, oldest first (the
+ * latest `limit`), like those a re-review builds on. Only findings and follow-up are
+ * taken out of the report, in MySQL.
+ */
+export async function listPrHistory(db: Db, repoId: number, prNumber: number, limit = 30): Promise<PrHistoryItem[]> {
+  const jsonValue = (v: unknown) => (v === null || v === undefined ? null : typeof v === "string" ? JSON.parse(v) : v);
+  const rows = await db
+    .select({
+      id: reviews.id,
+      createdAt: reviews.createdAt,
+      status: reviews.status,
+      reportStatus: sql<string | null>`json_unquote(json_extract(${reviews.report}, '$.status'))`,
+      strictness: sql<string | null>`json_unquote(json_extract(${reviews.report}, '$.request.strictness'))`,
+      acStatuses: sql<unknown>`json_extract(${reviews.report}, '$.acceptanceCriteria[*].status')`.mapWith(jsonList),
+      findings: sql<unknown>`json_extract(${reviews.report}, '$.findings')`.mapWith(jsonList),
+      followUp: sql<unknown>`json_extract(${reviews.report}, '$.followUp')`.mapWith(jsonValue),
+    })
+    .from(reviews)
+    .where(
+      and(
+        eq(reviews.repoId, repoId),
+        eq(reviews.prNumber, prNumber),
+        sql`${reviews.report} is not null`,
+        // Aborted or failed runs leave partial reports; comparing with them would make everything look new again.
+        inArray(reviews.status, ["completed", "budget_exceeded", "max_turns"]),
+      ),
+    )
+    .orderBy(desc(reviews.id))
+    .limit(limit);
+  return rows.reverse().map((r) => {
+    const fu = r.followUp as FollowUp | null;
+    return {
+      id: r.id,
+      createdAt: r.createdAt,
+      status: r.status,
+      report: {
+        status: (r.reportStatus ?? "failed") as ReportLike["status"],
+        request: { strictness: (r.strictness ?? "normal") as Strictness },
+        acceptanceCriteria: (jsonList(r.acStatuses) as string[]).map((status) => ({ status: status as ReportLike["acceptanceCriteria"][number]["status"] })),
+        findings: (jsonList(r.findings) as Finding[]).map((f) => ({
+          id: f.id,
+          severity: f.severity,
+          category: f.category,
+          title: f.title,
+          url: f.url,
+          acceptanceCriterion: f.acceptanceCriterion,
+          previous: f.previous,
+        })),
+        followUp: fu ? { reviewId: fu.reviewId, rechecks: fu.rechecks ?? [] } : null,
+      },
+    };
+  });
+}
+
+/** How people rated the findings of these reviews, per review and finding id. */
+export async function findingStatuses(db: Db, reviewIds: number[]): Promise<Map<number, Map<string, FindingStatus>>> {
+  const out = new Map<number, Map<string, FindingStatus>>();
+  if (reviewIds.length === 0) return out;
+  const rows = await db
+    .select({ reviewId: findings.reviewId, findingId: findings.findingId, status: findings.status })
+    .from(findings)
+    .where(inArray(findings.reviewId, reviewIds));
+  for (const r of rows) {
+    if (!out.has(r.reviewId)) out.set(r.reviewId, new Map());
+    out.get(r.reviewId)!.set(r.findingId, r.status);
+  }
+  return out;
 }
 
 /** When each repository was last reviewed (for the repositories page). */

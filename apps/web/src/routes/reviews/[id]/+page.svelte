@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import EvidenceThumbs, { type ThumbEvidence } from '#lib/components/EvidenceThumbs.svelte';
+	import FindingHistory from '#lib/components/FindingHistory.svelte';
 	import Lightbox from '#lib/components/Lightbox.svelte';
 	import LiveLog from '#lib/components/LiveLog.svelte';
 	import AgentQuestion from '#lib/components/AgentQuestion.svelte';
@@ -46,6 +47,14 @@
 		return [...m].sort((a, b) => b[1] - a[1]);
 	});
 	const shownFindings = $derived(findingType ? visibleFindings.filter((f) => f.category === findingType) : visibleFindings);
+	// "Current" shows this review's findings; "per review" compares them across the reviews of the pull request.
+	let findingsView = $state<'current' | 'history'>('current');
+	function showFinding(id: string) {
+		findingsView = 'current';
+		findingType = null;
+		showDismissed = true;
+		tick().then(() => document.getElementById(`finding-${id}`)?.scrollIntoView({ block: 'start' }));
+	}
 
 	// Confirming and dismissing each ask for their own reason in a dialog; the comment for the developers is separate.
 	type RateDraft = { id: string; title: string; status: 'confirmed' | 'dismissed'; comment: string };
@@ -90,6 +99,7 @@
 		} else if (fid) {
 			const f = report?.findings.find((x) => x.id === fid);
 			if (!f) return;
+			findingsView = 'current';
 			findingType = null;
 			if (f.rating.status === 'dismissed') showDismissed = true;
 		} else return;
@@ -424,8 +434,18 @@
 
 			<section class="block" id="findings">
 				<div class="block-head">
-					<h2>{i.t('review.findings')}</h2>
-					<div class="head-tools">
+					<div class="title-row">
+						<h2>{i.t('review.findings')}</h2>
+						{#if data.history.length > 1}
+							<div class="seg" role="group" aria-label={i.t('review.findingsView')}>
+								<button type="button" aria-pressed={findingsView === 'current'} onclick={() => (findingsView = 'current')}>{i.t('review.findingsViewCurrent')}</button>
+								<button type="button" aria-pressed={findingsView === 'history'} use:tooltip={i.t('review.findingsViewHistoryHelp')} onclick={() => (findingsView = 'history')}>
+									{i.t('review.findingsViewHistory')} <span class="faint">{data.history.length}</span>
+								</button>
+							</div>
+						{/if}
+					</div>
+					<div class="head-tools" hidden={findingsView === 'history'}>
 						{#if findingTypes.length > 1 || findingType}
 							<div class="chips" role="group" aria-label={i.t('review.findingsByType')}>
 								<button type="button" class="chip-btn" aria-pressed={findingType === null} onclick={() => (findingType = null)}>
@@ -446,12 +466,14 @@
 						{/if}
 					</div>
 				</div>
-				{#if report.findings.length === 0}
+				{#if findingsView === 'history'}
+					<FindingHistory reviews={data.history} currentId={review.id} onopen={showFinding} />
+				{:else if report.findings.length === 0}
 					<p class="muted">{i.t('review.noFindings')}</p>
 				{:else if shownFindings.length === 0}
 					<p class="muted">{i.t('review.noFindingsOfType')}</p>
 				{/if}
-				{#each shownFindings as f (f.id)}
+				{#each findingsView === 'current' ? shownFindings : [] as f (f.id)}
 					<article class="finding sheet {f.rating.status}" class:blocking={f.blocking} id="finding-{f.id}">
 						<header>
 							<Severity severity={f.severity} />
@@ -889,6 +911,15 @@
 	}
 	.ac li:last-child {
 		border-bottom: 0;
+	}
+	.title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+	.head-tools[hidden] {
+		display: none;
 	}
 	.head-tools {
 		display: flex;

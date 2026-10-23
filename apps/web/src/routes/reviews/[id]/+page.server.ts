@@ -8,12 +8,16 @@ import {
 	verdict,
 	withTests,
 	type FindingNote,
-	type ReviewTestResult
+	type ReviewTestResult,
+	type Strictness,
+	type Verdict
 } from '@claudio/core';
 import {
 	addLesson,
 	countEvents,
+	findingStatuses,
 	getReview,
+	listPrHistory,
 	listFindings,
 	listTestRuns,
 	openHumanRequest,
@@ -35,6 +39,7 @@ import { publicBaseUrl } from '#lib/server/env.js';
 import { fileAvailability, runFileUrl, withAvailability } from '#lib/server/run-files.js';
 import { TRACE_INDEX_PATH, viewerAvailable } from '#lib/server/trace.js';
 import { renderMarkdown } from '#lib/markdown.js';
+import type { HistReview } from '#lib/finding-history.js';
 import { serverI18n } from '#lib/i18n/index.js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -57,6 +62,29 @@ const notesOf = (rows: Awaited<ReturnType<typeof listFindings>>): FindingNote[] 
 			? []
 			: [{ findingId: r.finding.findingId, status: r.finding.status, comment: r.finding.comment, by: r.ratedByLogin, note: r.finding.note, noteBy: r.noteByLogin }]
 	);
+
+/**
+ * Every review of the pull request with its findings, for the comparison in the
+ * findings section; all judged with the same strictness. Empty with only one review.
+ */
+async function prHistory(review: { id: number; repoId: number; prNumber: number }, strictness: Strictness, currentVerdict: Verdict | null): Promise<HistReview[]> {
+	const items = await listPrHistory(db(), review.repoId, review.prNumber);
+	if (items.length < 2) return [];
+	const statuses = await findingStatuses(db(), items.map((x) => x.id));
+	return items.map((it) => {
+		const st = statuses.get(it.id) ?? new Map();
+		const dismissed = it.report.findings.filter((f) => st.get(f.id) === 'dismissed').map((f) => f.id);
+		const blocking = new Set(blockingFindings(it.report, strictness, dismissed).map((f) => f.id));
+		return {
+			id: it.id,
+			at: new Date(it.createdAt).toISOString(),
+			verdict: it.id === review.id && currentVerdict ? currentVerdict : verdict(it.report, strictness, dismissed),
+			followUpOf: it.report.followUp?.reviewId ?? null,
+			fixed: (it.report.followUp?.rechecks ?? []).filter((r) => r.status === 'fixed').map((r) => r.findingId),
+			findings: sortBySeverity(it.report.findings).map((f) => ({ ...f, rating: st.get(f.id) ?? 'proposed', blocking: blocking.has(f.id) }))
+		};
+	});
+}
 
 export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const review = await loadReview(params.id, locals, 'read');
@@ -96,6 +124,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const traceUrl = review.runId && available('trace.zip') ? runFileUrl(review.runId, 'trace.zip') : null;
 	const timeline = Boolean(review.runId && (traceUrl || available(TRACE_INDEX_PATH)));
 	const currentVerdict = report ? withTests(verdict(report, strictness, dismissed), tests) : null;
+	const history = report ? await prHistory(review, strictness, currentVerdict) : [];
 
 	return {
 		review: {
@@ -148,6 +177,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 					files: { trace: traceUrl, timeline }
 				}
 			: null,
+		history,
 		eventCount,
 		human: await openHumanRequest(db(), 'review', review.id).then((h) => (h ? { id: h.id, reason: h.reason, kind: h.kind, context: h.context, options: h.options ?? [] } : null)),
 		tests: testRuns
