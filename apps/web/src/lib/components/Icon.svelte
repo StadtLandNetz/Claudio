@@ -17,7 +17,9 @@
 		pause: 'M5.5 3.5v9M10.5 3.5v9',
 		'skip-back': 'M3.5 3.5v9M12.5 3.75 6 8l6.5 4.25z',
 		'skip-forward': 'M12.5 3.5v9M3.5 3.75 10 8l-6.5 4.25z',
-		film: 'M2.5 3.5h11v9h-11zM2.5 6.5h11M2.5 9.5h11M5.5 3.5v9M10.5 3.5v9'
+		film: 'M2.5 3.5h11v9h-11zM2.5 6.5h11M2.5 9.5h11M5.5 3.5v9M10.5 3.5v9',
+		comment: 'M2.5 4A1.5 1.5 0 0 1 4 2.5h8A1.5 1.5 0 0 1 13.5 4v5.5A1.5 1.5 0 0 1 12 11H7l-3.5 2.5V11H4a1.5 1.5 0 0 1-1.5-1.5z',
+		'play-circle': 'M8 14.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM6.75 5.5v5L10.5 8z'
 	} as const;
 
 	export type IconName = keyof typeof PATHS;

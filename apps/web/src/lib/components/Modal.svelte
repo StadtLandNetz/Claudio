@@ -36,7 +36,7 @@
 		if (!dialog) return;
 		if (open) {
 			if (!dialog.open) dialog.showModal();
-			dialog.querySelector<HTMLElement>('.body input, .body textarea, .body select, .body button')?.focus();
+			dialog.querySelector<HTMLElement>('.body :is(input:not([type="hidden"]), textarea, select, button)')?.focus();
 		} else if (dialog.open) {
 			dialog.close();
 		}

@@ -187,6 +187,13 @@ export const de = {
 	skipQuestion: 'Nicht beantworten, Claudio entscheidet',
 	answerFailed: 'Die Antwort kam nicht an. Bitte noch einmal versuchen.',
 	answerMissing: 'Bitte eine Antwort eingeben.',
+	toTop: 'Nach oben',
+	sectionsNav: 'Abschnitte der Seite',
+	showAll: (p: { n: number }) => `Alle ${p.n} anzeigen`,
+	showLess: 'Weniger anzeigen',
+	filterAll: 'Alle',
+	onlyWarnings: 'Nur Warnungen',
+	sectionLive: 'Live',
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
@@ -363,4 +370,11 @@ export const en: Translation<typeof de> = {
 	skipQuestion: 'Skip, let Claudio decide',
 	answerFailed: 'The answer did not arrive. Please try again.',
 	answerMissing: 'Please enter an answer.',
+	toTop: 'Back to top',
+	sectionsNav: 'Sections of the page',
+	showAll: (p: { n: number }) => `Show all ${p.n}`,
+	showLess: 'Show less',
+	filterAll: 'All',
+	onlyWarnings: 'Only warnings',
+	sectionLive: 'Live',
 };

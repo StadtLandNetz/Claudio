@@ -449,8 +449,10 @@
 	}
 
 	/* The content area: a raised panel inset from the sidebar */
+	/* Clips the sticky page header's extension to the panel; vertical overflow stays visible, so sticky still works */
 	main {
 		min-width: 0;
+		overflow-x: clip;
 		margin: 0.5rem 0.5rem 0.5rem 0;
 		background: var(--panel);
 		border: 1px solid var(--rule);
@@ -458,8 +460,9 @@
 		box-shadow: var(--shadow);
 	}
 	.content {
+		--pad-x: 2rem;
 		max-width: 72rem;
-		padding: 1.5rem 2rem 4rem;
+		padding: 1.5rem var(--pad-x) 4rem;
 	}
 	.expired {
 		display: flex;
@@ -552,7 +555,8 @@
 			margin: 0 0.5rem 0.5rem;
 		}
 		.content {
-			padding: 1rem 1rem 3rem;
+			--pad-x: 1rem;
+			padding: 1rem var(--pad-x) 3rem;
 		}
 	}
 </style>

@@ -46,6 +46,8 @@
 	--text-md: 0.875rem;
 	--text-lg: 0.9375rem;
 	--control-h: 1.75rem;
+	/* The sticky page header (PageNav) */
+	--head-h: 2.75rem;
 	--radius-s: 4px;
 	--radius-m: 6px;
 	--radius-l: 8px;
@@ -70,6 +72,10 @@ html {
 }
 html:has(dialog:modal) {
 	overflow: hidden;
+}
+/* Anchors and scrollIntoView land below the sticky page header */
+html:has(.page-head) {
+	scroll-padding-top: calc(var(--head-h) + 1rem);
 }
 
 body {
@@ -141,6 +147,9 @@ code {
 	gap: 0.75rem 1.5rem;
 	flex-wrap: wrap;
 	margin-bottom: 1.25rem;
+}
+.page-title:has(+ .sentinel) {
+	margin-bottom: 0.75rem;
 }
 .page-title .lead {
 	margin-top: 0.25rem;
@@ -632,4 +641,101 @@ table.list tbody tr:hover td {
 	color: var(--ink-2);
 	font-size: var(--text-xs);
 	text-align: center;
+}
+
+/* Tooltip (lib/tooltip.ts): lives in the top layer, positioned by script */
+.tooltip {
+	position: fixed;
+	inset: auto;
+	z-index: 1000;
+	margin: 0;
+	max-width: 18rem;
+	padding: 0.4rem 0.6rem;
+	overflow: visible;
+	border: 1px solid var(--rule-strong);
+	border-radius: var(--radius-m);
+	background: var(--raised);
+	box-shadow: var(--shadow-pop);
+	color: var(--ink);
+	font-size: var(--text-xs);
+	font-weight: 400;
+	line-height: 1.45;
+	text-align: left;
+	white-space: normal;
+	pointer-events: none;
+	opacity: 0;
+	transform: translateY(2px);
+	transition:
+		opacity 0.12s ease,
+		transform 0.12s ease;
+}
+.tooltip.on {
+	opacity: 1;
+	transform: none;
+}
+
+/* Long lists: the first items, a row to show the rest */
+.more-row {
+	display: flex;
+	justify-content: center;
+	padding: 0.35rem 0.75rem;
+	border-top: 1px solid var(--rule);
+}
+.more-row button {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	height: 1.5rem;
+	padding: 0 0.5rem;
+	border: 0;
+	border-radius: var(--radius-s);
+	background: none;
+	font: inherit;
+	font-size: var(--text-xs);
+	font-weight: 500;
+	color: var(--ink-2);
+	cursor: pointer;
+}
+.more-row button:hover {
+	background: var(--sunken);
+	color: var(--ink);
+}
+
+/* Filter chips above a list: all, or only what needs attention */
+.chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.3rem;
+}
+.chip-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	height: 1.5rem;
+	padding: 0 0.5rem;
+	border: 1px solid var(--rule-strong);
+	border-radius: 999px;
+	background: var(--sheet);
+	font: inherit;
+	font-size: var(--text-xs);
+	font-weight: 500;
+	color: var(--ink-2);
+	cursor: pointer;
+	white-space: nowrap;
+}
+.chip-btn:hover {
+	color: var(--ink);
+	background: var(--sunken);
+}
+.chip-btn[aria-pressed='true'] {
+	border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+	background: var(--accent-soft);
+	color: var(--ink);
+}
+.chip-btn .n {
+	color: var(--ink-3);
+}
+.chip-btn:disabled {
+	opacity: 0.5;
+	cursor: default;
 }
