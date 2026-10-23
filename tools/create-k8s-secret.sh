@@ -6,6 +6,7 @@
 #   CLAUDIO_SECRET_KEY     – encrypts tokens and credentials in the database (kept if the secret already has one)
 #   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET – the GitHub OAuth App for the login
 #   GITHUB_APP_*           – optional: Claudio as a GitHub App (kept if already set and left empty)
+# Empty answers keep what the secret already holds, so a re-run only changes what you type.
 # Run it in an interactive terminal:  ./tools/create-k8s-secret.sh
 set -euo pipefail
 
@@ -21,31 +22,52 @@ kubectl get namespace "$NS" >/dev/null 2>&1 || { echo "namespace $NS does not ex
 existing() { kubectl -n "$NS" get secret "$SECRET" -o jsonpath="{.data.$1}" 2>/dev/null | base64 -d || true; }
 
 echo "== Registry login (ghcr.io) =="
+DOCKERCFG_EXISTING=$(existing '\.dockerconfigjson')
+[ -n "$DOCKERCFG_EXISTING" ] && echo "   empty user = keep the existing registry login"
 read -rp "GitHub user: " GH_USER
-read -rsp "GitHub PAT with scope read:packages: " GH_PAT; echo
-[ -n "$GH_PAT" ] || { echo "PAT must not be empty" >&2; exit 1; }
-if curl -fsS -u "$GH_USER:$GH_PAT" "https://ghcr.io/token?scope=repository:${IMAGE_REPO}:pull" >/dev/null; then
-	echo "   ghcr.io accepted the credentials"
+DOCKERCFG=""
+if [ -z "$GH_USER" ] && [ -n "$DOCKERCFG_EXISTING" ]; then
+	DOCKERCFG=$DOCKERCFG_EXISTING
+	GH_USER="(unchanged)"
+	echo "   keeping the existing registry login"
 else
-	echo "   ghcr.io rejected the credentials (check user, token scope read:packages, org SSO authorization)" >&2
-	exit 1
+	read -rsp "GitHub PAT with scope read:packages: " GH_PAT; echo
+	[ -n "$GH_PAT" ] || { echo "PAT must not be empty" >&2; exit 1; }
+	if curl -fsS -u "$GH_USER:$GH_PAT" "https://ghcr.io/token?scope=repository:${IMAGE_REPO}:pull" >/dev/null; then
+		echo "   ghcr.io accepted the credentials"
+	else
+		echo "   ghcr.io rejected the credentials (check user, token scope read:packages, org SSO authorization)" >&2
+		exit 1
+	fi
+	DOCKERCFG=$(printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$(printf '%s:%s' "$GH_USER" "$GH_PAT" | base64 | tr -d '\n')")
 fi
 
 echo "== Database =="
-read -rp "MySQL host[:port] (e.g. mysql.internal:3306): " DB_HOST
-[ -n "$DB_HOST" ] || { echo "host must not be empty" >&2; exit 1; }
-read -rp "MySQL database [claudio]: " DB_NAME; DB_NAME=${DB_NAME:-claudio}
-read -rp "MySQL user [claudio]: " DB_USER; DB_USER=${DB_USER:-claudio}
-read -rsp "MySQL password: " DB_PASS; echo
-[ -n "$DB_PASS" ] || { echo "password must not be empty" >&2; exit 1; }
 enc() { node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$1"; }
-DATABASE_URL="mysql://$(enc "$DB_USER"):$(enc "$DB_PASS")@${DB_HOST}/${DB_NAME}"
+DB_EXISTING=$(existing DATABASE_URL)
+[ -n "$DB_EXISTING" ] && echo "   empty host = keep the existing DATABASE_URL"
+read -rp "MySQL host[:port] (e.g. mysql.internal:3306): " DB_HOST
+if [ -z "$DB_HOST" ] && [ -n "$DB_EXISTING" ]; then
+	DATABASE_URL=$DB_EXISTING
+	DB_HOST="(unchanged)"; DB_USER="(unchanged)"; DB_NAME=""
+	echo "   keeping the existing DATABASE_URL"
+else
+	[ -n "$DB_HOST" ] || { echo "host must not be empty" >&2; exit 1; }
+	read -rp "MySQL database [claudio]: " DB_NAME; DB_NAME=${DB_NAME:-claudio}
+	read -rp "MySQL user [claudio]: " DB_USER; DB_USER=${DB_USER:-claudio}
+	read -rsp "MySQL password: " DB_PASS; echo
+	[ -n "$DB_PASS" ] || { echo "password must not be empty" >&2; exit 1; }
+	DATABASE_URL="mysql://$(enc "$DB_USER"):$(enc "$DB_PASS")@${DB_HOST}/${DB_NAME}"
+fi
 
 echo "== Migration user (optional) =="
 echo "   Migrations need CREATE, ALTER, DROP, INDEX, REFERENCES. Leave empty if the app user has them (or to keep an existing value)."
 read -rp "MySQL migration user (empty = use the app user): " MIG_USER
 MIG_ARGS=()
-if [ -n "$MIG_USER" ]; then
+if [ -n "$MIG_USER" ] && [ "$DB_HOST" = "(unchanged)" ]; then
+	echo "   a new migration user needs the database host: enter the database again (not empty)" >&2
+	exit 1
+elif [ -n "$MIG_USER" ]; then
 	read -rsp "MySQL migration password: " MIG_PASS; echo
 	[ -n "$MIG_PASS" ] || { echo "password must not be empty" >&2; exit 1; }
 	MIG_ARGS=(--from-literal=DATABASE_MIGRATION_URL="mysql://$(enc "$MIG_USER"):$(enc "$MIG_PASS")@${DB_HOST}/${DB_NAME}")
@@ -68,12 +90,22 @@ read -rsp "Client secret (empty = keep existing): " GH_CLIENT_SECRET; echo
 [ -n "$GH_CLIENT_SECRET" ] || { echo "client secret must not be empty" >&2; exit 1; }
 
 echo "== GitHub App (optional, empty = keep existing / none) =="
+echo "   App ID: the number under About on the app's settings page (not the Client ID starting with Iv)"
 read -rp "App ID: " APP_ID; [ -n "$APP_ID" ] || APP_ID=$(existing GITHUB_APP_ID)
+[ -z "$APP_ID" ] || [[ "$APP_ID" =~ ^[0-9]+$ ]] || { echo "the App ID is a number, e.g. 1234567 (got: $APP_ID)" >&2; exit 1; }
 APP_ARGS=()
 if [ -n "$APP_ID" ]; then
-	read -rp "App slug (github.com/apps/<slug>): " APP_SLUG; [ -n "$APP_SLUG" ] || APP_SLUG=$(existing GITHUB_APP_SLUG)
+	read -rp "App slug (github.com/apps/<slug>, e.g. claudio-sln): " APP_SLUG; [ -n "$APP_SLUG" ] || APP_SLUG=$(existing GITHUB_APP_SLUG)
+	[[ "$APP_SLUG" =~ ^[a-z0-9-]+$ ]] || { echo "the slug is the app's URL name, e.g. claudio-sln (got: $APP_SLUG)" >&2; exit 1; }
 	read -rp "Path to the private key (.pem, empty = keep existing): " APP_KEY_FILE
-	if [ -n "$APP_KEY_FILE" ]; then APP_KEY=$(cat "$APP_KEY_FILE"); else APP_KEY=$(existing GITHUB_APP_PRIVATE_KEY); fi
+	APP_KEY_FILE=${APP_KEY_FILE/#\~/$HOME}
+	if [ -n "$APP_KEY_FILE" ]; then
+		[ -f "$APP_KEY_FILE" ] || { echo "no file at $APP_KEY_FILE" >&2; exit 1; }
+		APP_KEY=$(cat "$APP_KEY_FILE")
+		[[ "$APP_KEY" == *"PRIVATE KEY-----"* ]] || { echo "$APP_KEY_FILE does not look like a private key (.pem)" >&2; exit 1; }
+	else
+		APP_KEY=$(existing GITHUB_APP_PRIVATE_KEY)
+	fi
 	[ -n "$APP_KEY" ] || { echo "the app needs its private key" >&2; exit 1; }
 	read -rsp "Webhook secret of the app (empty = keep existing / none): " APP_HOOK; echo
 	[ -n "$APP_HOOK" ] || APP_HOOK=$(existing GITHUB_APP_WEBHOOK_SECRET)
@@ -91,8 +123,6 @@ else
 	echo "   generated a new key – back it up (password manager), without it all stored credentials are lost"
 fi
 
-DOCKERCFG=$(printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$(printf '%s:%s' "$GH_USER" "$GH_PAT" | base64 | tr -d '\n')")
-
 kubectl -n "$NS" create secret generic "$SECRET" \
 	--type=kubernetes.io/dockerconfigjson \
 	--from-literal=.dockerconfigjson="$DOCKERCFG" \
@@ -104,7 +134,7 @@ kubectl -n "$NS" create secret generic "$SECRET" \
 	${APP_ARGS[@]+"${APP_ARGS[@]}"} \
 	--dry-run=client -o yaml | kubectl apply -f -
 
-unset GH_PAT DB_PASS DOCKERCFG DATABASE_URL ENC_KEY MIG_PASS MIG_ARGS MIG_EXISTING GH_CLIENT_SECRET APP_KEY APP_HOOK APP_ARGS
+unset GH_PAT DB_PASS DOCKERCFG DOCKERCFG_EXISTING DB_EXISTING DATABASE_URL ENC_KEY MIG_PASS MIG_ARGS MIG_EXISTING GH_CLIENT_SECRET APP_KEY APP_HOOK APP_ARGS
 echo
 echo "Secret $SECRET in namespace $NS is ready:"
 echo "  registry user $GH_USER, database $DB_USER@$DB_HOST/$DB_NAME, OAuth client $GH_CLIENT_ID"
