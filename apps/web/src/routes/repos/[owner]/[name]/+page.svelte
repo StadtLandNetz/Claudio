@@ -8,6 +8,7 @@
 	import PageNav, { type Section } from '#lib/components/PageNav.svelte';
 	import ViewportChoice from '#lib/components/ViewportChoice.svelte';
 	import ReviewTable from '#lib/components/ReviewTable.svelte';
+	import RepoOverview from '#lib/components/RepoOverview.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import { i18n } from '#lib/i18n/index.js';
 	import { DEFAULT_TEST_BUDGET, isActive } from '#lib/labels.js';
@@ -17,6 +18,7 @@
 	const i = i18n();
 
 	const tabs = [
+		{ id: 'overview', label: 'repo.tabOverview' },
 		{ id: 'pulls', label: 'repo.tabPulls' },
 		{ id: 'reviews', label: 'repo.tabReviews' },
 		{ id: 'tests', label: 'repo.tabTests' },
@@ -63,6 +65,15 @@
 				{ id: 'remove', label: i.t('repo.removeTitle') }
 			];
 		}
+		if (data.tab === 'overview' && data.overview) {
+			return [
+				{ id: 'ov-stats', label: i.t('repo.ovStats') },
+				{ id: 'ov-pulls', label: i.t('repo.ovPulls'), count: data.overview.pulls.length, tone: data.overview.stats.unreviewed ? 'major' : undefined, tip: data.overview.stats.unreviewed ? i.t('repo.ovUnreviewedCount', { n: data.overview.stats.unreviewed }) : undefined },
+				{ id: 'ov-branches', label: i.t('repo.ovBranches'), count: data.overview.branches.length || undefined },
+				{ id: 'ov-history', label: i.t('repo.ovHistory') },
+				{ id: 'ov-commits', label: i.t('repo.ovCommits') }
+			];
+		}
 		if (data.tab === 'knowledge') {
 			const out: Section[] = [{ id: 'kb', label: i.t('analysis.sectionDocs') }];
 			if (!runningAnalysis && canWrite) out.push({ id: 'analyze', label: data.knowledge ? i.t('repo.updateKb') : i.t('repo.startAnalysis') });
@@ -102,7 +113,16 @@
 {/snippet}
 <PageNav title={data.repo.fullName} heading={tabHeading} {sections} actions={data.tab === 'tests' && canWrite ? newTestAction : undefined} />
 
-{#if data.tab === 'pulls'}
+{#if data.tab === 'overview' && data.overview}
+	{#if canWrite && !ready}
+		<p class="notice">
+			{i.t('repo.missingIntro')}
+			{[!hasKey && i.t('repo.missingKey'), !data.repo.dataConfirmed && i.t('repo.missingDataConfirmed'), data.roles.length === 0 && i.t('repo.missingRole')].filter(Boolean).join(', ')}.
+			{#if isAdmin}<a href="?tab=settings">{i.t('repo.openSettings')}</a>{:else}{i.t('repo.adminCanSetUp')}{/if}
+		</p>
+	{/if}
+	<RepoOverview data={data.overview} repo={data.repo.fullName} canStart={canWrite && ready} />
+{:else if data.tab === 'pulls'}
 	{#if !canWrite}
 		<p class="notice">{i.t('repo.readOnly')}</p>
 	{:else if !ready}

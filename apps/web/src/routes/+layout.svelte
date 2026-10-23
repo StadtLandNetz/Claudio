@@ -26,9 +26,10 @@
 	] as const;
 
 	// The repository's own menu, shown under it in the sidebar on every page that belongs to it.
-	const REPO_TABS = ['pulls', 'reviews', 'tests', 'knowledge', 'settings'] as const;
+	const REPO_TABS = ['overview', 'pulls', 'reviews', 'tests', 'knowledge', 'settings'] as const;
 	type RepoTab = (typeof REPO_TABS)[number];
 	const subItems: { id: RepoTab; label: MessageKey }[] = [
+		{ id: 'overview', label: 'repo.tabOverview' },
 		{ id: 'pulls', label: 'repo.tabPulls' },
 		{ id: 'reviews', label: 'repo.tabReviews' },
 		{ id: 'tests', label: 'repo.tabTests' },
@@ -39,7 +40,7 @@
 		const p = page.url.pathname;
 		if (page.params.owner && page.params.name) {
 			const t = page.url.searchParams.get('tab') ?? '';
-			return (REPO_TABS as readonly string[]).includes(t) ? (t as RepoTab) : 'pulls';
+			return (REPO_TABS as readonly string[]).includes(t) ? (t as RepoTab) : 'overview';
 		}
 		if (p.startsWith('/tests/') || p.startsWith('/test-runs/')) return 'tests';
 		if (p === '/reviews/new') return 'pulls';
@@ -125,7 +126,7 @@
 									<ul class="sub" aria-label={i.t('repo.tabsLabel')}>
 										{#each subItems.filter((it) => it.id !== 'settings' || repo.level === 'admin') as it (it.id)}
 											<li>
-												<a href="/repos/{repo.fullName}{it.id === 'pulls' ? '' : `?tab=${it.id}`}" aria-current={activeTab === it.id ? 'page' : undefined}>
+												<a href="/repos/{repo.fullName}{it.id === 'overview' ? '' : `?tab=${it.id}`}" aria-current={activeTab === it.id ? 'page' : undefined}>
 													{i.t(it.label)}
 													{#if it.id === 'reviews' && repo.reviewCount}<span class="count">{repo.reviewCount}</span>{/if}
 													{#if it.id === 'tests' && repo.testCount}<span class="count">{repo.testCount}</span>{/if}

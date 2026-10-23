@@ -55,6 +55,7 @@ import { renderMarkdown } from '#lib/markdown.js';
 import { devFixtures } from '#lib/server/env.js';
 import { githubErrorMessage, listOpenPulls, type GithubPull } from '#lib/server/github.js';
 import { summarize } from '#lib/server/summary.js';
+import { loadOverview } from '#lib/server/overview.js';
 import { type I18n, serverI18n } from '#lib/i18n/index.js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -63,9 +64,9 @@ async function loadRepo(params: { owner: string; name: string }, user: App.Local
 	return (await requireRepo(user, `${params.owner}/${params.name}`, min)).repo;
 }
 
-const TABS = ['pulls', 'reviews', 'tests', 'knowledge', 'settings'] as const;
+const TABS = ['overview', 'pulls', 'reviews', 'tests', 'knowledge', 'settings'] as const;
 type Tab = (typeof TABS)[number];
-const tabOf = (v: string | null): Tab => ((TABS as readonly string[]).includes(v ?? '') ? (v as Tab) : 'pulls');
+const tabOf = (v: string | null): Tab => ((TABS as readonly string[]).includes(v ?? '') ? (v as Tab) : 'overview');
 /** GitHub's answers are reused for a short while: switching tabs or coming back must not ask again. */
 const FRESH_MS = 30_000;
 const STALE_MS = 10 * 60_000;
@@ -77,7 +78,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	const isDemo = repo.fullName === DEMO_REPO && devFixtures();
 	const settings = tab === 'settings' && level === 'admin';
 	// Each tab loads only what it shows. GitHub is asked only for that, and the answers are cached briefly.
-	const token = !isDemo && (tab === 'pulls' || tab === 'knowledge' || settings) ? await userToken(locals.user!) : null;
+	const token = !isDemo && (tab === 'overview' || tab === 'pulls' || tab === 'knowledge' || settings) ? await userToken(locals.user!) : null;
 	const github = token ? createGithubClient(token) : null;
 	const base = publicBaseUrl(url);
 	const batchId = tab === 'tests' ? url.searchParams.get('batch') : null;
@@ -98,6 +99,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			return { pulls: [], error: githubErrorMessage(e) };
 		}
 	})();
+	const overviewP = tab === 'overview' ? loadOverview(repo, token, isDemo, t('repo.pullsNoToken')) : Promise.resolve(null);
 	const reviewsP = tab === 'reviews' ? listReviewDigests(db(), { repoId: repo.id, limit: 100 }) : Promise.resolve([]);
 	const knowledgeP = tab === 'knowledge' ? latestKnowledge(db(), repo.id) : Promise.resolve(null);
 	const analysesP = tab === 'knowledge' ? listAnalyses(db(), { repoId: repo.id, limit: 20 }) : Promise.resolve([]);
@@ -144,7 +146,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		});
 	})();
 
-	const [roles, reviews, knowledge, analyses, tests, activeTestRuns, batchRuns, keySetBy, learnings, keySources, webhook, env, pulls] = await Promise.all([
+	const [overview, roles, reviews, knowledge, analyses, tests, activeTestRuns, batchRuns, keySetBy, learnings, keySources, webhook, env, pulls] = await Promise.all([
+		overviewP,
 		listRoles(db(), repo.id),
 		reviewsP,
 		knowledgeP,
@@ -186,6 +189,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			recipe: r.recipe ? JSON.stringify(r.recipe, null, 2) : ''
 		})),
 		reviews: reviews.map((r) => summarize(r, dismissed.get(r.id), undefined, reviewTests.get(r.id))),
+		overview,
 		pulls: pulls.pulls,
 		pullsError: pulls.error,
 		knowledge: knowledge

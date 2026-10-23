@@ -545,6 +545,83 @@ export async function findingStatuses(db: Db, reviewIds: number[]): Promise<Map<
   return out;
 }
 
+/** A review as the repository overview counts it: times, cost, and from the report only lists of statuses. */
+export type ReviewStatItem = {
+  id: number;
+  prNumber: number;
+  prTitle: string | null;
+  status: Review["status"];
+  headSha: string | null;
+  createdAt: Date;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+  costUsd: string | null;
+  report:
+    | (ReportLike & {
+        findings: { id: string; severity: Severity; category: string }[];
+        rechecks: string[];
+        followUpOf: number | null;
+      })
+    | null;
+};
+
+/**
+ * Reviews of a repository for its overview: those since `since`, or those of the
+ * given pull requests. Newest first; the reports stay in MySQL except for the
+ * statuses, severities and categories the numbers need.
+ */
+export async function listReviewStats(db: Db, repoId: number, opts: { since?: Date; prNumbers?: number[] }): Promise<ReviewStatItem[]> {
+  if (opts.prNumbers && opts.prNumbers.length === 0) return [];
+  const rows = await db
+    .select({
+      id: reviews.id,
+      prNumber: reviews.prNumber,
+      prTitle: reviews.prTitle,
+      status: reviews.status,
+      headSha: reviews.headSha,
+      createdAt: reviews.createdAt,
+      startedAt: reviews.startedAt,
+      finishedAt: reviews.finishedAt,
+      costUsd: reviews.costUsd,
+      hasReport: sql<number>`(${reviews.report} is not null)`.mapWith(Number),
+      reportStatus: sql<string | null>`json_unquote(json_extract(${reviews.report}, '$.status'))`,
+      strictness: sql<string | null>`json_unquote(json_extract(${reviews.report}, '$.request.strictness'))`,
+      acStatuses: sql<unknown>`json_extract(${reviews.report}, '$.acceptanceCriteria[*].status')`.mapWith(jsonList),
+      findingIds: sql<unknown>`json_extract(${reviews.report}, '$.findings[*].id')`.mapWith(jsonList),
+      severities: sql<unknown>`json_extract(${reviews.report}, '$.findings[*].severity')`.mapWith(jsonList),
+      categories: sql<unknown>`json_extract(${reviews.report}, '$.findings[*].category')`.mapWith(jsonList),
+      rechecks: sql<unknown>`json_extract(${reviews.report}, '$.followUp.rechecks[*].status')`.mapWith(jsonList),
+      followUpOf: sql<number | null>`json_extract(${reviews.report}, '$.followUp.reviewId')`,
+    })
+    .from(reviews)
+    .where(
+      and(
+        eq(reviews.repoId, repoId),
+        opts.since ? gt(reviews.createdAt, opts.since) : undefined,
+        opts.prNumbers ? inArray(reviews.prNumber, opts.prNumbers) : undefined,
+      ),
+    )
+    .orderBy(desc(reviews.id))
+    .limit(1000);
+  return rows.map(({ hasReport, reportStatus, strictness, acStatuses, findingIds, severities, categories, rechecks, followUpOf, ...r }) => {
+    const sev = jsonList(severities) as Severity[];
+    const cat = jsonList(categories) as string[];
+    return {
+      ...r,
+      report: hasReport
+        ? {
+            status: (reportStatus ?? "failed") as ReportLike["status"],
+            request: { strictness: (strictness ?? "normal") as Strictness },
+            acceptanceCriteria: (jsonList(acStatuses) as string[]).map((status) => ({ status: status as ReportLike["acceptanceCriteria"][number]["status"] })),
+            findings: (jsonList(findingIds) as string[]).map((id, k) => ({ id, severity: sev[k] ?? "suggestion", category: cat[k] ?? "other" })),
+            rechecks: jsonList(rechecks) as string[],
+            followUpOf: followUpOf === null || followUpOf === undefined ? null : Number(followUpOf),
+          }
+        : null,
+    };
+  });
+}
+
 /** When each repository was last reviewed (for the repositories page). */
 export async function lastReviewByRepo(db: Db, repoIds: number[]): Promise<Map<number, Date>> {
   if (repoIds.length === 0) return new Map();
