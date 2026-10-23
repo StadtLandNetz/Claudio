@@ -388,7 +388,8 @@ export function renderPrComment(report: ReviewReport, reportUrl?: string, opts: 
       const n = notes.get(f.id)!;
       const label = `[${t.severity[f.severity]}] ${f.title}`;
       const by = n.by ? ` @${n.by}` : "";
-      if (n.status === "confirmed") lines.push(`- ✅ **${label}** — ${t.confirmedBy}${by}`);
+      // Green stays for what a re-review found fixed; a confirmation only says the problem is real.
+      if (n.status === "confirmed") lines.push(`- ☑️ **${label}** — ${t.confirmedBy}${by}`);
       else if (n.status === "dismissed") lines.push(`- ❌ ~~${label}~~ — ${t.dismissedBy}${by}`);
       else lines.push(`- 💬 **${label}**`);
       const reason = n.status === "proposed" ? "" : (n.comment?.trim() ?? "");

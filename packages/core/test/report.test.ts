@@ -113,7 +113,8 @@ describe("ratings in the PR comment", () => {
   it("lists rated findings with rater and quoted reason", () => {
     const c = renderPrComment(report(), undefined, { dismissedIds: ["F2"], notes });
     expect(c).toContain("**Bewertungen im Review**");
-    expect(c).toContain("- ✅ **[Minor] Button zu klein** — bestätigt von @anna");
+    expect(c).toContain("- ☑️ **[Minor] Button zu klein** — bestätigt von @anna");
+    expect(c).not.toMatch(/✅ \*\*\[Minor\] Button zu klein/);
     expect(c).toContain("- ❌ ~~[Major] Speichern schlägt fehl~~ — verworfen von @janik");
     expect(c).toContain("  > Abwesende sind nicht verplanbar.\n  > Daher gewollt.");
   });
