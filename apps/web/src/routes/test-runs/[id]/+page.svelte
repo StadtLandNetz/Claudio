@@ -10,6 +10,7 @@
 	import LiveView from '#lib/components/LiveView.svelte';
 	import OutcomeBadge from '#lib/components/OutcomeBadge.svelte';
 	import PageNav, { type Section } from '#lib/components/PageNav.svelte';
+	import Seg from '#lib/components/Seg.svelte';
 	import Severity from '#lib/components/Severity.svelte';
 	import TraceTimeline, { type Marker } from '#lib/components/TraceTimeline.svelte';
 	import { page } from '$app/state';
@@ -68,7 +69,8 @@
 
 	// ---- steps: the first ones, all of them, or only those that failed or were repaired
 	const STEP_PREVIEW = 20;
-	let warningsOnly = $state(false);
+	let stepFilter = $state<'all' | 'warnings'>('all');
+	const warningsOnly = $derived(stepFilter === 'warnings');
 	let stepsExpanded = $state(false);
 	const steps = $derived(r?.steps ?? []);
 	const warnSteps = $derived(steps.filter((s) => !s.ok || s.healed || s.error));
@@ -91,7 +93,13 @@
 		if (!r) return out;
 		if (r.judge) out.push({ id: 'judge', label: i.t('test.sectionJudge'), tone: r.judge.passed ? 'pass' : 'block', count: r.judge.passed ? '✓' : '✗' });
 		const failed = steps.filter((s) => !s.ok).length;
-		out.push({ id: 'steps', label: i.t('test.steps'), count: `${steps.length - failed}/${steps.length}`, tone: failed ? 'block' : warnSteps.length ? 'major' : 'pass' });
+		out.push({
+			id: 'steps',
+			label: i.t('test.steps'),
+			count: `${steps.length - failed}/${steps.length}`,
+			tone: failed ? 'block' : warnSteps.length ? 'major' : 'pass',
+			tip: i.t('test.tipSteps', { ok: steps.length - failed, total: steps.length, warn: warnSteps.length })
+		});
 		if (r.findings.length) out.push({ id: 'findings', label: i.t('test.findings'), count: r.findings.length, tone: 'major' });
 		if (r.evidence.length) out.push({ id: 'screenshots', label: i.t('test.screenshots'), count: r.evidence.length });
 		if (r.errors.length) out.push({ id: 'problems', label: i.t('test.sectionProblems'), count: r.errors.length, tone: 'block' });
@@ -200,14 +208,14 @@
 				<div class="block-head">
 					<h2>{i.t('test.steps')}</h2>
 					{#if steps.length > STEP_PREVIEW || warnSteps.length}
-						<div class="chips" role="group" aria-label={i.t('test.steps')}>
-							<button type="button" class="chip-btn" aria-pressed={!warningsOnly} onclick={() => (warningsOnly = false)}>
-								{i.t('common.filterAll')} <span class="n">{steps.length}</span>
-							</button>
-							<button type="button" class="chip-btn" aria-pressed={warningsOnly} use:tooltip={i.t('test.stepsWarningsHelp')} onclick={() => (warningsOnly = true)}>
-								{i.t('common.onlyWarnings')} <span class="n">{warnSteps.length}</span>
-							</button>
-						</div>
+						<Seg
+							bind:value={stepFilter}
+							label={i.t('test.steps')}
+							options={[
+								{ value: 'all', label: i.t('common.filterAll'), count: steps.length },
+								{ value: 'warnings', label: i.t('common.onlyWarnings'), count: warnSteps.length, tip: i.t('test.stepsWarningsHelp') }
+							]}
+						/>
 					{/if}
 				</div>
 				{#if shownSteps.length}

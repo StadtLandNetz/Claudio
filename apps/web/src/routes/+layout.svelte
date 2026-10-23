@@ -173,7 +173,8 @@
 						<span class="go">{i.t('common.open')}</span>
 					</a>
 				{/each}
-				{@render children()}
+				<!-- A new page starts fresh: filters, "show all" and open forms do not carry over from the last one -->
+				{#key page.url.pathname}{@render children()}{/key}
 			</div>
 		</main>
 	</div>

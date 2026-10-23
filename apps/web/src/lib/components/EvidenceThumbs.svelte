@@ -6,6 +6,7 @@
 <script lang="ts">
 	import { i18n } from '#lib/i18n/index.js';
 	import Icon from './Icon.svelte';
+	import { tooltip } from '#lib/tooltip.js';
 
 	/**
 	 * Screenshot tiles. With `onopen` a tile opens the lightbox, otherwise a new tab.
@@ -45,7 +46,7 @@
 						</a>
 					{/if}
 					{#if onjump && ev.createdAt}
-						<button type="button" class="jump" title={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: {ev.id}" onclick={() => onjump(ev)}>
+						<button type="button" class="jump" use:tooltip={i.t('common.traceJump')} aria-label="{i.t('common.traceJump')}: {ev.id}" onclick={() => onjump(ev)}>
 							<Icon name="play" size={12} />
 						</button>
 					{/if}

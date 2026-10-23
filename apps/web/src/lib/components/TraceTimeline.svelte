@@ -24,6 +24,7 @@
 	import type { Severity as SeverityLevel, TraceIndex } from '@claudio/core';
 	import { i18n } from '#lib/i18n/index.js';
 	import Icon from './Icon.svelte';
+	import { tooltip } from '#lib/tooltip.js';
 	import Severity from './Severity.svelte';
 
 	/**
@@ -317,7 +318,7 @@
 	<section class="trace sheet" {id} class:flash bind:this={root} aria-label={i.t('common.trace')}>
 		<header>
 			<h2>{i.t('common.trace')}</h2>
-			{#if urlAt}<span class="url faint" title={urlAt}>{urlAt}</span>{/if}
+			{#if urlAt}<span class="url faint" use:tooltip={urlAt}>{urlAt}</span>{/if}
 			<span class="links">
 				{#if viewerUrl}
 					<a class="btn ghost small" href={viewerUrl} target="_blank" rel="noopener noreferrer">{i.t('common.traceOpenViewer')} <Icon name="external" size={12} /></a>
@@ -350,8 +351,8 @@
 				onpointercancel={onPointerUp}
 				onkeydown={onKey}
 			>
-				<div class="lane nav" aria-hidden="true">
-					{#each index.navigations as n, k (k)}<span class="tick nav" style:left="{pct(n.t)}%" title={n.url}></span>{/each}
+				<div class="lane nav">
+					{#each index.navigations as n, k (k)}<span class="tick nav" style:left="{pct(n.t)}%" use:tooltip={`${i.t('common.traceKindNav')} · ${fmt(n.t)} · ${n.url}`}></span>{/each}
 				</div>
 				{#each ['finding', 'ac', 'evidence', 'note'] as const as kind (kind)}
 					<div class="lane {kind}">
@@ -362,7 +363,7 @@
 								class:blocking={m.blocking}
 								class:dismissed={m.dismissed}
 								style:left="{pct(m.t)}%"
-								title={m.kind === 'note' ? m.label : `${m.id} ${m.label}`}
+								use:tooltip={`${kindLabel[m.kind]?.() ?? ''} · ${fmt(m.t)} · ${m.kind === 'note' ? m.label : `${m.id} ${m.label}`}${m.blocking ? ` · ${i.t('common.traceBlocking')}` : ''}${m.dismissed ? ` · ${i.t('common.traceDismissed')}` : ''}`}
 								aria-label={m.kind === 'note' ? m.label : `${m.id} ${m.label}`}
 								tabindex="-1"
 								onclick={() => seek(m.t, true)}
@@ -370,20 +371,20 @@
 						{/each}
 					</div>
 				{/each}
-				<div class="lane agent" aria-hidden="true">
-					{#each agentCalls as c, k (k)}<span class="tick agent" style:left="{pct(c.t)}%" title="{c.tool}: {c.label}"></span>{/each}
+				<div class="lane agent">
+					{#each agentCalls as c, k (k)}<span class="tick agent" style:left="{pct(c.t)}%" use:tooltip={`${i.t('common.traceKindAgent')} · ${fmt(c.t)} · ${c.tool}: ${c.label}`}></span>{/each}
 				</div>
-				<div class="lane console" aria-hidden="true">
-					{#each index.console as c, k (k)}<span class="tick console {c.level}" style:left="{pct(c.t)}%" title={c.text}></span>{/each}
+				<div class="lane console">
+					{#each index.console as c, k (k)}<span class="tick console {c.level}" style:left="{pct(c.t)}%" use:tooltip={`${i.t('common.traceKindConsole')} · ${fmt(c.t)} · ${c.text}`}></span>{/each}
 				</div>
 				<div class="playhead" style:left="{pct(t)}%" aria-hidden="true"></div>
 			</div>
 			<div class="controls">
-				<button type="button" class="btn ghost small" title={i.t('common.tracePrevMarker')} aria-label={i.t('common.tracePrevMarker')} onclick={prevMarker}><Icon name="skip-back" size={12} /></button>
-				<button type="button" class="btn ghost small" title={playing ? i.t('common.tracePause') : i.t('common.tracePlay')} aria-label={playing ? i.t('common.tracePause') : i.t('common.tracePlay')} onclick={() => (playing = !playing)}>
+				<button type="button" class="btn ghost small" use:tooltip={i.t('common.tracePrevMarker')} aria-label={i.t('common.tracePrevMarker')} onclick={prevMarker}><Icon name="skip-back" size={12} /></button>
+				<button type="button" class="btn ghost small" use:tooltip={playing ? i.t('common.tracePause') : i.t('common.tracePlay')} aria-label={playing ? i.t('common.tracePause') : i.t('common.tracePlay')} onclick={() => (playing = !playing)}>
 					<Icon name={playing ? 'pause' : 'play'} size={12} />
 				</button>
-				<button type="button" class="btn ghost small" title={i.t('common.traceNextMarker')} aria-label={i.t('common.traceNextMarker')} onclick={nextMarker}><Icon name="skip-forward" size={12} /></button>
+				<button type="button" class="btn ghost small" use:tooltip={i.t('common.traceNextMarker')} aria-label={i.t('common.traceNextMarker')} onclick={nextMarker}><Icon name="skip-forward" size={12} /></button>
 				<span class="time">{fmt(t)} <span class="faint">/ {fmt(duration)}</span></span>
 				<div class="seg" role="group" aria-label={i.t('common.traceSpeed')}>
 					{#each [1, 2, 4] as const as r (r)}
@@ -546,6 +547,12 @@
 		bottom: 0;
 		width: 1px;
 		background: var(--ink-3);
+	}
+	/* Easier to hover than the 1px line itself */
+	.tick::before {
+		content: '';
+		position: absolute;
+		inset: 0 -3px;
 	}
 	.tick.nav {
 		background: var(--rule-strong);

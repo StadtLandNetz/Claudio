@@ -124,6 +124,7 @@ export const de = {
 	sectionRuns: 'Läufe',
 	sectionJudge: 'Bewertung',
 	sectionProblems: 'Probleme',
+	tipSteps: (p: { ok: number; total: number; warn: number }) => `${p.ok} von ${p.total} Schritten ausgeführt, ${p.warn} mit Warnung`,
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
@@ -250,4 +251,5 @@ export const en: Translation<typeof de> = {
 	sectionRuns: 'Runs',
 	sectionJudge: 'Judgement',
 	sectionProblems: 'Problems',
+	tipSteps: (p: { ok: number; total: number; warn: number }) => `${p.ok} of ${p.total} steps run, ${p.warn} with a warning`,
 };

@@ -4,57 +4,66 @@ let seq = 0;
  * A short explanation in a small bubble above the element (below when there is no
  * room), on hover and on keyboard focus; elements that do nothing else toggle it on
  * click, so it works on touch screens too. The bubble lives in the top layer, so
- * scrolling containers and dialogs do not clip it. Use it instead of `title`.
+ * scrolling containers and dialogs do not clip it, and it is only created when first
+ * shown, so even hundreds of ticks on a timeline cost nothing. Use it instead of `title`.
  */
 export function tooltip(node: HTMLElement, text: string | null | undefined) {
 	let content = text ?? '';
-	const tip = document.createElement('div');
-	tip.className = 'tooltip';
-	tip.id = `tip-${++seq}`;
-	tip.setAttribute('role', 'tooltip');
-	tip.textContent = content;
-	const popover = typeof tip.showPopover === 'function';
-	if (popover) tip.popover = 'manual';
-	else tip.hidden = true;
-	document.body.append(tip);
-	if (!node.hasAttribute('aria-describedby')) node.setAttribute('aria-describedby', tip.id);
+	let tip: HTMLDivElement | null = null;
 	// A tag or badge only explains; a button or link has its own click.
-	const passive = !node.matches('a, button, input, select, textarea, summary, [role="button"]');
+	const passive = !node.matches('a, button, input, select, textarea, summary, [role="button"], [role="slider"]');
+	const label = node.getAttribute('aria-label');
+	// Screen readers get the text right away, without the bubble having to exist.
+	const labels = !label && passive && !node.textContent?.trim();
+	if (labels) node.setAttribute('aria-label', content);
 
 	let timer = 0;
 	let open = false;
 
-	function place() {
+	function create(): HTMLDivElement {
+		const el = document.createElement('div');
+		el.className = 'tooltip';
+		el.id = `tip-${++seq}`;
+		el.setAttribute('role', 'tooltip');
+		if (typeof el.showPopover === 'function') el.popover = 'manual';
+		else el.hidden = true;
+		document.body.append(el);
+		if (!node.hasAttribute('aria-describedby')) node.setAttribute('aria-describedby', el.id);
+		return el;
+	}
+	function place(el: HTMLDivElement) {
 		const r = node.getBoundingClientRect();
-		const t = tip.getBoundingClientRect();
+		const t = el.getBoundingClientRect();
 		const gap = 6;
 		let top = r.top - t.height - gap;
 		if (top < 8) top = r.bottom + gap;
 		const left = Math.max(8, Math.min(r.left + r.width / 2 - t.width / 2, window.innerWidth - t.width - 8));
-		tip.style.top = `${Math.round(top)}px`;
-		tip.style.left = `${Math.round(left)}px`;
+		el.style.top = `${Math.round(top)}px`;
+		el.style.left = `${Math.round(left)}px`;
 	}
 	function show() {
 		if (open || !content || !node.isConnected) return;
+		tip ??= create();
+		tip.textContent = content;
 		open = true;
-		if (popover) tip.showPopover();
+		if (typeof tip.showPopover === 'function') tip.showPopover();
 		else tip.hidden = false;
-		place();
+		place(tip);
 		tip.classList.add('on');
 		window.addEventListener('scroll', hide, { capture: true, passive: true, once: true });
 	}
 	function hide() {
 		clearTimeout(timer);
-		if (!open) return;
+		if (!open || !tip) return;
 		open = false;
 		tip.classList.remove('on');
-		if (popover) tip.hidePopover();
+		if (typeof tip.hidePopover === 'function') tip.hidePopover();
 		else tip.hidden = true;
 	}
 	function later(e: PointerEvent) {
 		if (e.pointerType === 'touch') return;
 		clearTimeout(timer);
-		timer = window.setTimeout(show, 350);
+		timer = window.setTimeout(show, 300);
 	}
 	function focus() {
 		if (node.matches(':focus-visible')) show();
@@ -78,9 +87,11 @@ export function tooltip(node: HTMLElement, text: string | null | undefined) {
 	return {
 		update(next: string | null | undefined) {
 			content = next ?? '';
+			if (labels) node.setAttribute('aria-label', content);
+			if (!tip) return;
 			tip.textContent = content;
 			if (!content) hide();
-			else if (open) place();
+			else if (open) place(tip);
 		},
 		destroy() {
 			hide();
@@ -90,8 +101,8 @@ export function tooltip(node: HTMLElement, text: string | null | undefined) {
 			node.removeEventListener('blur', hide);
 			node.removeEventListener('click', click);
 			node.removeEventListener('keydown', key);
-			if (node.getAttribute('aria-describedby') === tip.id) node.removeAttribute('aria-describedby');
-			tip.remove();
+			if (tip && node.getAttribute('aria-describedby') === tip.id) node.removeAttribute('aria-describedby');
+			tip?.remove();
 		}
 	};
 }

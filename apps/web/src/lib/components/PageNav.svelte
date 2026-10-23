@@ -1,6 +1,6 @@
 <script module lang="ts">
 	/** A part of the page the header links to: an element with this id. */
-	export type Section = { id: string; label: string; count?: number | string; tone?: 'block' | 'major' | 'pass' };
+	export type Section = { id: string; label: string; count?: number | string; tone?: 'block' | 'major' | 'pass'; tip?: string };
 </script>
 
 <script lang="ts">
@@ -8,6 +8,7 @@
 	import { replaceState } from '$app/navigation';
 	import { page } from '$app/state';
 	import { i18n } from '#lib/i18n/index.js';
+	import { tooltip } from '#lib/tooltip.js';
 
 	/**
 	 * The slim header that stays at the top while the page scrolls: the page's title
@@ -127,7 +128,7 @@
 			{#each sections as s (s.id)}
 				<a href="#{s.id}" data-id={s.id} aria-current={active === s.id ? 'location' : undefined} onclick={(e) => go(e, s.id)}>
 					{s.label}
-					{#if s.count !== undefined && s.count !== ''}<span class="count {s.tone ?? ''}">{s.count}</span>{/if}
+					{#if s.count !== undefined && s.count !== ''}<span class="count {s.tone ?? ''}" use:tooltip={s.tip}>{s.count}</span>{/if}
 				</a>
 			{/each}
 		</nav>
