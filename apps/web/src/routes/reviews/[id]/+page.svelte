@@ -81,6 +81,19 @@
 	// Routes the change reaches (import graph); long lists fold away.
 	const IMPACT_PREVIEW = 12;
 	const impact = $derived(report?.impact && report.impact.framework !== 'unknown' ? report.impact : null);
+	// Which regression tests the worker picked, and the affected route each one touches.
+	const selection = $derived(report?.testSelection ?? null);
+	const routeOfTest = $derived(new Map((selection?.selected ?? []).flatMap((t) => (t.route ? [[t.id, t.route] as const] : []))));
+	const selectionText = $derived.by(() => {
+		if (!selection) return '';
+		const n = selection.selected.length + selection.skipped.length;
+		if (selection.all === 'requested') return i.t('review.testsAllRequested', { n });
+		if (selection.all === 'no_impact') return i.t('review.testsAllNoImpact', { n });
+		if (selection.all === 'unknown_framework') return i.t('review.testsAllUnknownFramework', { n });
+		if (selection.all === 'global_change') return i.t('review.testsAllGlobal', { n });
+		const unknown = selection.selected.filter((t) => t.unknownPaths).length;
+		return `${i.t('review.testsSelected', { n: selection.selected.length, total: n })}${unknown ? ` ${i.t('review.testsUnknownPaths', { n: unknown })}` : ''}`;
+	});
 	const kindLabel = (kind: 'page' | 'layout' | 'endpoint') =>
 		i.t(kind === 'page' ? 'review.impactKindPage' : kind === 'layout' ? 'review.impactKindLayout' : 'review.impactKindEndpoint');
 	let acFilter = $state<'all' | 'warnings'>('all');
@@ -213,13 +226,13 @@
 		if (report.followUp) out.push({ id: 'followup', label: i.t('review.sectionFollowUp') });
 		if (report.summaryHtml) out.push({ id: 'summary', label: i.t('review.summary') });
 		if (impact) out.push({ id: 'impact', label: i.t('review.sectionImpact'), count: impact.global.length ? undefined : impact.routes.length });
-		if (data.tests.length) {
+		if (data.tests.length || selection) {
 			const failed = data.tests.some((t) => t.outcome === 'failed');
 			out.push({
 				id: 'tests',
 				label: i.t('review.sectionTests'),
-				count: `${testsPassed}/${data.tests.length}`,
-				tone: failed ? 'block' : testsActive ? undefined : 'pass',
+				count: data.tests.length ? `${testsPassed}/${data.tests.length}` : undefined,
+				tone: failed ? 'block' : testsActive || !data.tests.length ? undefined : 'pass',
 				tip: i.t('review.tipTests', { passed: testsPassed, total: data.tests.length })
 			});
 		}
@@ -429,20 +442,34 @@
 				</section>
 			{/if}
 
-			{#if data.tests.length}
+			{#if data.tests.length || selection}
 				<section class="block" id="tests">
 					<h2>{i.t('review.regressionTests')}</h2>
-					<ul class="tests sheet">
-						{#each data.tests as t (t.id)}
-							<li>
-								<OutcomeBadge status={t.status} outcome={t.outcome} healed={t.healed} />
-								<div>
-									<a href="/test-runs/{t.id}">{t.name}</a>
-									{#if t.summary && t.outcome !== 'passed'}<p class="faint">{t.summary}</p>{/if}
-								</div>
-							</li>
-						{/each}
-					</ul>
+					{#if selectionText}<p class="faint">{selectionText}</p>{/if}
+					{#if data.tests.length}
+						<ul class="tests sheet">
+							{#each data.tests as t (t.id)}
+								<li>
+									<OutcomeBadge status={t.status} outcome={t.outcome} healed={t.healed} />
+									<div>
+										<span>
+											<a href="/test-runs/{t.id}">{t.name}</a>
+											{#if routeOfTest.get(t.scriptId)}<code class="faint">{routeOfTest.get(t.scriptId)}</code>{/if}
+										</span>
+										{#if t.summary && t.outcome !== 'passed'}<p class="faint">{t.summary}</p>{/if}
+									</div>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+					{#if selection?.skipped.length}
+						<details class="skipped">
+							<summary class="faint">{i.t('review.testsSkipped', { n: selection.skipped.length })}</summary>
+							<ul class="tests sheet">
+								{#each selection.skipped as s (s.id)}<li><a href="/tests/{s.id}">{s.name}</a></li>{/each}
+							</ul>
+						</details>
+					{/if}
 				</section>
 			{/if}
 
@@ -917,7 +944,8 @@
 		font-weight: 600;
 		color: var(--major);
 	}
-	#impact details {
+	#impact details,
+	.skipped {
 		margin-top: 0.5rem;
 	}
 

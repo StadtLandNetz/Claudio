@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { ReviewRequestSchema, parseRepoPath, repoHref, repoPath } from '@claudio/core';
 import { criterionText, verdict } from '@claudio/core';
-import { createReview, createTestRuns, dismissedFindingIds, listRoles, listTestScripts, previousReviewOf } from '@claudio/db';
+import { createReview, dismissedFindingIds, listRoles, listTestScripts, previousReviewOf } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { DEFAULT_AUTOMATION, resolveInstanceUrl } from '#lib/server/automation.js';
 import { keyOptional } from '#lib/server/anthropic.js';
@@ -10,7 +10,7 @@ import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
 import { devFixtures } from '#lib/server/env.js';
 import { forgeErrorMessage, userForge } from '#lib/server/forge.js';
 import { serverI18n, type I18n } from '#lib/i18n/index.js';
-import { budgetBlocks, runsPerViewport, viewportsOf } from '#lib/server/runs.js';
+import { budgetBlocks, viewportsOf } from '#lib/server/runs.js';
 import type { Actions, PageServerLoad } from './$types';
 
 async function context(url: URL, user: App.Locals['user'], t: I18n['t']) {
@@ -130,7 +130,9 @@ export const actions: Actions = {
 			extraInstructions: String(f.get('extraInstructions') ?? '').trim() || undefined,
 			criteria: criteriaOf(f),
 			viewports: viewportsOf(f),
-			followUpOf: f.get('followUp') === 'on' ? (await previousOf(repo.id, prNumber))?.id : undefined
+			followUpOf: f.get('followUp') === 'on' ? (await previousOf(repo.id, prNumber))?.id : undefined,
+			// Regression tests run against the same instance; the worker picks them after the checkout.
+			regressionTests: f.get('regressionTests') ?? 'none'
 		});
 		if (!parsed.success) {
 			const issue = parsed.error.issues[0];
@@ -145,21 +147,6 @@ export const actions: Actions = {
 			fixture,
 			startedBy: locals.user!.id
 		});
-		// Regression tests of the repo run against the same instance, after the review (worker order).
-		if (f.get('runTests') === 'on') {
-			const tests = (await listTestScripts(db(), repo.id)).filter((t) => t.runInReviews);
-			await createTestRuns(
-				db(),
-				runsPerViewport(tests.map((t) => ({
-					scriptId: t.id,
-					repoId: repo.id,
-					reviewId: id,
-					request: { repo: repo.fullName, provider: repo.provider, instanceUrl: parsed.data.instanceUrl, budget: 'quick' as const, language: parsed.data.language, headed: false, rerecord: false },
-					startedBy: locals.user!.id,
-					viewports: t.viewports?.length ? t.viewports : ['desktop']
-				})))
-			);
-		}
 		redirect(303, `/reviews/${id}`);
 	}
 };

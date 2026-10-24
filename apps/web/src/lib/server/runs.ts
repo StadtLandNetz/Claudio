@@ -1,5 +1,5 @@
-import { ViewportSchema, type TestRunRequest, type Viewport } from '@claudio/core';
-import { budgetState, type createTestRuns, type Repo } from '@claudio/db';
+import { ViewportSchema, type Viewport } from '@claudio/core';
+import { budgetState, type Repo } from '@claudio/db';
 import type { I18n } from '#lib/i18n/index.js';
 import { db } from './db.js';
 
@@ -12,14 +12,6 @@ export function viewportsOf(f: FormData): Viewport[] {
 	return picked.length ? [...new Set(picked)] : ['desktop'];
 }
 
-type RunInput = Parameters<typeof createTestRuns>[1][number];
-
-/** One test run per viewport of each script. */
-export function runsPerViewport(
-	runs: (Omit<RunInput, 'request'> & { request: Omit<TestRunRequest, 'viewport'> & { viewport?: Viewport }; viewports: readonly Viewport[] })[]
-): RunInput[] {
-	return runs.flatMap(({ viewports, ...run }) => (viewports.length ? viewports : (['desktop'] as const)).map((viewport) => ({ ...run, request: { ...run.request, viewport } })));
-}
 
 /** Why no new run may start in this repository, or null: the monthly budget is used up. */
 export async function budgetBlocks(repo: Pick<Repo, 'id' | 'monthlyBudgetUsd'>, t: I18n['t']): Promise<string | null> {

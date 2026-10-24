@@ -141,6 +141,13 @@
       "when": 1792867480531,
       "tag": "0019_gitlab_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1792881550572,
+      "tag": "0020_test_touched_paths",
+      "breakpoints": true
     }
   ]
 }

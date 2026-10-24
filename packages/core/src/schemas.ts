@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ProviderSchema, RepoFullNameSchema } from "./forge.js";
-import { ImpactSchema } from "./impact.js";
+import { ImpactSchema, TestSelectionSchema } from "./impact.js";
 
 export const SeveritySchema = z.enum(["blocker", "major", "minor", "suggestion"]);
 export type Severity = z.infer<typeof SeveritySchema>;
@@ -137,6 +137,11 @@ export const ReviewRequestSchema = z.object({
   followUpOf: z.number().int().positive().optional(),
   /** Where the app is checked: desktop, phone, or both (desktop first, then the changed screens on the phone). */
   viewports: z.array(ViewportSchema).min(1).default(["desktop"]),
+  /**
+   * The repository's regression tests to run with the review: those the change reaches, all, or none.
+   * The worker picks them after the checkout. Older requests had their tests queued with the review: none.
+   */
+  regressionTests: z.enum(["none", "affected", "all"]).default("none"),
 });
 export type ReviewRequest = z.infer<typeof ReviewRequestSchema>;
 
@@ -182,6 +187,8 @@ export const ReviewReportSchema = z.object({
   followUp: FollowUpSchema.optional(),
   /** Routes the change reaches through the import graph; absent without a checkout. */
   impact: ImpactSchema.optional(),
+  /** Which regression tests ran with the review and why. */
+  testSelection: TestSelectionSchema.optional(),
   createdAt: z.string(),
 });
 export type ReviewReport = z.infer<typeof ReviewReportSchema>;

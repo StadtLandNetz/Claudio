@@ -123,6 +123,8 @@ export const TestRunReportSchema = z.object({
   findings: z.array(FindingSchema).default([]),
   evidence: z.array(EvidenceSchema).default([]),
   finalUrl: z.string().optional(),
+  /** Paths on the instance the run opened or called (navigation, fetch/XHR), normalised. */
+  touchedPaths: z.array(z.string()).optional(),
   cost: RunCostSchema,
   errors: z.array(z.string()).default([]),
   createdAt: z.string(),

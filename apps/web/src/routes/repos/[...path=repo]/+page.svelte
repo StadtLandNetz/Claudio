@@ -604,9 +604,16 @@
 								{#each Object.entries(i.labels.strictness) as [value, label] (value)}<option {value} selected={data.autoReview.strictness === value}>{label}</option>{/each}
 							</select>
 						</label>
+						<label class="field">
+							<span>{i.t('repo.autoTests')}</span>
+							<select name="autoTests">
+								<option value="affected" selected={data.autoReview.runTests && data.autoReview.testSelection !== 'all'}>{i.t('review.testsAffected')}</option>
+								<option value="all" selected={data.autoReview.runTests && data.autoReview.testSelection === 'all'}>{i.t('repo.autoTestsAll')}</option>
+								<option value="none" selected={!data.autoReview.runTests}>{i.t('review.testsNone')}</option>
+							</select>
+						</label>
 					</div>
 					<label class="check"><input type="checkbox" name="autoComment" checked={data.autoReview.postComment} /> <span>{i.t('repo.autoComment')}</span></label>
-					<label class="check"><input type="checkbox" name="autoTests" checked={data.autoReview.runTests} /> <span>{i.t('repo.autoTests')}</span></label>
 					<label class="check"><input type="checkbox" name="autoFollowUp" checked={data.autoReview.followUp !== false} /> <span>{i.t('repo.autoFollowUp')} <span class="faint">{i.t('repo.autoFollowUpHint')}</span></span></label>
 					<ViewportChoice selected={data.autoReview.viewports ?? ['desktop']} />
 				</fieldset>

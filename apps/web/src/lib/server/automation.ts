@@ -2,12 +2,10 @@ import { AnalysisRequestSchema, ReviewRequestSchema, changeRef, envMatches, rend
 import {
 	createAnalysis,
 	createReview,
-	createTestRuns,
 	findActiveReview,
 	getUser,
 	listAnalyses,
 	listRoles,
-	listTestScripts,
 	freshAccessToken,
 	notify,
 	previousReviewOf,
@@ -17,7 +15,7 @@ import {
 import { botForge, decideTrigger, forgeFor, gitlabBotUsername, renderInstanceUrl, type AutomationSettings, type Forge, type TriggerDecision } from '@claudio/forge';
 import { DEFAULT_LOCALE, isLocale, serverI18n, type Locale } from '#lib/i18n/index.js';
 import { keyOptional } from './anthropic.js';
-import { budgetBlocks, runsPerViewport } from './runs.js';
+import { budgetBlocks } from './runs.js';
 import { db } from './db.js';
 import { DEMO_FIXTURE, DEMO_REPO } from './demo.js';
 import { devFixtures } from './env.js';
@@ -39,6 +37,7 @@ export const DEFAULT_AUTO_REVIEW: AutoReviewDefaults = {
 	strictness: 'normal',
 	postComment: true,
 	runTests: true,
+	testSelection: 'affected',
 	followUp: true,
 	viewports: ['desktop']
 };
@@ -257,7 +256,9 @@ async function queueReview(
 		language: locale,
 		cloneRepo: !fixture,
 		followUpOf: previous?.id,
-		viewports: defaults.viewports?.length ? defaults.viewports : ['desktop']
+		viewports: defaults.viewports?.length ? defaults.viewports : ['desktop'],
+		// The worker picks the tests after the checkout, when it knows what the change reaches.
+		regressionTests: defaults.runTests ? (defaults.testSelection ?? 'affected') : 'none'
 	});
 	if (!parsed.success) return { action: 'ignored', reason: `invalid review request: ${parsed.error.issues[0]?.message}` };
 
@@ -271,21 +272,6 @@ async function queueReview(
 		trigger,
 		headSha
 	});
-
-	if (defaults.runTests) {
-		const tests = (await listTestScripts(db(), repo.id)).filter((t) => t.runInReviews);
-		await createTestRuns(
-			db(),
-			runsPerViewport(tests.map((t) => ({
-				scriptId: t.id,
-				repoId: repo.id,
-				reviewId: id,
-				request: { repo: repo.fullName, provider: repo.provider, instanceUrl, budget: 'quick' as const, language: parsed.data.language, headed: false, rerecord: false },
-				startedBy: userId,
-				viewports: t.viewports?.length ? t.viewports : ['desktop']
-			})))
-		);
-	}
 
 	// Visible feedback on GitHub or GitLab. Failures here must not lose the review.
 	if (forge && settings.commitStatus && headSha) {

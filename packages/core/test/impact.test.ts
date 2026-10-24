@@ -109,5 +109,6 @@ describe("selectReviewTests", () => {
   });
   it("reads goto steps when a test has not recorded its paths", () => {
     expect(knownTestPaths({ touchedPaths: null, steps: [{ action: "login", role: "admin" }, { action: "goto", path: "/trips/" }, { action: "goto", path: "/x/{{run}}" }] })).toEqual(["/trips"]);
+    expect(knownTestPaths({ touchedPaths: null, steps: [{ action: "goto", path: "https://google.com" }] })).toEqual([]);
   });
 });

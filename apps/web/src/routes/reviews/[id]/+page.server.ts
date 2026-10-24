@@ -171,6 +171,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 					notes: report.notes,
 					followUp: report.followUp ?? null,
 					impact: report.impact ?? null,
+					testSelection: report.testSelection ?? null,
 					cost: report.cost,
 					errors: report.errors,
 					files: { trace: traceUrl, timeline }

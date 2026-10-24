@@ -178,7 +178,8 @@ export const de = {
 	autoReviews: 'Automatische Reviews',
 	strictness: 'Strenge',
 	autoComment: 'Kurzfassung als Kommentar in den {prAbbr} schreiben',
-	autoTests: 'Regressionstests mitlaufen lassen',
+	autoTests: 'Regressionstests',
+	autoTestsAll: 'Alle',
 	saveAutomation: 'Automatisierung speichern',
 
 	// Settings: webhook
@@ -595,7 +596,8 @@ export const en: Translation<typeof de> = {
 	autoReviews: 'Automatic reviews',
 	strictness: 'Strictness',
 	autoComment: 'Post the summary as a comment on the {prAbbr}',
-	autoTests: 'Run regression tests too',
+	autoTests: 'Regression tests',
+	autoTestsAll: 'All',
 	saveAutomation: 'Save automation',
 
 	// Settings: webhook

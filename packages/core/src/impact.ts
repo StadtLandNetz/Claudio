@@ -137,10 +137,13 @@ export const TestSelectionSchema = z.object({
 });
 export type TestSelection = z.infer<typeof TestSelectionSchema>;
 
-/** Paths a test is known to visit: recorded from its runs, else the `goto` steps of its script. */
+/**
+ * Paths a test is known to visit: recorded from its runs, else the `goto` steps
+ * of its script. A full URL in a step may point to another host, so it does not count.
+ */
 export function knownTestPaths(t: Pick<SelectableTest, "touchedPaths" | "steps">): string[] {
   if (t.touchedPaths?.length) return t.touchedPaths;
-  return (t.steps ?? []).flatMap((s) => (s.action === "goto" && !s.path.includes("{{") ? [normalizePath(s.path)] : []));
+  return (t.steps ?? []).flatMap((s) => (s.action === "goto" && !s.path.includes("{{") && !/^[a-z][a-z0-9+.-]*:/i.test(s.path) ? [normalizePath(s.path)] : []));
 }
 
 /**

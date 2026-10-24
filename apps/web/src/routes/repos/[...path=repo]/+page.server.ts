@@ -6,6 +6,7 @@ import {
 	type AccessLevel,
 	createAnalysis,
 	createTestRuns,
+	runsPerViewport,
 	createTestScript,
 	deleteRole,
 	dismissedFindingIds,
@@ -43,7 +44,7 @@ import {
 import { atLeast, requireRepo, visibleRepos } from '#lib/server/access.js';
 import { checkAnthropicKey, keyOptional, noKeyMessage } from '#lib/server/anthropic.js';
 import { swr } from '#lib/server/cache.js';
-import { budgetBlocks, runsPerViewport, viewportsOf } from '#lib/server/runs.js';
+import { budgetBlocks, viewportsOf } from '#lib/server/runs.js';
 import { githubAppSlug, githubApp, gitlabBotStatus, installationFor, repoWebUrl, type ChangeSummary } from '@claudio/forge';
 import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
@@ -435,7 +436,8 @@ export const actions: Actions = {
 				budget: pick(f.get('autoBudget'), ['quick', 'standard', 'thorough'] as const, 'standard'),
 				strictness: pick(f.get('autoStrictness'), ['lenient', 'normal', 'strict'] as const, 'normal'),
 				postComment: f.get('autoComment') === 'on',
-				runTests: f.get('autoTests') === 'on',
+				runTests: f.get('autoTests') !== 'none',
+				testSelection: f.get('autoTests') === 'all' ? 'all' : 'affected',
 				followUp: f.get('autoFollowUp') === 'on',
 				viewports: viewportsOf(f)
 			}

@@ -131,12 +131,17 @@
 	</label>
 
 	{#if data.reviewTests.length}
-		<label class="check">
-			<input type="checkbox" name="runTests" checked />
-			<span>
-				{i.t('review.runTests', { n: data.reviewTests.length })}
+		<label class="field">
+			<span>{i.t('review.regressionTests')}</span>
+			<select name="regressionTests">
+				<option value="affected" selected>{i.t('review.testsAffected')}</option>
+				<option value="all">{i.t('review.testsAll', { n: data.reviewTests.length })}</option>
+				<option value="none">{i.t('review.testsNone')}</option>
+			</select>
+			<small>
+				{i.t('review.testsHelp')}
 				<span class="faint">{data.reviewTests.join(', ')}</span>
-			</span>
+			</small>
 		</label>
 	{/if}
 

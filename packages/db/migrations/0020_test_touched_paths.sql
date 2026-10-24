@@ -1,0 +1,1 @@
+ALTER TABLE `test_scripts` ADD `touched_paths` json;

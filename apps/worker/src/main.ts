@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAnalysis, runReview, runTest, type RunHandle } from "@claudio/agent";
-import { changeRef, verdict, type Provider } from "@claudio/core";
+import { changeRef, verdict, type Provider, type TestSelection } from "@claudio/core";
 import {
   appendEvent,
   claimNextAnalysis,
@@ -25,6 +25,7 @@ import {
   listRoles,
   repoAnthropicKey,
   saveTestSteps,
+  saveTouchedPaths,
   setAnalysisRunId,
   setReviewRunId,
   setTestRunStarted,
@@ -54,6 +55,7 @@ import { finalizeReview } from "./finalize.js";
 import { followUpContext } from "./follow-up.js";
 import { humanBridge } from "./human.js";
 import { purgeOldRuns } from "./retention.js";
+import { queueReviewTests } from "./review-tests.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 if (existsSync(resolve(projectRoot, ".env"))) process.loadEnvFile(resolve(projectRoot, ".env"));
@@ -223,11 +225,17 @@ async function execute(db: Db, job: Job): Promise<void> {
       if (c.knowledge) c.emit(`Wissensbasis von Commit ${c.knowledge.commitSha.slice(0, 7)} wird mitgegeben.`);
       const followUp = await followUpContext(db, job.row, c.common.forge, c.emit);
       if (followUp) c.emit(`Nachprüfung von Review #${followUp.reviewId}: ${followUp.findings.length} offene Findings, ${followUp.changedFiles ? `${followUp.changedFiles.length} geänderte Dateien` : "Änderungen unbekannt"}.`);
+      // Regression tests are picked once the checkout shows what the change reaches, and run while the review goes on.
+      let testSelection: TestSelection | null = null;
+      const review = { ...job.row, request: { ...job.row.request, provider: c.repo.provider } };
       // The comment is posted by finalizeReview once the regression tests are done, so it can include them.
-      const report = await runReview({ ...job.row.request, provider: c.repo.provider, postComment: false }, {
+      const report = await runReview({ ...review.request, postComment: false }, {
         ...c.common,
         knowledge: c.knowledge,
         followUp,
+        onImpact: async (impact) => {
+          testSelection = await queueReviewTests(db, review, impact, c.emit);
+        },
         reportUrl: publicBaseUrl ? `${publicBaseUrl}/reviews/${job.row.id}` : undefined,
         prContextFile: c.fixture?.prContextFile,
         repoDir: c.fixture?.repoDir,
@@ -236,6 +244,7 @@ async function execute(db: Db, job: Job): Promise<void> {
           c.after(() => setReviewRunId(db, job.row.id, h.runId));
         },
       });
+      if (testSelection) report.testSelection = testSelection;
       await c.flush();
       await finishReview(db, job.row.id, {
         status: report.status,
@@ -270,6 +279,8 @@ async function execute(db: Db, job: Job): Promise<void> {
         c.emit(`Ablauf gespeichert (${report.compiledSteps.length} Schritte, Version ${row.stepsVersion + 1}).`);
         await c.flush();
       }
+      // The pages and endpoints the test used decide which reviews run it; a new recording starts the list afresh.
+      if (report.touchedPaths?.length) await saveTouchedPaths(db, script.id, report.touchedPaths, Boolean(report.compiledSteps?.length && keepsSteps));
       log(`test run ${job.row.id} (${script.name}) finished: ${report.outcome}, ${report.mode}, ${report.cost.usd.toFixed(2)} USD`);
       if (job.row.reviewId) await finalizeReview(db, job.row.reviewId, publicBaseUrl, log);
       else await notifyTestRun(db, job.row.id, c.repo, log);

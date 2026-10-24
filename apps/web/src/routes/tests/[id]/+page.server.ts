@@ -2,6 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { DeterminismSchema, TestRunRequestSchema, describeStep, parseHostList, repoHref, repoPath } from '@claudio/core';
 import {
 	createTestRuns,
+	runsPerViewport,
 	deleteTestScript,
 	getRepoById,
 	getTestScript,
@@ -15,7 +16,7 @@ import { requireRepo } from '#lib/server/access.js';
 import { keyOptional, noKeyMessage } from '#lib/server/anthropic.js';
 import { db } from '#lib/server/db.js';
 import { serverI18n } from '#lib/i18n/index.js';
-import { budgetBlocks, runsPerViewport, viewportsOf } from '#lib/server/runs.js';
+import { budgetBlocks, viewportsOf } from '#lib/server/runs.js';
 import type { Actions, PageServerLoad } from './$types';
 
 async function loadScript(idParam: string, locals: App.Locals, min: AccessLevel = 'read') {

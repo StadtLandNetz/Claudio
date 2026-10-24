@@ -18,6 +18,7 @@ import type {
   TestRunRequest,
   TestScript,
   TestStep,
+  Viewport,
 } from "@claudio/core";
 import type { AutomationSettings, Provider } from "@claudio/core";
 import type { Db } from "./client.js";
@@ -959,6 +960,25 @@ export async function saveTestSteps(db: Db, id: number, steps: TestStep[], deter
     .where(eq(testScripts.id, id));
 }
 
+/** At most this many paths are kept per test. */
+const TOUCHED_PATHS_LIMIT = 200;
+
+/**
+ * Stores the paths a test run opened or called. A new recording or healed
+ * run replaces them; a replay adds what it saw on top (data can lead a flow elsewhere).
+ */
+export async function saveTouchedPaths(db: Db, id: number, paths: string[], replace: boolean): Promise<void> {
+  let merged = paths;
+  if (!replace) {
+    const [row] = await db.select({ touchedPaths: testScripts.touchedPaths }).from(testScripts).where(eq(testScripts.id, id));
+    merged = [...new Set([...(row?.touchedPaths ?? []), ...paths])];
+  }
+  await db
+    .update(testScripts)
+    .set({ touchedPaths: merged.slice(0, TOUCHED_PATHS_LIMIT) })
+    .where(eq(testScripts.id, id));
+}
+
 /** Clears the recording, so the next run records from scratch. */
 export async function resetTestSteps(db: Db, id: number): Promise<void> {
   await db.update(testScripts).set({ steps: null, stepsUpdatedAt: new Date() }).where(eq(testScripts.id, id));
@@ -1050,6 +1070,15 @@ export async function createTestRuns(
     })),
   );
   return runs.map((_, k) => res.insertId + k);
+}
+
+type TestRunInput = Parameters<typeof createTestRuns>[1][number];
+
+/** One test run per viewport of each script. */
+export function runsPerViewport(
+  runs: (Omit<TestRunInput, "request"> & { request: Omit<TestRunRequest, "viewport"> & { viewport?: Viewport }; viewports: readonly Viewport[] })[],
+): TestRunInput[] {
+  return runs.flatMap(({ viewports, ...run }) => (viewports.length ? viewports : (["desktop"] as const)).map((viewport) => ({ ...run, request: { ...run.request, viewport } })));
 }
 
 export async function createTestRun(

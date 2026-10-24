@@ -13,6 +13,7 @@ import {
   executeStep,
   startLiveView,
   testPage,
+  trackTouchedPaths,
   type HumanBridge,
   type HumanBridgeFactory,
   type StepContext,
@@ -118,6 +119,7 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
   if (!attachment) throw new Error("The Playwright driver did not provide a browser attachment.");
   const liveView = deps.liveView !== false ? startLiveView(attachment, join(runDir, "live.jpg")) : null;
   const human = deps.human ? deps.human(attachment) : undefined;
+  const touched = trackTouchedPaths(attachment.context, request.instanceUrl);
 
   const ctx: StepContext = {
     attachment,
@@ -256,6 +258,8 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
     ...attachment.capture.queryNetwork({ onlyErrors: true, onlyApi: true, sinceSeq: ctx.baselineSeq, limit: 10 }).map((e) => `${e.method} ${e.url} → ${e.failed ?? e.status}`),
   ];
 
+  const touchedPaths = touched.paths();
+  touched.stop();
   await liveView?.stop().catch(() => undefined);
   await session.close().catch((e) => errors.push(`driver close: ${(e as Error).message}`));
 
@@ -319,6 +323,7 @@ export async function runTest(script: TestScript, input: TestRunRequest, deps: T
     findings: store.findings(),
     evidence: store.evidence(),
     finalUrl,
+    touchedPaths,
     cost: {
       usd: agentCost,
       inputTokens: 0,

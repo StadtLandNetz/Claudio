@@ -127,6 +127,8 @@ export type AutoReviewDefaults = {
   strictness: "lenient" | "normal" | "strict";
   postComment: boolean;
   runTests: boolean;
+  /** Which regression tests run when runTests is on: those the change reaches (default) or all. */
+  testSelection?: "affected" | "all";
   /** Automatic reviews of a PR that was reviewed before only re-check what changed (default on). */
   followUp?: boolean;
   /** Where automatic reviews check the app (default desktop). */
@@ -253,6 +255,8 @@ export const testScripts = mysqlTable(
     allowAnyHost: boolean("allow_any_host").notNull().default(false),
     /** Desktop and/or phone; each start runs the test once per viewport. Null: desktop. */
     viewports: json("viewports").$type<("desktop" | "mobile")[] | null>(),
+    /** Paths on the instance the test's runs opened or called; a review runs the test when one falls under an affected route. Null until it ran. */
+    touchedPaths: json("touched_paths").$type<string[] | null>(),
     createdBy: ref("created_by").notNull(),
     createdAt: createdAt(),
     updatedAt: datetime("updated_at", { mode: "date" }).notNull().$defaultFn(() => new Date()),
