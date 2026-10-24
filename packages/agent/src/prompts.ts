@@ -1,4 +1,4 @@
-import { KNOWLEDGE_DOCS, changeTerms, forgeName, type BudgetProfile, type FollowUpContext, type KnowledgeBase, type Provider, type RepoConfig, type ReviewRequest } from "@claudio/core";
+import { KNOWLEDGE_DOCS, changeTerms, forgeName, type BudgetProfile, type FollowUpContext, type Impact, type KnowledgeBase, type Provider, type RepoConfig, type ReviewRequest } from "@claudio/core";
 import type { PullRequestContext } from "@claudio/forge";
 
 export const SYSTEM_APPEND = `
@@ -30,6 +30,8 @@ export type PromptInput = {
   knowledge?: { dir: string; base: KnowledgeBase } | null;
   /** Re-review: the earlier review of this pull request it builds on. */
   followUp?: FollowUpContext | null;
+  /** Routes the change reaches, computed from the checkout's import graph. */
+  impact?: Impact | null;
 };
 
 export function buildReviewPrompt(input: PromptInput): string {
@@ -77,9 +79,15 @@ export function buildReviewPrompt(input: PromptInput): string {
         : "No roles are configured. If the app needs a login, record the affected criteria as blocked."),
   );
 
+  const computed = Boolean(input.impact && input.impact.framework !== "unknown");
   if (repoDir) {
-    sections.push(`# Repository checkout\n\nThe PR branch is checked out at ${repoDir}. Use Read/Grep/Glob there for impact analysis (routes, components, shared modules the diff touches). You may delegate the code reading to the impact-analyst subagent.`);
+    sections.push(
+      computed
+        ? `# Repository checkout\n\nThe PR branch is checked out at ${repoDir}. The affected routes are computed below; use Read/Grep/Glob there to judge their risk and to understand what changed.`
+        : `# Repository checkout\n\nThe PR branch is checked out at ${repoDir}. Use Read/Grep/Glob there for impact analysis (routes, components, shared modules the diff touches). You may delegate the code reading to the impact-analyst subagent.`,
+    );
   }
+  if (input.impact) sections.push(renderImpact(input.impact));
 
   if (input.knowledge) sections.push(renderKnowledgeSection(input.knowledge.dir, input.knowledge.base, "review"));
 
@@ -101,10 +109,47 @@ export function buildReviewPrompt(input: PromptInput): string {
 
   const confirmed = Boolean(request.criteria?.length);
   sections.push(
-    input.followUp ? followUpProcedure(lang, input.followUp, confirmed) : profile.delegateChecks ? delegatedProcedure(lang, confirmed) : singleAgentProcedure(lang, confirmed),
+    input.followUp ? followUpProcedure(lang, input.followUp, confirmed) : profile.delegateChecks ? delegatedProcedure(lang, confirmed, computed) : singleAgentProcedure(lang, confirmed, computed),
   );
 
   return sections.join("\n\n");
+}
+
+/** At most this many routes are listed; the rest are counted. */
+const IMPACT_ROUTE_LIMIT = 60;
+
+/** An import chain short enough to read: the changed file, the last two hops and the route file. */
+const chainText = (via: string[]) => (via.length <= 4 ? via : [via[0]!, "…", ...via.slice(-2)]).join(" → ");
+
+const routeText = (r: Impact["routes"][number]) => `${r.kind === "layout" ? `${r.pattern === "/" ? "" : r.pattern}/** (layout)` : `${r.pattern} (${r.kind})`}`;
+
+/**
+ * The impact computed from the import graph. The agent ranks these candidates
+ * by risk; it does not derive them again.
+ */
+export function renderImpact(impact: Impact): string {
+  const header = "# Computed impact (import graph)";
+  if (impact.framework === "unknown") {
+    return `${header}\n\nThe checkout is not a SvelteKit app, so Claudio could not map the changed files to routes. Map them to screens yourself (route index from the knowledge base, if available).`;
+  }
+  const parts: string[] = [
+    `${header}\n\nClaudio followed the importers of every changed file through the checkout up to the route files. For imports in code this list is complete: rank these candidates by risk instead of deriving them again, and read the code only to judge the risk. The graph cannot see links and fetch() calls by URL, styles, database contents or behaviour behind an external API: check those yourself.`,
+  ];
+  if (impact.global.length) {
+    parts.push(`Changes that affect the whole app (hooks, configuration, dependencies, database):\n${impact.global.map((g) => `- ${chainText(g.via)}`).join("\n")}`);
+  }
+  const list = (routes: Impact["routes"], withChain: boolean) => {
+    const shown = routes.slice(0, IMPACT_ROUTE_LIMIT).map((r) => `- ${routeText(r)}${withChain ? ` via ${chainText(r.via)}` : ""}`);
+    if (routes.length > IMPACT_ROUTE_LIMIT) shown.push(`- … and ${routes.length - IMPACT_ROUTE_LIMIT} more`);
+    return shown.join("\n");
+  };
+  const direct = impact.routes.filter((r) => r.direct);
+  const indirect = impact.routes.filter((r) => !r.direct);
+  if (direct.length) parts.push(`Routes changed directly:\n${list(direct, false)}`);
+  if (indirect.length) parts.push(`Routes reached through shared modules:\n${list(indirect, true)}`);
+  if (!impact.routes.length && !impact.global.length) parts.push("No route is reached: the change touches no code a screen imports.");
+  if (impact.unmapped.length) parts.push(`Changed files that reach no route (judge them yourself):\n${impact.unmapped.map((f) => `- ${f}`).join("\n")}`);
+  return parts.join("\n\n");
 }
 
 /** Routes and app map are inlined for reviews up to this size; larger knowledge bases stay files. */
@@ -221,11 +266,15 @@ function followUpProcedure(lang: string, f: FollowUpContext, confirmed: boolean)
 }
 
 /** Quick budget: one agent does everything. */
-function singleAgentProcedure(lang: string, confirmed = false): string {
+function singleAgentProcedure(lang: string, confirmed = false, computed = false): string {
   return `# Procedure
 
 1. ${STEP_CRITERIA(confirmed)}
-2. Impact analysis: from the diff (and the checkout, if available) determine which screens, routes, flows and shared components are affected. Add regression checks for those to the todo list. Keep this proportional to the size of the change.
+2. ${
+    computed
+      ? "Impact analysis: rank the computed impact above by risk (shared modules, permission checks and data mutations first) and add regression checks for the riskiest areas to the todo list."
+      : "Impact analysis: from the diff (and the checkout, if available) determine which screens, routes, flows and shared components are affected. Add regression checks for those to the todo list."
+  } Keep this proportional to the size of the change.
 3. Log in with login_as and build a mental map of the app around the affected areas (snapshot, navigate, read). Do not click through unrelated areas.
 4. Work the todo list with todo_next / todo_done. For each criterion: perform the flow, capture_evidence, check get_console and get_network for errors, then record_ac_result. For each regression item: verify the existing behaviour still works and record findings when it does not.
 5. Judge UX and UI of the changed screens: consistency with the rest of the app, feedback on actions, error states, wording, layout. You may delegate screenshot review to the ux-reviewer subagent. Record findings with report_finding.
@@ -237,13 +286,17 @@ function singleAgentProcedure(lang: string, confirmed = false): string {
  * regressions and judge the UI, each with a fresh context. They share one
  * browser, so they run one after the other.
  */
-function delegatedProcedure(lang: string, confirmed = false): string {
+function delegatedProcedure(lang: string, confirmed = false, computed = false): string {
   return `# Procedure
 
 You coordinate specialised subagents. The browser subagents (ac-verifier, regression-tester) share one browser: run them one after the other, never in parallel. They record their results with the Claudio tools themselves; do not record the same results again.
 
 1. ${confirmed ? "Take the confirmed acceptance criteria above as they are, numbered." : "Extract the acceptance criteria from the issue(s) and PR description. If they are implicit, formulate them explicitly as testable statements, numbered."}
-2. Impact analysis: map the changed files to screens and flows (route index from the knowledge base, if available). For diffs larger than a handful of files or touching shared modules, delegate this to the impact-analyst subagent. Result: affected areas, each with direct/indirect and one concrete regression check, ordered by risk.
+2. ${
+    computed
+      ? "Impact analysis: rank the computed impact above by risk; its candidates are complete for code imports, so do not delegate this to the impact-analyst. Use the app map for what each screen should do."
+      : "Impact analysis: map the changed files to screens and flows (route index from the knowledge base, if available). For diffs larger than a handful of files or touching shared modules, delegate this to the impact-analyst subagent."
+  } Result: affected areas, each with direct/indirect and one concrete regression check, ordered by risk.
 3. Delegate to ac-verifier. Give it: run id, instance URL, roles, the numbered criteria${confirmed ? " (verbatim, with the instruction to use that text in record_ac_result)" : ""}, the app-map entries of the screens involved, and notes on test data.
 4. Delegate to regression-tester. Give it: run id, instance URL, roles, the affected areas with their checks, and the app-map entries of those screens. Skip this step when the change is isolated and no area beyond the new feature is affected; say so in the summary.
 5. Delegate to ux-reviewer: the evidence file paths of the changed screens (from the evidence directory of this run) with one line on each screen's purpose. Record the observations you agree with via report_finding (category ux or ui), with the evidence ids.

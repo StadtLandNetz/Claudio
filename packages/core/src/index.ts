@@ -7,3 +7,4 @@ export * from "./analysis.js";
 export * from "./testing.js";
 export * from "./trace.js";
 export * from "./forge.js";
+export * from "./impact.js";

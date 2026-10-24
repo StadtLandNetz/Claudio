@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ReviewRequestSchema, budgetProfile } from "@claudio/core";
-import { buildReviewPrompt, extractAffectedAreas } from "../src/prompts.js";
+import { ReviewRequestSchema, budgetProfile, type Impact } from "@claudio/core";
+import { buildReviewPrompt, extractAffectedAreas, renderImpact } from "../src/prompts.js";
 import { createBrowserGuard } from "../src/hooks.js";
 import { modelEnv } from "../src/runner.js";
 
@@ -69,6 +69,47 @@ describe("review procedure", () => {
     expect(p).toContain("Delegate to ac-verifier");
     expect(p).toContain("Delegate to regression-tester");
     expect(p).toContain("never in parallel");
+  });
+});
+
+describe("computed impact", () => {
+  const impact: Impact = {
+    framework: "sveltekit",
+    routes: [
+      { pattern: "/trips/[id]", kind: "page", direct: true, via: ["src/routes/trips/[id]/+page.svelte"] },
+      { pattern: "/admin", kind: "layout", direct: false, via: ["src/lib/a.ts", "src/lib/b.ts", "src/lib/c.ts", "src/lib/d.ts", "src/routes/admin/+layout.svelte"] },
+    ],
+    global: [],
+    unmapped: ["scripts/seed.ts"],
+    stats: { files: 5, imports: 4, ignored: 0, ms: 1 },
+  };
+  const input = (tier: "quick" | "standard", i: Impact | null) => ({
+    runId: "r1",
+    request: ReviewRequestSchema.parse({ repo: "o/r", pr: 1, instanceUrl: "https://pr-1.example.test", budget: tier }),
+    pr: { owner: "o", repo: "r", number: 1, title: "T", body: "", url: "u", headRef: "f", headSha: "s", baseRef: "main", draft: false, files: [], issues: [] },
+    config: null,
+    repoDir: "/tmp/repo",
+    profile: budgetProfile(tier),
+    driverPrefix: "",
+    impact: i,
+  });
+
+  it("lists the routes with short chains and lets the model rank them", () => {
+    const p = buildReviewPrompt(input("standard", impact));
+    expect(p).toContain("# Computed impact (import graph)");
+    expect(p).toContain("- /trips/[id] (page)");
+    expect(p).toContain("- /admin/** (layout) via src/lib/a.ts → … → src/lib/d.ts → src/routes/admin/+layout.svelte");
+    expect(p).toContain("- scripts/seed.ts");
+    expect(p).toContain("do not delegate this to the impact-analyst");
+    expect(p).not.toContain("You may delegate the code reading to the impact-analyst");
+  });
+  it("keeps the impact-analyst for apps the graph cannot map", () => {
+    const p = buildReviewPrompt(input("standard", { ...impact, framework: "unknown", routes: [] }));
+    expect(p).toContain("could not map the changed files to routes");
+    expect(p).toContain("delegate this to the impact-analyst subagent");
+  });
+  it("renders a global change", () => {
+    expect(renderImpact({ ...impact, global: [{ file: "src/lib/s.ts", via: ["src/lib/s.ts", "src/hooks.server.ts"] }] })).toContain("- src/lib/s.ts → src/hooks.server.ts");
   });
 });
 

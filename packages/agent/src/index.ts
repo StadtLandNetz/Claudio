@@ -7,3 +7,4 @@ export * from "./analysis-runner.js";
 export * from "./judge.js";
 export * from "./test-runner.js";
 export * from "./criteria.js";
+export * from "./impact.js";

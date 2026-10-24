@@ -21,6 +21,7 @@ import {
   verdict,
   KNOWLEDGE_DOCS,
   type FollowUpContext,
+  type Impact,
   type KnowledgeBase,
   type Provider,
   type RepoConfig,
@@ -31,6 +32,7 @@ import {
 import { forgeFor, type CloneSpec, type Forge, type PullRequestContext, type RepoRef } from "@claudio/forge";
 import { createBrowserGuard, createCaptchaHook, createStopHook } from "./hooks.js";
 import { envWithout, modelEnv } from "./env.js";
+import { computeImpact } from "./impact.js";
 import { SYSTEM_APPEND, buildReviewPrompt, extractAffectedAreas } from "./prompts.js";
 import { createClaudioSdkServer } from "./sdk-tools.js";
 
@@ -79,6 +81,8 @@ export type RunnerDeps = {
   followUp?: FollowUpContext | null;
   /** What is left of the repository's monthly budget: the run's cost cap goes no higher. */
   remainingBudgetUsd?: number | null;
+  /** Called once after the checkout with the computed impact (null without a checkout), before the agent starts. */
+  onImpact?: (impact: Impact | null) => void | Promise<void>;
 };
 
 export type RunHandle = { runId: string; runDir: string };
@@ -127,6 +131,30 @@ export async function runReview(input: z.input<typeof ReviewRequestSchema>, deps
       errors.push(msg);
       log(msg);
     }
+  }
+
+  let impact: Impact | null = null;
+  if (repoDir) {
+    try {
+      impact = computeImpact(repoDir, pr.files);
+      store.writeFile("impact.json", impact);
+      log(
+        `impact (${impact.framework}, ${impact.stats.files} files, ${impact.stats.ms} ms): ${impact.routes.length} route(s)` +
+          (impact.global.length ? `, ${impact.global.length} change(s) affecting the whole app` : "") +
+          (impact.unmapped.length ? `, ${impact.unmapped.length} file(s) without a route` : ""),
+      );
+    } catch (e) {
+      const msg = `impact analysis failed: ${(e as Error).message}`;
+      errors.push(msg);
+      log(msg);
+    }
+  }
+  try {
+    await deps.onImpact?.(impact);
+  } catch (e) {
+    const msg = `after the impact analysis: ${(e as Error).message}`;
+    errors.push(msg);
+    log(msg);
   }
 
   const profile = capBudget(budgetProfile(request.budget, request.modelOverride), deps.remainingBudgetUsd);
@@ -182,6 +210,7 @@ export async function runReview(input: z.input<typeof ReviewRequestSchema>, deps
     driverPrefix: session.promptPrefix,
     knowledge: knowledgeDir && deps.knowledge ? { dir: knowledgeDir, base: deps.knowledge } : null,
     followUp: deps.followUp ?? null,
+    impact,
   });
   store.writeFile("prompt.md", prompt);
 
@@ -260,6 +289,7 @@ export async function runReview(input: z.input<typeof ReviewRequestSchema>, deps
     sessionId,
     errors,
     followUp,
+    impact: impact ?? undefined,
     createdAt: nowIso(),
   };
 

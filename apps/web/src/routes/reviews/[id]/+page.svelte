@@ -78,6 +78,11 @@
 
 	// ---- acceptance criteria: the first few, all of them, or only those that need attention
 	const AC_PREVIEW = 4;
+	// Routes the change reaches (import graph); long lists fold away.
+	const IMPACT_PREVIEW = 12;
+	const impact = $derived(report?.impact && report.impact.framework !== 'unknown' ? report.impact : null);
+	const kindLabel = (kind: 'page' | 'layout' | 'endpoint') =>
+		i.t(kind === 'page' ? 'review.impactKindPage' : kind === 'layout' ? 'review.impactKindLayout' : 'review.impactKindEndpoint');
 	let acFilter = $state<'all' | 'warnings'>('all');
 	const acWarningsOnly = $derived(acFilter === 'warnings');
 	let acExpanded = $state(false);
@@ -207,6 +212,7 @@
 		if (!report) return out;
 		if (report.followUp) out.push({ id: 'followup', label: i.t('review.sectionFollowUp') });
 		if (report.summaryHtml) out.push({ id: 'summary', label: i.t('review.summary') });
+		if (impact) out.push({ id: 'impact', label: i.t('review.sectionImpact'), count: impact.global.length ? undefined : impact.routes.length });
 		if (data.tests.length) {
 			const failed = data.tests.some((t) => t.outcome === 'failed');
 			out.push({
@@ -374,6 +380,52 @@
 				<section class="block" id="summary">
 					<h2>{i.t('review.summary')}</h2>
 					<div class="prose">{@html report.summaryHtml}</div>
+				</section>
+			{/if}
+
+			{#if impact}
+				<section class="block" id="impact">
+					<h2>{i.t('review.impactTitle')}</h2>
+					<p class="faint">{i.t('review.impactHelp')}</p>
+					{#snippet routeRow(r: (typeof impact.routes)[number])}
+						<li title={r.via.join(' → ')}>
+							<code>{r.kind === 'layout' && r.pattern !== '/' ? `${r.pattern}/…` : r.pattern}</code>
+							<span class="faint">{kindLabel(r.kind)} · {r.direct ? i.t('review.impactDirect') : i.t('review.impactIndirect')}</span>
+						</li>
+					{/snippet}
+					{#if impact.global.length || impact.routes.length}
+						<ul class="impact sheet">
+							{#each impact.global as g (g.file)}
+								<li title={g.via.join(' → ')}>
+									<code>{g.file}</code>
+									<span class="global">{i.t('review.impactGlobal')}</span>
+								</li>
+							{/each}
+							{#each impact.routes.slice(0, IMPACT_PREVIEW) as r (r.kind + r.pattern)}
+								{@render routeRow(r)}
+							{/each}
+						</ul>
+					{:else}
+						<p>{i.t('review.impactNone')}</p>
+					{/if}
+					{#if impact.routes.length > IMPACT_PREVIEW}
+						<details>
+							<summary>{i.t('review.impactMore', { n: impact.routes.length - IMPACT_PREVIEW })}</summary>
+							<ul class="impact sheet">
+								{#each impact.routes.slice(IMPACT_PREVIEW) as r (r.kind + r.pattern)}
+									{@render routeRow(r)}
+								{/each}
+							</ul>
+						</details>
+					{/if}
+					{#if impact.unmapped.length}
+						<details>
+							<summary class="faint">{i.t('review.impactUnmapped', { n: impact.unmapped.length })}</summary>
+							<ul class="impact sheet">
+								{#each impact.unmapped as f (f)}<li><code>{f}</code></li>{/each}
+							</ul>
+						</details>
+					{/if}
 				</section>
 			{/if}
 
@@ -839,6 +891,34 @@
 	.check.small {
 		font-size: var(--text-xs);
 		color: var(--ink-2);
+	}
+
+	.impact {
+		list-style: none;
+		margin: 0.5rem 0 0;
+		padding: 0;
+	}
+	.impact li {
+		display: flex;
+		gap: 0.75rem;
+		align-items: baseline;
+		flex-wrap: wrap;
+		padding: 0.4rem 0.75rem;
+		border-bottom: 1px solid var(--rule);
+	}
+	.impact li:last-child {
+		border-bottom: 0;
+	}
+	.impact code {
+		overflow-wrap: anywhere;
+	}
+	.impact .global {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--major);
+	}
+	#impact details {
+		margin-top: 0.5rem;
 	}
 
 	.tests {

@@ -1,6 +1,6 @@
 ---
 name: impact-analyst
-description: Read-only code analyst. Given a PR diff and a repository checkout, determines which routes, screens, flows and shared components are affected and what regression checks are worth running. Use it before browser testing when the diff touches shared code.
+description: Read-only code analyst. Given a PR diff and a repository checkout, determines which routes, screens, flows and shared components are affected and what regression checks are worth running. Use it before browser testing when the diff touches shared code and the review prompt has no computed impact (the import graph covers SvelteKit apps).
 tools: Read, Grep, Glob
 model: claude-sonnet-5-5
 ---

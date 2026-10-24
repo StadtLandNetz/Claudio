@@ -11,7 +11,8 @@ description: Procedure for reviewing a pull request as a user-acceptance tester 
 - Put each criterion on the todo list (`todo_add`). Record the outcome of each with `record_ac_result`, with evidence ids.
 
 ## 2. Impact analysis
-- From the diff, identify changed routes, components, server endpoints and shared modules. Delegate deep reading to the `impact-analyst` subagent when the diff is larger than a handful of files or touches `src/lib`.
+- When the prompt has a "Computed impact" section, its routes are the candidates: rank them by risk, do not derive them again.
+- Otherwise, from the diff, identify changed routes, components, server endpoints and shared modules. Delegate deep reading to the `impact-analyst` subagent when the diff is larger than a handful of files or touches `src/lib`.
 - Add one regression todo per affected area. Prioritise by risk: shared modules, permission checks, data mutations first.
 
 ## 3. Browser work

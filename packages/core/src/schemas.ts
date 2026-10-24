@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ProviderSchema, RepoFullNameSchema } from "./forge.js";
+import { ImpactSchema } from "./impact.js";
 
 export const SeveritySchema = z.enum(["blocker", "major", "minor", "suggestion"]);
 export type Severity = z.infer<typeof SeveritySchema>;
@@ -179,6 +180,8 @@ export const ReviewReportSchema = z.object({
   commentUrl: z.string().optional(),
   /** Set for a re-review: what became of the earlier review's findings. */
   followUp: FollowUpSchema.optional(),
+  /** Routes the change reaches through the import graph; absent without a checkout. */
+  impact: ImpactSchema.optional(),
   createdAt: z.string(),
 });
 export type ReviewReport = z.infer<typeof ReviewReportSchema>;

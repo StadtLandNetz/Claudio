@@ -170,6 +170,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 					evidence: Object.fromEntries(evidence.map((e) => [e.id, e])),
 					notes: report.notes,
 					followUp: report.followUp ?? null,
+					impact: report.impact ?? null,
 					cost: report.cost,
 					errors: report.errors,
 					files: { trace: traceUrl, timeline }
