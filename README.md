@@ -4,7 +4,9 @@
 
 Before a feature branch is merged, someone usually has to open the preview, log in, try the new feature, check that nothing around it broke and write down what they found. Claudio does that part for you.
 
-Claudio reads the pull request and its linked GitHub issues and works out what the change should do. It then logs into a running instance of the branch and checks every acceptance criterion in a real browser. It also tests the areas the diff touches for regressions and looks at the screens with a UX eye. At the end it writes a report with screenshots as evidence. You decide which findings are real, and Claudio can post a short summary to the PR.
+Claudio reads the pull request and its linked issues and works out what the change should do. It then logs into a running instance of the branch and checks every acceptance criterion in a real browser. It also tests the areas the diff touches for regressions and looks at the screens with a UX eye. At the end it writes a report with screenshots as evidence. You decide which findings are real, and Claudio can post a short summary to the PR.
+
+Claudio works with **GitHub** and **GitLab** (gitlab.com or self-managed), also both in one installation. On GitLab, pull requests are merge requests; everything below applies to them too, and [Using GitLab](#using-gitlab) lists the differences.
 
 Claudio is built on the [Claude Agent SDK](https://docs.claude.com/en/docs/agent-sdk/overview) and [Playwright](https://playwright.dev).
 
@@ -35,7 +37,7 @@ Claudio is built on the [Claude Agent SDK](https://docs.claude.com/en/docs/agent
 ## How it works
 
 ```
-GitHub (PRs, issues, deployments, webhooks)
+GitHub or GitLab (pull/merge requests, issues, deployments, webhooks)
         │
         ▼
 ┌──────────────┐   jobs in MySQL   ┌──────────────────────────────────────────┐
@@ -46,10 +48,10 @@ GitHub (PRs, issues, deployments, webhooks)
                                    └──────────────────────────────────────────┘
 ```
 
-- **The web UI** handles sign-in with GitHub and the repository settings. You start reviews, analyses and tests there, watch them live and rate the findings.
+- **The web UI** handles sign-in with GitHub or GitLab and the repository settings. You start reviews, analyses and tests there, watch them live and rate the findings.
 - **The worker** picks up queued jobs and runs the agents. Each agent gets one browser and a small set of Claudio tools: logging in as a role, taking screenshots, recording findings.
-- **Credentials never reach the model.** Role passwords, GitHub tokens and API keys are encrypted in the database. Role passwords go only to the login tool, which fills in the form itself.
-- **Permissions follow GitHub.** You see a repository in Claudio only if you can read it on GitHub. Starting runs needs write access, and changing settings needs admin access.
+- **Credentials never reach the model.** Role passwords, GitHub and GitLab tokens and API keys are encrypted in the database. Role passwords go only to the login tool, which fills in the form itself.
+- **Permissions follow GitHub and GitLab.** You see a repository in Claudio only if you can read it there. Starting runs needs write access (GitLab: Developer), and changing settings needs admin access (GitLab: Maintainer). An account sees only the repositories of the provider it signed in with.
 
 The full design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (written in German).
 
@@ -58,7 +60,7 @@ The full design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (written in G
 - Node.js 22 or newer and [pnpm](https://pnpm.io) 10
 - Docker, for the local MySQL database (MySQL 5.7 and 8 both work)
 - An [Anthropic API key](https://console.anthropic.com) for each repository you want Claudio to review
-- A GitHub OAuth App, so people can sign in. You can skip it for the offline demo.
+- A GitHub OAuth App or a GitLab OAuth application (or both), so people can sign in. You can skip them for the offline demo.
 - A running instance of the branch you want to review, such as a preview or staging deployment. Use test data only: Claudio clicks, types and creates records there.
 
 ## Try it: the offline demo
@@ -92,9 +94,11 @@ Open http://localhost:5173 and choose **Sign in to the demo without GitHub**. Un
 
    Put the client ID and a client secret into `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.env`. Claudio asks for the scopes `repo read:user read:org`.
 
-3. **Decide who may sign in.** By default every GitHub user can. Limit it with `CLAUDIO_ALLOWED_GITHUB_ORGS` or `CLAUDIO_ALLOWED_GITHUB_USERS` (comma-separated).
+   **For GitLab**, create an OAuth application under GitLab → User settings → Applications (or in a group or the instance admin area): redirect URI `http://localhost:5173/auth/gitlab/callback`, *Confidential* on, scope `api`. Put its ID and secret into `GITLAB_CLIENT_ID` and `GITLAB_CLIENT_SECRET`, and for a self-managed instance its address into `GITLAB_URL`. GitHub and GitLab can be set up side by side; the sign-in page shows a button for each.
 
-4. **Start it** with `pnpm dev` and sign in with GitHub.
+3. **Decide who may sign in.** Without any list, everybody can. Limit it with `CLAUDIO_ALLOWED_GITHUB_ORGS` / `CLAUDIO_ALLOWED_GITHUB_USERS` and `CLAUDIO_ALLOWED_GITLAB_GROUPS` / `CLAUDIO_ALLOWED_GITLAB_USERS` (comma-separated; members of a subgroup count for the group above). If you set lists for one provider only, nobody can sign in with the other, so connecting GitLab does not open Claudio to everyone on gitlab.com.
+
+4. **Start it** with `pnpm dev` and sign in.
 
 All settings are explained in [.env.example](.env.example). Keep `CLAUDIO_SECRET_KEY` safe: it encrypts everything sensitive in the database, and if you change it, stored credentials can no longer be read.
 
@@ -102,7 +106,7 @@ All settings are explained in [.env.example](.env.example). Keep `CLAUDIO_SECRET
 
 ### 1. Add a repository
 
-Under **Repositories**, pick one of your GitHub repositories. Then open its **Settings** tab:
+Under **Repositories**, pick one of your repositories on GitHub or GitLab. Then open its **Settings** tab:
 
 - **Anthropic API key.** Every model call for this repository runs on this key, and runs do not start without one. Claudio checks the key when you save it and only ever shows its last characters.
 - **Roles.** These are the users Claudio may log in as, for example "admin" or "dispatcher", each with a username, a password and the login page. If your login form is unusual, add a login recipe.
@@ -117,7 +121,7 @@ In the **Knowledge** tab, start an analysis against a running instance of your m
 
 ### 3. Review a pull request
 
-Pick an open PR and press **Start review**. Enter the address of the PR's running instance; if your PR previews are GitHub Deployments, Claudio fills it in for you. Then choose the roles, a budget, how detailed the report should be and how strict the verdict should be.
+Pick an open PR and press **Start review**. Enter the address of the PR's running instance; if your PR previews are GitHub Deployments or GitLab environments (review apps), Claudio fills it in for you. Then choose the roles, a budget, how detailed the report should be and how strict the verdict should be.
 
 | Budget | Good for | Cost cap |
 |---|---|---|
@@ -139,7 +143,7 @@ Each test can be marked as deterministic, semi-deterministic or explorative. Det
 
 ### 5. Automate it
 
-In the repository settings, Claudio can create a webhook on GitHub for you. This needs admin rights on the repository and a public address in `PUBLIC_BASE_URL`. You can then turn on any of these triggers:
+In the repository settings, Claudio can create a webhook on GitHub or GitLab for you. This needs admin rights on the repository (GitLab: Maintainer) and a public address in `PUBLIC_BASE_URL`. You can then turn on any of these triggers:
 
 - a PR comment `/claudio review` (optionally `quick`, `standard` or `thorough`)
 - the label `claudio-review`
@@ -151,9 +155,19 @@ You can also set a URL template such as `https://pr-{pr}.preview.example.com` (t
 
 To try webhooks locally, expose the dev server through a tunnel (for example `cloudflared`) and set `PUBLIC_BASE_URL` to the tunnel address.
 
+### Using GitLab
+
+Everything above works the same with GitLab. The differences:
+
+- **Repositories** can sit in nested groups; Claudio shows them under `/repos/gitlab/<group>/…/<project>`. Merge requests are referenced as `!12`, issues as `#12`.
+- **Linked issues** are the ones the merge request closes, plus `#12` references in its description and the issue number at the start of a branch name (`12-new-trip`, as GitLab names branches created from an issue).
+- **Review instances**: set the environment of your review apps, for example `review`. It covers every environment in that folder (`review/12-new-trip`), and automatic reviews start when GitLab reports the deployment as successful.
+- **The result** comes as a commit status **Claudio** on the merge request's head commit. With blocking findings, Claudio posts its summary as a review that requests changes; a later review without blocking findings withdraws the request. Requested changes block merging only in GitLab Premium and Ultimate. To keep a merge request from being merged while Claudio is still reviewing, turn on *Pipelines must succeed*.
+- **Claudio's own identity**: without a GitHub App equivalent, Claudio writes with the token of a person. To have comments, statuses and issues come from Claudio, create a dedicated GitLab user, invite it as *Developer* to your projects and put a personal access token of it (scope `api`) into `GITLAB_BOT_TOKEN`. The repository settings show the bot's role and when its token expires.
+
 ## Command line
 
-You can also run a single review without the web UI. Copy `claudio.config.example.json` to `claudio.config.json` and describe your roles there. Credentials are referenced by environment variable name, so they stay out of the file. Set `ANTHROPIC_API_KEY` and `GITHUB_TOKEN` in `.env`. Then run:
+You can also run a single review without the web UI. Copy `claudio.config.example.json` to `claudio.config.json` and describe your roles there. Credentials are referenced by environment variable name, so they stay out of the file. Set `ANTHROPIC_API_KEY` and `GITHUB_TOKEN` (for GitLab: `GITLAB_TOKEN`, and `GITLAB_URL` for a self-managed instance) in `.env`. Then run:
 
 ```sh
 pnpm claudio review \
@@ -166,6 +180,7 @@ pnpm claudio review \
 
 | Option | Values | Default |
 |---|---|---|
+| `--provider` | `github`, `gitlab` (then `--repo group/…/project` and `--pr` is the merge request's number) | `github` |
 | `--budget` | `quick`, `standard`, `thorough` | `standard` |
 | `--verbosity` | `tldr`, `normal`, `detailed` | `normal` |
 | `--strictness` | `lenient`, `normal`, `strict` | `normal` |
@@ -187,7 +202,7 @@ This repository also contains the setup we use ourselves: a Docker image, Kubern
 - **Point Claudio at test instances only.** It creates, changes and deletes data the way a tester would.
 - **Know what is sent where.** Page content, screenshots and code from the PR go to Anthropic's API as part of a run. Passwords and tokens are not sent.
 - **Keep the encryption key safe.** Tokens, role credentials, webhook secrets and API keys are stored encrypted with `CLAUDIO_SECRET_KEY`.
-- **Webhooks are verified.** The public endpoint `/webhooks/github` accepts only deliveries signed with the repository's own secret.
+- **Webhooks are verified.** The public endpoints `/webhooks/github` and `/webhooks/gitlab` accept only deliveries that carry the repository's own secret (GitHub signs with it, GitLab sends it as a token).
 - **The agent stays on your app.** By default it may only open the instance under review. You can allow more hosts per repository or per test.
 
 ## Development

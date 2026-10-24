@@ -4,8 +4,10 @@
 #   DATABASE_URL           – MySQL connection string (password is URL-encoded)
 #   DATABASE_MIGRATION_URL – optional: user with DDL privileges for the migrate init container (kept if already set)
 #   CLAUDIO_SECRET_KEY     – encrypts tokens and credentials in the database (kept if the secret already has one)
-#   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET – the GitHub OAuth App for the login
+#   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET – the GitHub OAuth App for the login (optional with GitLab)
 #   GITHUB_APP_*           – optional: Claudio as a GitHub App (kept if already set and left empty)
+#   GITLAB_CLIENT_ID / GITLAB_CLIENT_SECRET – optional: the GitLab OAuth application for the login
+#   GITLAB_BOT_TOKEN       – optional: personal access token of Claudio's GitLab user
 # Empty answers keep what the secret already holds, so a re-run only changes what you type.
 # Run it in an interactive terminal:  ./tools/create-k8s-secret.sh
 set -euo pipefail
@@ -79,15 +81,39 @@ else
 	fi
 fi
 
-echo "== GitHub OAuth App (login) =="
+echo "== GitHub OAuth App (login; empty = keep existing / none) =="
 BASE_URL=$(sed -n 's/^ *PUBLIC_BASE_URL: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$(dirname "$0")/../k8s/configmap.yaml")
 echo "   Callback URL of the app: ${BASE_URL:-https://<host>}/auth/github/callback"
 read -rp "Client ID: " GH_CLIENT_ID
 [ -n "$GH_CLIENT_ID" ] || GH_CLIENT_ID=$(existing GITHUB_CLIENT_ID)
-[ -n "$GH_CLIENT_ID" ] || { echo "client id must not be empty" >&2; exit 1; }
-read -rsp "Client secret (empty = keep existing): " GH_CLIENT_SECRET; echo
-[ -n "$GH_CLIENT_SECRET" ] || GH_CLIENT_SECRET=$(existing GITHUB_CLIENT_SECRET)
-[ -n "$GH_CLIENT_SECRET" ] || { echo "client secret must not be empty" >&2; exit 1; }
+GH_ARGS=()
+if [ -n "$GH_CLIENT_ID" ]; then
+	read -rsp "Client secret (empty = keep existing): " GH_CLIENT_SECRET; echo
+	[ -n "$GH_CLIENT_SECRET" ] || GH_CLIENT_SECRET=$(existing GITHUB_CLIENT_SECRET)
+	[ -n "$GH_CLIENT_SECRET" ] || { echo "client secret must not be empty" >&2; exit 1; }
+	GH_ARGS=(--from-literal=GITHUB_CLIENT_ID="$GH_CLIENT_ID" --from-literal=GITHUB_CLIENT_SECRET="$GH_CLIENT_SECRET")
+fi
+
+echo "== GitLab OAuth application (login; optional, empty = keep existing / none) =="
+echo "   Redirect URI: ${BASE_URL:-https://<host>}/auth/gitlab/callback, confidential, scope: api"
+echo "   The instance is GITLAB_URL in k8s/configmap.yaml (default https://gitlab.com)"
+read -rp "Application ID: " GL_CLIENT_ID
+[ -n "$GL_CLIENT_ID" ] || GL_CLIENT_ID=$(existing GITLAB_CLIENT_ID)
+GL_ARGS=()
+if [ -n "$GL_CLIENT_ID" ]; then
+	read -rsp "Secret (empty = keep existing): " GL_CLIENT_SECRET; echo
+	[ -n "$GL_CLIENT_SECRET" ] || GL_CLIENT_SECRET=$(existing GITLAB_CLIENT_SECRET)
+	[ -n "$GL_CLIENT_SECRET" ] || { echo "the GitLab application needs its secret" >&2; exit 1; }
+	GL_ARGS=(--from-literal=GITLAB_CLIENT_ID="$GL_CLIENT_ID" --from-literal=GITLAB_CLIENT_SECRET="$GL_CLIENT_SECRET")
+fi
+[ -n "$GH_CLIENT_ID" ] || [ -n "$GL_CLIENT_ID" ] || { echo "set up at least one sign-in (GitHub or GitLab)" >&2; exit 1; }
+
+echo "== GitLab bot (optional, empty = keep existing / none) =="
+echo "   Personal access token (scope api) of a dedicated user, invited as Developer to the projects"
+read -rsp "Bot token: " GL_BOT; echo
+[ -n "$GL_BOT" ] || GL_BOT=$(existing GITLAB_BOT_TOKEN)
+BOT_ARGS=()
+[ -n "$GL_BOT" ] && BOT_ARGS=(--from-literal=GITLAB_BOT_TOKEN="$GL_BOT")
 
 echo "== GitHub App (optional, empty = keep existing / none) =="
 echo "   App ID: the number under About on the app's settings page (not the Client ID starting with Iv)"
@@ -128,14 +154,15 @@ kubectl -n "$NS" create secret generic "$SECRET" \
 	--from-literal=.dockerconfigjson="$DOCKERCFG" \
 	--from-literal=DATABASE_URL="$DATABASE_URL" \
 	--from-literal=CLAUDIO_SECRET_KEY="$ENC_KEY" \
-	--from-literal=GITHUB_CLIENT_ID="$GH_CLIENT_ID" \
-	--from-literal=GITHUB_CLIENT_SECRET="$GH_CLIENT_SECRET" \
+	${GH_ARGS[@]+"${GH_ARGS[@]}"} \
+	${GL_ARGS[@]+"${GL_ARGS[@]}"} \
+	${BOT_ARGS[@]+"${BOT_ARGS[@]}"} \
 	${MIG_ARGS[@]+"${MIG_ARGS[@]}"} \
 	${APP_ARGS[@]+"${APP_ARGS[@]}"} \
 	--dry-run=client -o yaml | kubectl apply -f -
 
-unset GH_PAT DB_PASS DOCKERCFG DOCKERCFG_EXISTING DB_EXISTING DATABASE_URL ENC_KEY MIG_PASS MIG_ARGS MIG_EXISTING GH_CLIENT_SECRET APP_KEY APP_HOOK APP_ARGS
+unset GH_PAT DB_PASS DOCKERCFG DOCKERCFG_EXISTING DB_EXISTING DATABASE_URL ENC_KEY MIG_PASS MIG_ARGS MIG_EXISTING GH_CLIENT_SECRET GH_ARGS GL_CLIENT_SECRET GL_ARGS GL_BOT BOT_ARGS APP_KEY APP_HOOK APP_ARGS
 echo
 echo "Secret $SECRET in namespace $NS is ready:"
-echo "  registry user $GH_USER, database $DB_USER@$DB_HOST/$DB_NAME, OAuth client $GH_CLIENT_ID"
+echo "  registry user $GH_USER, database $DB_USER@$DB_HOST/$DB_NAME, GitHub OAuth ${GH_CLIENT_ID:-–}, GitLab OAuth ${GL_CLIENT_ID:-–}"
 echo "Next: check host in k8s/ingress.yaml and ORIGIN/PUBLIC_BASE_URL in k8s/configmap.yaml, then: kubectl apply -f k8s/"

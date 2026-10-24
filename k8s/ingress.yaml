@@ -4,12 +4,12 @@ metadata:
   name: claudio-web
   namespace: claudio
   annotations:
-    # No basic auth: Claudio has its own GitHub login, and /webhooks/github must stay reachable for GitHub
-    # (it authenticates every delivery with the repository's HMAC secret).
+    # No basic auth: Claudio has its own GitHub/GitLab login, and /webhooks/github and /webhooks/gitlab must
+    # stay reachable (each delivery is authenticated with the repository's webhook secret).
     # Live log (SSE) needs long read timeouts and no buffering
     nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
     nginx.ingress.kubernetes.io/proxy-buffering: 'off'
-    # GitHub webhook payloads of large pull requests can exceed the 1 MB default
+    # Webhook payloads of large pull/merge requests can exceed the 1 MB default
     nginx.ingress.kubernetes.io/proxy-body-size: 25m
     # TLS via cert-manager (ClusterIssuer exists in the cluster)
     cert-manager.io/cluster-issuer: letsencrypt-prod

@@ -41,7 +41,7 @@ claudio/
     agents/         Subagent-Definitionen als Markdown (von SDK und Claude Code CLI gleichermaßen geladen)
     skills/         Review-, Explorer-, Script-Skills (dito)
   .mcp.json         Claudio-Tool-Server + Playwright für den CLI-Live-Modus
-    github/         GitHub-App-Client (Octokit): PR-Diff, Issues, Kommentare, Webhook-Verifikation
+    forge/          GitHub (Octokit) und GitLab (REST v4) hinter einem Interface `Forge`: PR/MR-Diff, Issues, Kommentare, Status, Webhooks, Deployments, OAuth
     knowledge/      Lese-/Schreibzugriff auf die Repo-Wissensbasis (.claudio/ im Zielrepo + DB-Spiegel)
   docs/
     ARCHITECTURE.md
@@ -49,7 +49,7 @@ claudio/
 
 ### Domänenmodell (MySQL)
 
-- **Repo**: GitHub-Owner/Name, Installation-ID, Default-Branch, Status der Analyse.
+- **Repo**: Provider (`github`/`gitlab`), Pfad (`owner/name` bzw. `gruppe/…/projekt`), bei GitLab die Projekt-ID, Default-Branch, Status der Analyse.
 - **RepoSecret**: Name, verschlüsselter Wert (AES-GCM, Key aus Env), Rolle (z.B. `admin`, `dispatcher`). Werte verlassen den Worker nie Richtung Modell.
 - **KnowledgeBase** (pro Repo, versioniert nach Commit): Code-Notizen, Modulkarte, Index Route/Screen zu Dateien, App-Map (Screens, Flows, Rollen, Soll-Verhalten), Agent-Notizen aus früheren Runs.
 - **Review**: PR-Nummer, Branch, Instanz-URL, Verbosity, Strictness, Budget-Stufe, Status, Kosten, TL;DR.
@@ -107,9 +107,15 @@ Budget-Stufen (Option pro Run) setzen Modell-Tier der Worker, `effort`, `maxTurn
 2. **PR-Review** (Trigger aus UI mit PR-Nummer + Instanz-URL + Optionen): PR-Diff und verknüpfte Issues laden → AC extrahieren → `impact-analyst` → parallel `ac-verifier`, `regression-tester`, `ux-reviewer` → `reporter` → Findings + Evidence speichern → TL;DR-Kommentar in den PR.
 3. **Test-Scripts**: NL-Script + Erwartung anlegen. Erster Run: Tester führt aus, dokumentiert Ablauf, speichert kompilierte Schritte und schlägt Determinismus-Grad vor. Folgeruns: deterministische Schritte laufen ohne Modell (Playwright-Replay), Modell greift nur ein, wenn ein Schritt bricht (self-healing, wird als Finding dokumentiert). `judge` bewertet das Ergebnis gegen die Erwartung mit Structured Output (`passed`, `deviations[]`, `confidence`).
 
-### GitHub-Anbindung
+### GitHub- und GitLab-Anbindung
 
-GitHub App (Installation pro Org): PR lesen, Issues lesen, Kommentar schreiben, Repo klonen. Webhook für `pull_request`-Events vorbereitet, aber Reviews bleiben vorerst manuell. Bot-Reviewer-Trigger (`review_requested` für den Bot) als Phase 5.
+Beide Provider laufen gleichzeitig in einer Instanz. `packages/forge` kapselt sie hinter dem Interface `Forge` (eine Instanz pro Provider und Token); Web, Worker und Agent kennen nur dieses Interface. Der Provider steht an `users` und `repos`; Konten sehen nur Repos ihres Providers.
+
+- **Login**: OAuth App (GitHub) bzw. OAuth-Application mit Scope `api` (GitLab). GitLab-Tokens laufen nach zwei Stunden ab und werden mit dem Refresh-Token erneuert; ein Refresh-Token gilt nur einmal, deshalb erneuert pro Person immer nur ein Prozess, und ein paralleler Gewinner wird übernommen (`packages/db/src/tokens.ts`).
+- **Rechte**: GitHub-Permissions bzw. GitLab-Rollen (Reporter = lesen, Developer = schreiben, Maintainer = Admin), 15 Minuten gecacht.
+- **Bot-Identität**: GitHub App bzw. ein GitLab-Nutzer mit Personal Access Token (`GITLAB_BOT_TOKEN`); ohne sie schreibt Claudio mit dem Token der Person.
+- **Ergebnis**: Commit-Status „Claudio“ und ein Review, das bei Blockern Änderungen anfordert (GitLab: Draft-Note + `bulk_publish` mit `reviewer_state`, sonst normaler Kommentar).
+- **Automatisierung**: Webhook pro Repo (`/webhooks/github` mit HMAC-Signatur, `/webhooks/gitlab` mit Secret-Token), Trigger per Kommentar `/claudio review`, Label `claudio-review`, Push, Deployment (GitLab: Environment-Ordner wie `review/*`) und Push auf den Default-Branch.
 
 ### Oberfläche (SvelteKit)
 
