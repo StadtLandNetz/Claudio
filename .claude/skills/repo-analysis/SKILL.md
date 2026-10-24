@@ -21,6 +21,11 @@ Later PR reviews read it to answer two questions fast: "which screens does this 
 - Check every role at least on the start page and the main navigation; role differences are high-value information.
 - Record the date and number formats the app uses (e.g. TT.MM.JJJJ).
 
+## Proposing tests
+- When `propose_test` is available, propose regression tests for the core flows after the walk: what people do every day, what creates, changes or deletes important data, and permission boundaries. Most important first; skip flows that already have a test.
+- Propose only flows you completed yourself in this run. The description is what a tester does from the start path on, with labels verbatim; the expectation is the visible result with exact texts (toast, list entry, redirect). A person reads and accepts each one, so make it self-explanatory.
+- Test data is synthetic and named `claudio-{{run}}-<purpose>`, so every run creates its own records.
+
 ## Updates
 - Start from the existing documents. Keep entries that still hold, edit the ones that changed, add new screens, and mark removed ones as removed rather than silently dropping them.
 - Prefer `write_knowledge` with mode "replace" for modules.md and routes.md after editing them, and targeted rewrites of app-map.md (read it, change the affected sections, write it back).

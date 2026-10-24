@@ -29,7 +29,12 @@ export type AnalysisDeps = Omit<RunnerDeps, "prContextFile" | "knowledge"> & {
   previous?: KnowledgeBase | null;
   /** Commit sha to record when repoDir is given (no clone). */
   commitSha?: string;
+  /** Names of the repository's tests and open proposals. When set, the run proposes tests for core flows not among them. */
+  existingTests?: string[] | null;
 };
+
+/** Tests an analysis may propose: fewer on the quick budget, which walks fewer flows. */
+export const maxTestProposals = (budget: AnalysisRequest["budget"]) => (budget === "quick" ? 5 : 8);
 
 export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {}): Promise<AnalysisReport> {
   const request = AnalysisRequestSchema.parse(input);
@@ -111,6 +116,7 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
     human,
     knowledgeDir,
     onLearning: deps.onLearning,
+    proposals: deps.existingTests ? { existing: deps.existingTests, max: maxTestProposals(request.budget) } : undefined,
   });
 
   const guard = createBrowserGuard({
@@ -133,6 +139,8 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
     changedSince,
     profile,
     driverPrefix: session.promptPrefix,
+    existingTests: deps.existingTests ?? undefined,
+    maxProposals: deps.existingTests ? maxTestProposals(request.budget) : 0,
   });
   store.writeFile("prompt.md", prompt);
 
@@ -196,6 +204,7 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
     docs: readKnowledgeFiles(knowledgeDir),
     findings: store.findings(),
     evidence: store.evidence(),
+    testProposals: store.testProposals(),
     cost: {
       usd: result?.total_cost_usd ?? 0,
       inputTokens: (result?.usage.input_tokens ?? 0) + (result?.usage.cache_read_input_tokens ?? 0) + (result?.usage.cache_creation_input_tokens ?? 0),
@@ -209,7 +218,7 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
     createdAt: nowIso(),
   };
   writeFileSync(join(runDir, "analysis.json"), JSON.stringify(report, null, 2));
-  log(`analysis: status ${status}, ${report.docs.length} documents, ${report.cost.usd.toFixed(2)} USD`);
+  log(`analysis: status ${status}, ${report.docs.length} documents, ${report.testProposals.length} test proposal(s), ${report.cost.usd.toFixed(2)} USD`);
   return report;
 }
 

@@ -264,6 +264,35 @@ export const testScripts = mysqlTable(
   (t) => [index("test_scripts_repo_idx").on(t.repoId)],
 );
 
+export const TEST_PROPOSAL_STATUSES = ["proposed", "accepted", "dismissed"] as const;
+export type TestProposalStatus = (typeof TEST_PROPOSAL_STATUSES)[number];
+
+/** A test an analysis proposed for a core flow; a person accepts it as a test script or dismisses it. */
+export const testProposals = mysqlTable(
+  "test_proposals",
+  {
+    id: id(),
+    repoId: ref("repo_id").notNull(),
+    analysisId: ref("analysis_id").notNull(),
+    /** Proposal id from the run (P1, P2, ...). */
+    proposalId: varchar("proposal_id", { length: 20 }).notNull(),
+    name: varchar("name", { length: 200 }).notNull(),
+    startPath: varchar("start_path", { length: 500 }).notNull(),
+    description: text("description").notNull(),
+    expectation: text("expectation").notNull(),
+    roles: json("roles").$type<string[]>().notNull().$defaultFn(() => []),
+    priority: int("priority").notNull(),
+    rationale: text("rationale").notNull(),
+    status: mysqlEnum("status", TEST_PROPOSAL_STATUSES).notNull().default("proposed"),
+    /** The test script made from it. */
+    testScriptId: ref("test_script_id"),
+    decidedBy: ref("decided_by"),
+    decidedAt: datetime("decided_at", { mode: "date" }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("test_proposals_repo_idx").on(t.repoId, t.status), uniqueIndex("test_proposals_analysis_idx").on(t.analysisId, t.proposalId)],
+);
+
 export const TEST_OUTCOMES = ["passed", "failed", "inconclusive"] as const;
 
 export const testRuns = mysqlTable(
@@ -471,6 +500,7 @@ export type FindingRow = typeof findings.$inferSelect;
 export type FindingActivity = typeof findingActivity.$inferSelect;
 export type Analysis = typeof analyses.$inferSelect;
 export type TestScriptRow = typeof testScripts.$inferSelect;
+export type TestProposalRow = typeof testProposals.$inferSelect;
 export type TestRun = typeof testRuns.$inferSelect;
 export type HumanRequest = typeof humanRequests.$inferSelect;
 export type AgentLearning = typeof agentLearnings.$inferSelect;

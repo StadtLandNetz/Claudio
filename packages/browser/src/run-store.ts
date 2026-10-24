@@ -5,12 +5,14 @@ import {
   EvidenceSchema,
   FindingSchema,
   RecheckSchema,
+  TestProposalSchema,
   TodoItemSchema,
   nowIso,
   type AcceptanceCriterionResult,
   type Evidence,
   type Finding,
   type Recheck,
+  type TestProposal,
   type TodoItem,
 } from "@claudio/core";
 import { z } from "zod";
@@ -96,6 +98,18 @@ export class RunStore {
   /** Removes a finding again (a re-checked finding that turned out fixed after all). */
   removeFinding(id: string): void {
     this.writeJson("findings.json", this.findings().filter((f) => f.id !== id));
+  }
+
+  /** Analysis only: tests proposed for the core flows. */
+  testProposals(): TestProposal[] {
+    return this.readJson("test-proposals.json", TestProposalSchema);
+  }
+
+  addTestProposal(input: Omit<TestProposal, "id" | "createdAt">): TestProposal {
+    const existing = this.testProposals();
+    const proposal: TestProposal = { ...input, id: `P${existing.length + 1}`, createdAt: nowIso() };
+    this.writeJson("test-proposals.json", [...existing, proposal]);
+    return proposal;
   }
 
   addNote(text: string): void {

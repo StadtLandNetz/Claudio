@@ -54,6 +54,20 @@ describe("analysis prompt", () => {
   it("falls back to the app when there is no checkout", () => {
     expect(prompt({ repoDir: null })).toContain("No checkout is available");
   });
+  it("proposes tests for flows without one when asked to", () => {
+    const p = prompt({ existingTests: ["Fahrt anlegen"], maxProposals: 5 });
+    expect(p).toContain("# Regression tests");
+    expect(p).toContain("- Fahrt anlegen");
+    expect(p).toContain("5. Propose regression tests with propose_test, most important first, up to 5");
+    expect(p).toContain("8. Finish with a short summary");
+    expect(prompt({ existingTests: [], maxProposals: 5 })).toContain("no regression tests yet");
+  });
+  it("proposes no tests by default", () => {
+    const p = prompt();
+    expect(p).not.toContain("propose_test");
+    expect(p).toContain("5. Write notes.md");
+    expect(p).toContain("7. Finish with a short summary");
+  });
 });
 
 describe("knowledge files", () => {

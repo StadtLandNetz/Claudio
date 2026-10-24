@@ -63,6 +63,29 @@ export const AnalysisRequestSchema = z.object({
 });
 export type AnalysisRequest = z.infer<typeof AnalysisRequestSchema>;
 
+/**
+ * A regression test the analysis proposes for a core flow it walked through.
+ * A person accepts it as a test script (and may edit it first) or dismisses it.
+ */
+export const TestProposalSchema = z.object({
+  /** P1, P2, … within the run. */
+  id: z.string(),
+  name: z.string().min(1).max(200),
+  /** Where the flow starts, e.g. /trips/new. */
+  startPath: z.string(),
+  /** The flow in plain language, step by step, with the labels as the app shows them. */
+  description: z.string().min(1),
+  /** What must be true at the end, with the texts the app shows. */
+  expectation: z.string().min(1),
+  roles: z.array(z.string()).default([]),
+  /** 1 = most important. */
+  priority: z.number().int().min(1).max(5),
+  /** Why this flow deserves a test. */
+  rationale: z.string().default(""),
+  createdAt: z.string(),
+});
+export type TestProposal = z.infer<typeof TestProposalSchema>;
+
 export const AnalysisReportSchema = z.object({
   runId: z.string(),
   status: RunStatusSchema,
@@ -76,6 +99,8 @@ export const AnalysisReportSchema = z.object({
   /** Bugs noticed along the way and the screenshots taken, kept with the report (the run directory is ephemeral). */
   findings: z.array(FindingSchema).default([]),
   evidence: z.array(EvidenceSchema).default([]),
+  /** Tests proposed for the core flows, for a person to accept or dismiss. */
+  testProposals: z.array(TestProposalSchema).default([]),
   cost: RunCostSchema,
   sessionId: z.string().optional(),
   errors: z.array(z.string()).default([]),

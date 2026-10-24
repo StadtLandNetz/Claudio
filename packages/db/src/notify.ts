@@ -35,7 +35,7 @@ export type NotifyEvent =
   | { kind: "automation"; started: boolean; prNumber: number; prTitle: string | null; trigger: string; reason: string; reviewId?: number }
   | { kind: "test"; id: number; name: string; outcome: string | null; status: string; summary: string }
   | { kind: "suite"; batchId: string; total: number; passed: number; failed: string[] }
-  | { kind: "analysis"; id: number; status: string; docs: number; error: string | null }
+  | { kind: "analysis"; id: number; status: string; docs: number; proposals?: number; error: string | null }
   | { kind: "budget"; spent: number; limit: number; exhausted: boolean };
 
 export type SlackMessage = { text: string; blocks: unknown[] };
@@ -64,6 +64,7 @@ const T = {
     analysisDone: "Wissensbasis aktualisiert",
     analysisFailed: "Analyse fehlgeschlagen",
     docs: "{n} Dokumente",
+    proposals: "{n} Testvorschläge zum Freigeben",
     budgetWarn: "{pct} % des Monatsbudgets verbraucht",
     budgetStop: "Monatsbudget erreicht: neue Läufe starten erst im nächsten Monat oder mit höherem Budget",
     budgetLine: "{spent} von {limit} USD in diesem Monat",
@@ -92,6 +93,7 @@ const T = {
     analysisDone: "Knowledge base updated",
     analysisFailed: "Analysis failed",
     docs: "{n} documents",
+    proposals: "{n} test proposals to review",
     budgetWarn: "{pct} % of the monthly budget used",
     budgetStop: "Monthly budget reached: new runs start next month or with a higher budget",
     budgetLine: "{spent} of {limit} USD this month",
@@ -204,7 +206,8 @@ export function renderSlack(repo: string, e: NotifyEvent, opts: { language: Lang
       const path = `/analyses/${e.id}`;
       const ok = e.status === "completed";
       const word = ok ? t.analysisDone : t.analysisFailed;
-      const text = `${ok ? ":books:" : ":warning:"} *${link(url(path), word)}*${ok ? ` · ${fill(t.docs, { n: e.docs })}` : e.error ? `\n${esc(e.error.slice(0, 300))}` : ""}`;
+      const proposals = ok && e.proposals ? ` · ${fill(t.proposals, { n: e.proposals })}` : "";
+      const text = `${ok ? ":books:" : ":warning:"} *${link(url(path), word)}*${ok ? ` · ${fill(t.docs, { n: e.docs })}${proposals}` : e.error ? `\n${esc(e.error.slice(0, 300))}` : ""}`;
       return { text: word, blocks: [section(text), context(), ...button(path)] };
     }
   }

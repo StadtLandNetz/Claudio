@@ -43,6 +43,13 @@ export const de = {
 	documents: 'Dokumente',
 	sectionDocs: 'Wissensbasis',
 	sectionFindings: 'Fehler',
+	sectionProposals: 'Testvorschläge',
+	proposals: 'Testvorschläge',
+	proposalsHint: 'Regressionstests für die Kernflows, die Claudio bei dieser Analyse durchlaufen hat. Eine Person übernimmt sie im Tests-Tab des Repositorys oder verwirft sie.',
+	proposalsOpen: 'Offene Vorschläge ansehen',
+	proposalOpen: 'offen',
+	proposalAccepted: 'übernommen',
+	proposalDismissed: 'verworfen',
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
@@ -85,4 +92,11 @@ export const en: Translation<typeof de> = {
 	documents: 'Documents',
 	sectionDocs: 'Knowledge base',
 	sectionFindings: 'Bugs',
+	sectionProposals: 'Test proposals',
+	proposals: 'Test proposals',
+	proposalsHint: 'Regression tests for the core flows Claudio walked through in this analysis. A person accepts them on the repository’s test tab or dismisses them.',
+	proposalsOpen: 'See the open proposals',
+	proposalOpen: 'open',
+	proposalAccepted: 'accepted',
+	proposalDismissed: 'dismissed',
 };

@@ -72,6 +72,14 @@ export const de = {
 	allowAnyHostHint: 'Nur für Tests, die bewusst im offenen Web arbeiten. Große Suchmaschinen zeigen automatisierten Browsern oft ein Captcha.',
 	runInReviews: 'Bei jedem {prAbbr}-Review als Regressionstest mitlaufen lassen',
 	createTest: 'Test anlegen',
+	proposalsTitle: 'Vorschläge aus der Analyse ({n})',
+	proposalsIntro: 'Claudio hat diese Kernflows bei der Analyse durchlaufen und schlägt dafür Regressionstests vor. Übernimm einen Vorschlag, um ihn zu prüfen und als Test anzulegen, oder verwirf ihn.',
+	proposalDetails: 'Ablauf und Erwartung',
+	proposalAccept: 'Übernehmen',
+	proposalDismiss: 'Verwerfen',
+	proposalFrom: 'aus Analyse #{id}',
+	proposalAcceptTitle: 'Testvorschlag übernehmen',
+	proposalAcceptHint: 'Prüfe den Vorschlag und passe ihn an, bevor du den Test anlegst. Der erste Lauf zeichnet die Schritte auf.',
 
 	// Knowledge base
 	analysisQueued: 'Eine Analyse wartet auf den Worker.',
@@ -493,6 +501,14 @@ export const en: Translation<typeof de> = {
 	allowAnyHostHint: 'Only for tests that deliberately work on the open web. Large search engines often show automated browsers a captcha.',
 	runInReviews: 'Run as a regression test with every {prAbbr} review',
 	createTest: 'Create test',
+	proposalsTitle: 'Proposals from the analysis ({n})',
+	proposalsIntro: 'Claudio walked through these core flows during the analysis and proposes regression tests for them. Accept a proposal to check it and create it as a test, or dismiss it.',
+	proposalDetails: 'Flow and expectation',
+	proposalAccept: 'Accept',
+	proposalDismiss: 'Dismiss',
+	proposalFrom: 'from analysis #{id}',
+	proposalAcceptTitle: 'Accept test proposal',
+	proposalAcceptHint: 'Check the proposal and adjust it before you create the test. Its first run records the steps.',
 
 	// Knowledge base
 	analysisQueued: 'An analysis is waiting for the worker.',

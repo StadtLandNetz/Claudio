@@ -68,7 +68,7 @@ Findings werden immer vollständig gespeichert. **Strictness** ist ein Severity-
 | `code-scanner` | Sonnet 5.5 | Liest das Zielrepo (Read/Glob/Grep), schreibt Modulkarte und Routen-Index. |
 | `explorer` | Sonnet 5.5 | Klickt durch die App, baut die Todo-Liste der Screens/Funktionen in einer Datei. |
 | `tester` | Sonnet 5.5 | Arbeitet Todo-Einträge ab, dokumentiert Soll-Verhalten (App-Map). Mehrfach parallel spawnbar. |
-| `impact-analyst` | Opus 5.5 | Diff + Routen-Index → betroffene Screens und Flows. |
+| `impact-analyst` | Sonnet 5.5 | Fallback ohne berechneten Impact (kein Checkout, kein SvelteKit): Diff + Routen-Index → betroffene Screens und Flows. |
 | `ac-verifier` | Opus 5.5 | Prüft jedes Acceptance Criterion im Browser, mit Evidenz. |
 | `regression-tester` | Sonnet 5.5 | Prüft betroffene Screens gegen App-Map-Soll. |
 | `ux-reviewer` | Opus 5.5 | Konsistenz, Usability, Verbesserungsvorschläge auf Screenshot-Basis. |
@@ -103,8 +103,8 @@ Budget-Stufen (Option pro Run) setzen Modell-Tier der Worker, `effort`, `maxTurn
 
 ### Pipelines
 
-1. **Repo-Analyse** (manuell gestartet, später bei Merge auf main): Zielrepo klonen (flach) → `code-scanner` → `explorer` baut Todo → mehrere `tester` arbeiten ab → Orchestrator schreibt App-Map und Notizen. Ergebnis landet in `.claudio/` (Markdown, diffbar) und als Spiegel in der DB.
-2. **PR-Review** (Trigger aus UI mit PR-Nummer + Instanz-URL + Optionen): PR-Diff und verknüpfte Issues laden → AC extrahieren → `impact-analyst` → parallel `ac-verifier`, `regression-tester`, `ux-reviewer` → `reporter` → Findings + Evidence speichern → TL;DR-Kommentar in den PR.
+1. **Repo-Analyse** (manuell gestartet, später bei Merge auf main): Zielrepo klonen (flach) → `code-scanner` → `explorer` baut Todo → mehrere `tester` arbeiten ab → Orchestrator schreibt App-Map und Notizen. Ergebnis landet in `.claudio/` (Markdown, diffbar) und als Spiegel in der DB. Für die Kernflows ohne Test schlägt der Orchestrator Regressionstests vor (`propose_test`, Tabelle `test_proposals`); eine Person übernimmt sie im Tests-Tab (vorbelegter Dialog „Neuer Test“) oder verwirft sie.
+2. **PR-Review** (Trigger aus UI mit PR-Nummer + Instanz-URL + Optionen): PR-Diff und verknüpfte Issues laden → Checkout → Impact aus dem Import-Graph (`packages/agent/src/impact.ts`: geänderte Datei → Importeure → SvelteKit-Route, dazu Änderungen an der ganzen App wie Hooks, Config, Abhängigkeiten, Migrationen) → der Worker wählt damit die Regressionstests (Pfade, die ein Test bei seinen Läufen geöffnet oder aufgerufen hat, `test_scripts.touched_paths`; ohne berechenbaren Impact alle) → AC extrahieren → Orchestrator ordnet die berechneten Kandidaten nach Risiko (`impact-analyst` nur als Fallback) → parallel `ac-verifier`, `regression-tester`, `ux-reviewer` → `reporter` → Findings + Evidence speichern → TL;DR-Kommentar in den PR.
 3. **Test-Scripts**: NL-Script + Erwartung anlegen. Erster Run: Tester führt aus, dokumentiert Ablauf, speichert kompilierte Schritte und schlägt Determinismus-Grad vor. Folgeruns: deterministische Schritte laufen ohne Modell (Playwright-Replay), Modell greift nur ein, wenn ein Schritt bricht (self-healing, wird als Finding dokumentiert). `judge` bewertet das Ergebnis gegen die Erwartung mit Structured Output (`passed`, `deviations[]`, `confidence`).
 
 ### GitHub- und GitLab-Anbindung

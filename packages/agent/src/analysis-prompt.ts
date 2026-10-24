@@ -27,6 +27,10 @@ export type AnalysisPromptInput = {
   changedSince: ChangedSince | null;
   profile: BudgetProfile;
   driverPrefix: string;
+  /** Names of the repository's tests and open proposals; with maxProposals, the run proposes tests for flows not in this list. */
+  existingTests?: string[];
+  /** How many tests the run may propose; 0 or absent: none. */
+  maxProposals?: number;
 };
 
 export function buildAnalysisPrompt(input: AnalysisPromptInput): string {
@@ -74,6 +78,17 @@ export function buildAnalysisPrompt(input: AnalysisPromptInput): string {
   }
   if (request.extraInstructions) sections.push(`# Additional instructions for this run\n\n${request.extraInstructions.trim()}`);
 
+  const proposing = (input.maxProposals ?? 0) > 0;
+  const existing = input.existingTests ?? [];
+  if (proposing) {
+    sections.push(
+      `# Regression tests\n\n` +
+        (existing.length
+          ? `These tests exist or are proposed already. Do not propose them again, also not under another name:\n${existing.map((n) => `- ${n}`).join("\n")}`
+          : "The repository has no regression tests yet."),
+    );
+  }
+
   sections.push(`# Procedure
 
 1. Code: ${repoDir ? `ask the code-scanner subagent to map ${repoDir}${previous && changedSince ? " (focus on the changed files, but return the complete module and route lists)" : ""}. From its report` : "from the app itself"}, write modules.md and routes.md with write_knowledge, and a first version of overview.md.
@@ -89,9 +104,14 @@ export function buildAnalysisPrompt(input: AnalysisPromptInput): string {
    - Evidence: the evidence id.
 
 4. Record clear bugs you encounter with report_finding; do not go looking for bugs, that is the reviews' job.
-5. Write notes.md: test data that exists and what you created, quirks, slow or flaky areas, what you could not explore and why. For each obstacle that cost you attempts (a field without label, a banner, a slow page, a login quirk), also call remember_learning with a concrete instruction for later runs.
-6. Finalise overview.md: purpose, users, stack, domain objects, roles and permissions, login, navigation structure.
-7. Finish with a short summary in ${lang} as your final message: what is covered, what is missing, and anything a reviewer should know.`);
+${
+    proposing
+      ? `5. Propose regression tests with propose_test, most important first, up to ${input.maxProposals}: the core flows ${previous ? "that are new or changed since the previous analysis" : "people use every day, that create, change or delete important data, or that guard a permission"}, and only flows you completed yourself in this run and that have no test yet. Write name, description and expectation in ${lang}. The description starts at the start path and names each step with the labels as the app shows them; the expectation names the visible result with its exact texts. Use synthetic test data named "claudio-{{run}}-…". Propose none when no flow qualifies.
+6`
+      : "5"
+  }. Write notes.md: test data that exists and what you created, quirks, slow or flaky areas, what you could not explore and why. For each obstacle that cost you attempts (a field without label, a banner, a slow page, a login quirk), also call remember_learning with a concrete instruction for later runs.
+${proposing ? "7" : "6"}. Finalise overview.md: purpose, users, stack, domain objects, roles and permissions, login, navigation structure.
+${proposing ? "8" : "7"}. Finish with a short summary in ${lang} as your final message: what is covered, what is missing, ${proposing ? "which tests you proposed, " : ""}and anything a reviewer should know.`);
 
   return sections.join("\n\n");
 }

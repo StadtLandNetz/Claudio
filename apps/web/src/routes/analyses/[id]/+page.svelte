@@ -28,6 +28,7 @@
 		if (showLog) out.push({ id: 'log', label: i.t('review.sectionLog') });
 		if (a.summaryHtml) out.push({ id: 'summary', label: i.t('analysis.summary') });
 		if (data.docs.length) out.push({ id: 'docs', label: i.t('analysis.sectionDocs'), count: data.docs.length });
+		if (data.proposals.length) out.push({ id: 'proposals', label: i.t('analysis.sectionProposals'), count: data.proposals.length });
 		if (data.findings.length) out.push({ id: 'findings', label: i.t('analysis.sectionFindings'), count: data.findings.length });
 		if (data.evidence.length) out.push({ id: 'screenshots', label: i.t('analysis.screenshots'), count: data.evidence.length });
 		if (a.errors.length) out.push({ id: 'problems', label: i.t('review.sectionProblems'), count: a.errors.length, tone: 'block' });
@@ -111,6 +112,28 @@
 			</section>
 		{:else if !active}
 			<p class="notice error">{i.t('analysis.noDocs')}</p>
+		{/if}
+
+		{#if data.proposals.length}
+			<section class="block" id="proposals">
+				<h2>{i.t('analysis.proposals')}</h2>
+				<p class="muted">
+					{i.t('analysis.proposalsHint')}
+					{#if data.proposals.some((p) => p.status === 'proposed')}<a href="/repos/{a.repoPath}?tab=tests#proposals">{i.t('analysis.proposalsOpen')}</a>{/if}
+				</p>
+				<ul class="findings sheet">
+					{#each data.proposals as p (p.id)}
+						<li>
+							<span class="tag">{i.t(p.status === 'accepted' ? 'analysis.proposalAccepted' : p.status === 'dismissed' ? 'analysis.proposalDismissed' : 'analysis.proposalOpen')}</span>
+							<div>
+								{#if p.testScriptId}<a href="/tests/{p.testScriptId}"><strong>{p.name}</strong></a>{:else}<strong>{p.name}</strong>{/if}
+								<span class="faint"><code>{p.startPath}</code></span>
+								{#if p.rationale}<p>{p.rationale}</p>{/if}
+							</div>
+						</li>
+					{/each}
+				</ul>
+			</section>
 		{/if}
 
 		{#if data.findings.length}

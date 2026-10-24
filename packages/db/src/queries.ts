@@ -38,6 +38,7 @@ import {
   reviews,
   runEvents,
   sessions,
+  testProposals,
   testRuns,
   testScripts,
   users,
@@ -55,6 +56,8 @@ import {
   type Repo,
   type Review,
   type ReviewStatus,
+  type TestProposalRow,
+  type TestProposalStatus,
   type TestRun,
   type TestScriptRow,
   type User,
@@ -893,6 +896,23 @@ export async function finishAnalysis(
   if (repoId && docs.length > 0) {
     await db.insert(knowledgeDocs).values(docs.map((d) => ({ analysisId: id, repoId, name: d.name, content: d.content })));
   }
+  const proposals = input.report?.testProposals ?? [];
+  if (repoId && proposals.length > 0) {
+    await db.insert(testProposals).values(
+      proposals.map((p) => ({
+        repoId,
+        analysisId: id,
+        proposalId: p.id,
+        name: p.name.slice(0, 200),
+        startPath: p.startPath.slice(0, 500),
+        description: p.description,
+        expectation: p.expectation,
+        roles: p.roles,
+        priority: p.priority,
+        rationale: p.rationale,
+      })),
+    );
+  }
 }
 
 export type KnowledgeWithSource = KnowledgeBase & { analysisId: number; status: ReviewStatus; startedByLogin: string };
@@ -923,6 +943,44 @@ export async function knowledgeDocsOf(db: Db, analysisId: number): Promise<Knowl
   const order = ["overview", "modules", "routes", "app-map", "notes"];
   const rows = await db.select({ name: knowledgeDocs.name, content: knowledgeDocs.content }).from(knowledgeDocs).where(eq(knowledgeDocs.analysisId, analysisId));
   return rows.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+}
+
+// ---------------------------------------------------------------- test proposals
+
+/** Proposals of a repository, most important first; by default only the open ones. */
+export async function listTestProposals(db: Db, repoId: number, status: TestProposalStatus | "all" = "proposed"): Promise<TestProposalRow[]> {
+  return db
+    .select()
+    .from(testProposals)
+    .where(status === "all" ? eq(testProposals.repoId, repoId) : and(eq(testProposals.repoId, repoId), eq(testProposals.status, status)))
+    .orderBy(asc(testProposals.priority), desc(testProposals.id));
+}
+
+export async function testProposalsOfAnalysis(db: Db, analysisId: number): Promise<TestProposalRow[]> {
+  return db.select().from(testProposals).where(eq(testProposals.analysisId, analysisId)).orderBy(asc(testProposals.priority), asc(testProposals.id));
+}
+
+export async function getTestProposal(db: Db, id: number): Promise<TestProposalRow | undefined> {
+  const [row] = await db.select().from(testProposals).where(eq(testProposals.id, id));
+  return row;
+}
+
+/** Accepts or dismisses an open proposal. False when someone decided it already. */
+export async function decideTestProposal(db: Db, id: number, input: { status: "accepted" | "dismissed"; by: number; testScriptId?: number }): Promise<boolean> {
+  const [res] = await db
+    .update(testProposals)
+    .set({ status: input.status, decidedBy: input.by, decidedAt: new Date(), testScriptId: input.testScriptId ?? null })
+    .where(and(eq(testProposals.id, id), eq(testProposals.status, "proposed")));
+  return res.affectedRows > 0;
+}
+
+/** What an analysis must not propose again: the repository's tests and its open proposals. */
+export async function testNamesForAnalysis(db: Db, repoId: number): Promise<string[]> {
+  const [scripts, open] = await Promise.all([
+    db.select({ name: testScripts.name }).from(testScripts).where(eq(testScripts.repoId, repoId)),
+    db.select({ name: testProposals.name }).from(testProposals).where(and(eq(testProposals.repoId, repoId), eq(testProposals.status, "proposed"))),
+  ]);
+  return [...new Set([...scripts, ...open].map((r) => r.name))];
 }
 
 // ---------------------------------------------------------------- test scripts & runs

@@ -26,6 +26,7 @@ import {
   repoAnthropicKey,
   saveTestSteps,
   saveTouchedPaths,
+  testNamesForAnalysis,
   setAnalysisRunId,
   setReviewRunId,
   setTestRunStarted,
@@ -291,6 +292,8 @@ async function execute(db: Db, job: Job): Promise<void> {
         previous: c.knowledge,
         repoDir: c.fixture?.repoDir,
         commitSha: c.fixture ? "demo" : undefined,
+        // The analysis proposes tests for core flows that have none yet; a person accepts them on the repository's test tab.
+        existingTests: await testNamesForAnalysis(db, job.row.repoId),
         onRunStarted: (h: RunHandle) => {
           run = h;
           c.after(() => setAnalysisRunId(db, job.row.id, h.runId));
@@ -302,8 +305,12 @@ async function execute(db: Db, job: Job): Promise<void> {
         report,
         error: report.errors.length ? report.errors.join("\n") : null,
       });
-      log(`analysis ${job.row.id} finished: ${report.status}, ${report.docs.length} docs, ${report.cost.usd.toFixed(2)} USD`);
-      await notify(c.repo, { kind: "analysis", id: job.row.id, status: report.status, docs: report.docs.length, error: report.errors[0] ?? null }, { language: runLanguage(job), baseUrl: publicBaseUrl, log });
+      log(`analysis ${job.row.id} finished: ${report.status}, ${report.docs.length} docs, ${report.testProposals.length} test proposals, ${report.cost.usd.toFixed(2)} USD`);
+      await notify(
+        c.repo,
+        { kind: "analysis", id: job.row.id, status: report.status, docs: report.docs.length, proposals: report.testProposals.length, error: report.errors[0] ?? null },
+        { language: runLanguage(job), baseUrl: publicBaseUrl, log },
+      );
     }
   } catch (e) {
     const message = (e as Error).message;

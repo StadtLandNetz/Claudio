@@ -148,6 +148,13 @@
       "when": 1792881550572,
       "tag": "0020_test_touched_paths",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1792882255167,
+      "tag": "0021_test_proposals",
+      "breakpoints": true
     }
   ]
 }

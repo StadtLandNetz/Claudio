@@ -51,6 +51,13 @@
 	let createOpen = $state(!!formError('createTest'));
 	let createError = $state<string | null>(formError('createTest'));
 	let creating = $state(false);
+	// A proposal from the analysis being accepted: the dialog opens with its fields, to check and edit.
+	type Proposal = (typeof data.proposals)[number];
+	let draft = $state<Proposal | null>(null);
+	const openCreate = (p: Proposal | null) => {
+		draft = p;
+		createOpen = true;
+	};
 
 	// The sticky header links to the parts of the long tabs.
 	const sections = $derived.by((): Section[] => {
@@ -111,7 +118,7 @@
 	<h2>{i.t(tabs.find((t) => t.id === data.tab)?.label ?? 'repo.tabPulls')}</h2>
 {/snippet}
 {#snippet newTestAction()}
-	<button type="button" class="btn primary small" onclick={() => (createOpen = true)}>{i.t('repo.newTest')}</button>
+	<button type="button" class="btn primary small" onclick={() => openCreate(null)}>{i.t('repo.newTest')}</button>
 {/snippet}
 <PageNav title={data.repo.fullName} heading={tabHeading} {sections} actions={data.tab === 'tests' && canWrite ? newTestAction : undefined} />
 
@@ -186,6 +193,44 @@
 		</section>
 	{/if}
 
+	{#if data.proposals.length}
+		<section class="proposals" id="proposals">
+			<h2>{i.t('repo.proposalsTitle', { n: data.proposals.length })}</h2>
+			<p class="muted">{i.t('repo.proposalsIntro')}</p>
+			<ul class="proposal-list">
+				{#each data.proposals as p (p.id)}
+					<li class="sheet">
+						<div class="proposal-head">
+							<strong>{p.name}</strong>
+							<code>{p.startPath}</code>
+							{#if p.roles.length}<span class="faint">{p.roles.join(', ')}</span>{/if}
+						</div>
+						{#if p.rationale}<p class="faint">{p.rationale}</p>{/if}
+						<details>
+							<summary>{i.t('repo.proposalDetails')}</summary>
+							<dl>
+								<dt>{i.t('repo.flow')}</dt>
+								<dd>{p.description}</dd>
+								<dt>{i.t('repo.expectation')}</dt>
+								<dd>{p.expectation}</dd>
+							</dl>
+						</details>
+						<div class="proposal-actions">
+							{#if canWrite}
+								<button type="button" class="btn small primary" onclick={() => openCreate(p)}>{i.t('repo.proposalAccept')}</button>
+								<form method="POST" action="?tab=tests&/dismissProposal" use:enhance>
+									<input type="hidden" name="id" value={p.id} />
+									<button type="submit" class="btn small ghost">{i.t('repo.proposalDismiss')}</button>
+								</form>
+							{/if}
+							<a class="faint" href="/analyses/{p.analysisId}">{i.t('repo.proposalFrom', { id: p.analysisId })}</a>
+						</div>
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
+
 	{#if data.tests.length}
 		<div class="sheet table">
 			<table class="list">
@@ -215,7 +260,7 @@
 			<h2>{i.t('repo.noTests')}</h2>
 			<p class="muted">{i.t('repo.noTestsText')}</p>
 			{#if canWrite}
-				<div><button type="button" class="btn primary" onclick={() => (createOpen = true)}>{i.t('repo.newTest')}</button></div>
+				<div><button type="button" class="btn primary" onclick={() => openCreate(null)}>{i.t('repo.newTest')}</button></div>
 			{/if}
 		</section>
 	{/if}
@@ -248,7 +293,16 @@
 	{/if}
 
 	{#if canWrite}
-		<Modal bind:open={createOpen} title={i.t('repo.newTest')} width="l" locked={creating} onclose={() => (createError = null)}>
+		<Modal
+			bind:open={createOpen}
+			title={draft ? i.t('repo.proposalAcceptTitle') : i.t('repo.newTest')}
+			width="l"
+			locked={creating}
+			onclose={() => {
+				createError = null;
+				draft = null;
+			}}
+		>
 			<form
 				id="create-test"
 				method="POST"
@@ -268,27 +322,33 @@
 				}}
 			>
 				{#if createError}<p class="notice error" role="alert">{createError}</p>{/if}
-				<label class="field">
-					<span>{i.t('repo.name')}</span>
-					<input type="text" name="name" required placeholder={i.t('repo.testNamePlaceholder')} />
-				</label>
-				<label class="field">
-					<span>{i.t('repo.flow')}</span>
-					<textarea name="description" rows="3" required placeholder={i.t('repo.flowPlaceholder')}></textarea>
-					<small>{i.t('repo.flowHint')}</small>
-				</label>
-				<label class="field">
-					<span>{i.t('repo.expectation')}</span>
-					<textarea name="expectation" rows="2" required placeholder={i.t('repo.expectationPlaceholder')}></textarea>
-				</label>
-				<fieldset>
-					<legend>{i.t('repo.roles')}</legend>
-					<div class="options">
-						{#each data.roles as role (role.name)}
-							<label class="check"><input type="checkbox" name="roles" value={role.name} /> <span>{role.name}</span></label>
-						{/each}
-					</div>
-				</fieldset>
+				{#key draft}
+					{#if draft}
+						<input type="hidden" name="proposalId" value={draft.id} />
+						<p class="muted">{i.t('repo.proposalAcceptHint')}</p>
+					{/if}
+					<label class="field">
+						<span>{i.t('repo.name')}</span>
+						<input type="text" name="name" required placeholder={i.t('repo.testNamePlaceholder')} value={draft?.name ?? ''} />
+					</label>
+					<label class="field">
+						<span>{i.t('repo.flow')}</span>
+						<textarea name="description" rows={draft ? 6 : 3} required placeholder={i.t('repo.flowPlaceholder')} value={draft?.description ?? ''}></textarea>
+						<small>{i.t('repo.flowHint')}</small>
+					</label>
+					<label class="field">
+						<span>{i.t('repo.expectation')}</span>
+						<textarea name="expectation" rows={draft ? 3 : 2} required placeholder={i.t('repo.expectationPlaceholder')} value={draft?.expectation ?? ''}></textarea>
+					</label>
+					<fieldset>
+						<legend>{i.t('repo.roles')}</legend>
+						<div class="options">
+							{#each data.roles as role (role.name)}
+								<label class="check"><input type="checkbox" name="roles" value={role.name} checked={draft?.roles.includes(role.name) ?? false} /> <span>{role.name}</span></label>
+							{/each}
+						</div>
+					</fieldset>
+				{/key}
 				<fieldset>
 					<legend>{i.t('repo.otherSites')}</legend>
 					<label class="field">
@@ -1104,6 +1164,60 @@
 	.kb-use {
 		margin-top: 0.6rem;
 	}
+	.proposals {
+		margin-bottom: 1.5rem;
+	}
+	.proposals h2 {
+		margin-bottom: 0.25rem;
+	}
+	.proposal-list {
+		list-style: none;
+		margin: 0.75rem 0 0;
+		padding: 0;
+		display: grid;
+		gap: 0.5rem;
+	}
+	.proposal-list li {
+		display: grid;
+		gap: 0.4rem;
+		padding: 0.75rem 1rem;
+	}
+	.proposal-list p {
+		margin: 0;
+	}
+	.proposal-head {
+		display: flex;
+		gap: 0.75rem;
+		align-items: baseline;
+		flex-wrap: wrap;
+	}
+	.proposal-list dl {
+		margin: 0.5rem 0 0;
+		display: grid;
+		gap: 0.25rem;
+	}
+	.proposal-list dt {
+		font-size: var(--text-xs);
+		color: var(--ink-2);
+	}
+	.proposal-list dd {
+		margin: 0 0 0.5rem;
+		white-space: pre-line;
+	}
+	.proposal-actions {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		flex-wrap: wrap;
+	}
+	.proposal-actions form {
+		display: contents;
+	}
+	.proposal-actions a {
+		margin-left: auto;
+		font-size: var(--text-sm);
+	}
+
 	.empty-kb {
 		display: grid;
 		gap: 0.4rem;

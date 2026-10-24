@@ -35,6 +35,8 @@ export type ToolContext = {
   followUp?: { reviewId: number; findings: Finding[] };
   /** The viewports this run checks. With more than one, set_viewport switches between them. */
   viewports?: ("desktop" | "mobile")[];
+  /** Repository analysis only: tests that exist or are proposed already, and how many new ones the run may propose. Enables propose_test. */
+  proposals?: { existing: string[]; max: number };
 };
 
 /** A tool definition that both the Agent SDK adapter and the stdio MCP server can consume. */
@@ -253,6 +255,7 @@ export function createClaudioTools(ctx: ToolContext): ClaudioTool<any>[] {
   if (ctx.human) tools.push(humanHelpTool(ctx.human, ctx.attachment));
   if (ctx.human?.ask) tools.push(askHumanTool(ctx.human, store));
   if (ctx.onLearning) tools.push(rememberLearningTool(ctx.onLearning));
+  if (ctx.proposals) tools.push(proposeTestTool(store, ctx.proposals, roleNames));
   if (ctx.followUp?.findings.length) tools.push(recheckFindingTool(store, ctx.followUp));
   if (ctx.attachment?.viewport && (ctx.viewports?.length ?? 0) > 1) tools.push(setViewportTool(ctx));
   return tools;
@@ -313,6 +316,40 @@ export function recheckFindingTool(store: RunStore, followUp: { reviewId: number
       });
       carried.set(findingId, again.id);
       return `${findingId} is still open; recorded again as ${again.id}.`;
+    },
+  });
+}
+
+/** Names compared the way a person would: case, spacing and punctuation do not make a test new. */
+const sameName = (a: string, b: string) => a.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() === b.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+/**
+ * Analysis: proposes a regression test for a core flow the agent walked
+ * through. A person accepts it as a test script or dismisses it.
+ */
+export function proposeTestTool(store: RunStore, proposals: { existing: string[]; max: number }, roleNames: string[]): ClaudioTool<any> {
+  return def({
+    name: "propose_test",
+    description: `Propose a regression test for one core flow you walked through yourself in this run, for a person to accept. Only flows people use every day or that create, change or delete important data; at most ${proposals.max} per run, the most important first. The description is what a tester does, step by step, with the labels exactly as the app shows them; the expectation is the visible result, with the texts the app shows. Test data must be synthetic and named "claudio-{{run}}-…". Not for flows that already have a test.`,
+    schema: {
+      name: z.string().min(3).max(120).describe("Short name of the flow, e.g. \"Fahrt anlegen\""),
+      startPath: z.string().min(1).describe("Path where the flow starts, e.g. /trips/new"),
+      description: z.string().min(20).max(4000).describe("The steps in plain language, with exact labels"),
+      expectation: z.string().min(10).max(2000).describe("What must be visible at the end, with exact texts"),
+      roles: z.array(z.string()).default([]).describe(`Role(s) to log in with: ${roleNames.join(", ") || "none configured"}`),
+      priority: z.number().int().min(1).max(5).describe("1 = most important"),
+      rationale: z.string().max(400).default("").describe("Why this flow deserves a regression test, one sentence"),
+    },
+    handler: async (input) => {
+      const proposed = store.testProposals();
+      if (proposed.length >= proposals.max) return `Limit of ${proposals.max} proposals per run reached; not saved.`;
+      const taken = [...proposals.existing, ...proposed.map((p) => p.name)].find((n) => sameName(n, input.name));
+      if (taken) return `A test "${taken}" exists or is proposed already; not saved. Propose a different flow or skip it.`;
+      const unknown = input.roles.filter((r: string) => !roleNames.includes(r));
+      if (unknown.length) return `Unknown role(s): ${unknown.join(", ")}. Configured roles: ${roleNames.join(", ") || "none"}.`;
+      const startPath = input.startPath.trim().startsWith("/") ? input.startPath.trim() : `/${input.startPath.trim()}`;
+      const p = store.addTestProposal({ ...input, startPath });
+      return `${p.id} saved: "${p.name}". ${proposals.max - proposed.length - 1} more allowed in this run.`;
     },
   });
 }

@@ -18,6 +18,9 @@ import {
 	listRoles,
 	listTestRuns,
 	listTestScripts,
+	listTestProposals,
+	getTestProposal,
+	decideTestProposal,
 	removeLesson,
 	deleteLearning,
 	listLearnings,
@@ -105,6 +108,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	const knowledgeP = tab === 'knowledge' ? latestKnowledge(db(), repo.id) : Promise.resolve(null);
 	const analysesP = tab === 'knowledge' ? listAnalyses(db(), { repoId: repo.id, limit: 20 }) : Promise.resolve([]);
 	const testsP = tab === 'tests' ? listTestScripts(db(), repo.id) : Promise.resolve([]);
+	const proposalsP = tab === 'tests' ? listTestProposals(db(), repo.id) : Promise.resolve([]);
 	const activeRunsP = tab === 'tests' ? listTestRuns(db(), { repoId: repo.id, activeOnly: true }, 100) : Promise.resolve([]);
 	const batchP = batchId ? listTestRuns(db(), { batchId, repoId: repo.id }, 200) : Promise.resolve([]);
 	const keySetByP = settings && repo.anthropicKeySetBy ? getUser(db(), repo.anthropicKeySetBy) : Promise.resolve(undefined);
@@ -251,6 +255,18 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			lastRunAt: t.lastRunAt,
 			lastHealed: t.lastHealed
 		})),
+		// Tests an analysis proposed; accepting one opens the "new test" dialog with its fields.
+		proposals: (await proposalsP).map((p) => ({
+			id: p.id,
+			analysisId: p.analysisId,
+			name: p.name,
+			startPath: p.startPath,
+			// The flow begins at the start path; say so when the agent's text does not.
+			description: p.description.includes(p.startPath) ? p.description : `${p.startPath}\n${p.description}`,
+			expectation: p.expectation,
+			roles: p.roles,
+			rationale: p.rationale
+		})),
 		activeTestRuns: activeTestRuns.length,
 		batch: batchId
 			? batchRuns.map((r) => ({ id: r.id, scriptName: r.scriptName, status: r.status, outcome: r.outcome, healed: r.healed, mode: r.mode, costUsd: r.costUsd }))
@@ -386,8 +402,20 @@ export const actions: Actions = {
 		if (!input.name || !input.description || !input.expectation) {
 			return fail(400, { error: t('repo.testFieldsRequired'), form: 'createTest' });
 		}
+		const proposal = Number(f.get('proposalId')) ? await getTestProposal(db(), Number(f.get('proposalId'))) : undefined;
 		const id = await createTestScript(db(), repo.id, input, locals.user!.id);
+		// A test made from a proposal closes it, so the next analysis does not propose it again.
+		if (proposal?.repoId === repo.id) await decideTestProposal(db(), proposal.id, { status: 'accepted', by: locals.user!.id, testScriptId: id });
 		redirect(303, `/tests/${id}?new=1`);
+	},
+
+	dismissProposal: async ({ params, request, locals }) => {
+		const repo = await loadRepo(params, locals.user, 'write');
+		const f = await request.formData();
+		const proposal = await getTestProposal(db(), Number(f.get('id')));
+		if (!proposal || proposal.repoId !== repo.id) error(404);
+		await decideTestProposal(db(), proposal.id, { status: 'dismissed', by: locals.user!.id });
+		return { saved: 'proposal' };
 	},
 
 	runTests: async ({ params, request, locals }) => {

@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { KNOWLEDGE_DOCS, sortBySeverity, repoPath } from '@claudio/core';
-import { countEvents, getAnalysis, knowledgeDocsOf, openHumanRequest, requestAnalysisAbort } from '@claudio/db';
+import { countEvents, getAnalysis, knowledgeDocsOf, openHumanRequest, requestAnalysisAbort, testProposalsOfAnalysis } from '@claudio/db';
 import type { AccessLevel } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
@@ -20,7 +20,7 @@ async function loadAnalysis(idParam: string, locals: App.Locals, min: AccessLeve
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const a = await loadAnalysis(params.id, locals, 'read');
-	const [eventCount, docs] = await Promise.all([countEvents(db(), { analysisId: a.id }), knowledgeDocsOf(db(), a.id)]);
+	const [eventCount, docs, proposals] = await Promise.all([countEvents(db(), { analysisId: a.id }), knowledgeDocsOf(db(), a.id), testProposalsOfAnalysis(db(), a.id)]);
 	return {
 		analysis: {
 			id: a.id,
@@ -45,6 +45,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		// Older analyses kept these only in the run directory.
 		evidence: (await withAvailability(a.runId, a.report?.evidence ?? (a.runId ? runEvidenceFromDisk(a.runId) : []))).filter((e) => e.kind === 'screenshot'),
 		findings: sortBySeverity(a.report?.findings ?? (a.runId ? runFindingsFromDisk(a.runId) : [])),
+		proposals: proposals.map((p) => ({ id: p.id, name: p.name, startPath: p.startPath, rationale: p.rationale, status: p.status, testScriptId: p.testScriptId })),
 		eventCount,
 		human: await openHumanRequest(db(), 'analysis', a.id).then((h) => (h ? { id: h.id, reason: h.reason, kind: h.kind, context: h.context, options: h.options ?? [] } : null))
 	};

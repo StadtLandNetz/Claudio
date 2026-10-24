@@ -8,7 +8,7 @@ export function createClaudioSdkServer(tools: ClaudioTool<any>[]): McpSdkServerC
     version: "0.1.0",
     alwaysLoad: true,
     instructions:
-      "Claudio tools record the review: login_as for authentication, capture_evidence for screenshots, report_finding and record_ac_result for results, todo_* and note for working memory, get_console / get_network for runtime errors.",
+      "Claudio tools record the review: login_as for authentication, capture_evidence for screenshots, report_finding and record_ac_result for results, todo_* and note for working memory, get_console / get_network for runtime errors. In a repository analysis, write_knowledge stores the documents and propose_test proposes regression tests for a person to accept.",
     tools: tools.map((t) =>
       tool(
         t.name,
