@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { decideTrigger, renderInstanceUrl, verifyWebhookSignature, type AutomationSettings } from "../src/webhooks.js";
+import { decideTrigger, renderInstanceUrl, verifyWebhookSignature, type AutomationSettings } from "../src/github/webhooks.js";
 
 const all: AutomationSettings = { instanceUrlTemplate: "https://pr-{pr}.example.test", onComment: true, onLabel: true, onPush: true, analyzeOnMerge: true, commitStatus: true };
 const pr = (extra: Record<string, unknown> = {}) => ({ number: 17, state: "open", draft: false, title: "Neue Fahrt", head: { sha: "abc", ref: "feature/16-Neue Fahrt" }, ...extra });

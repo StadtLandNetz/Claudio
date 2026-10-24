@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { cachedAccess, getRepo, getRepoById, listRepos, storeAccess, type AccessLevel, type Repo } from '@claudio/db';
-import { createGithubClient } from '@claudio/github';
+import { createGithubClient } from '@claudio/forge';
 import { userToken, type SessionUser } from './auth.js';
 import { db } from './db.js';
 import { DEMO_REPO } from './demo.js';

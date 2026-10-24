@@ -11,7 +11,7 @@ import {
   freshAccessToken,
   type Db,
 } from "@claudio/db";
-import { botClient, createGithubClient, postPullRequestReview, setCommitStatus } from "@claudio/github";
+import { botClient, createGithubClient, postPullRequestReview, setCommitStatus } from "@claudio/forge";
 
 const ACTIVE = new Set(["queued", "running"]);
 

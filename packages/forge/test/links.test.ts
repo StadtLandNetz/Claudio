@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractLinkedIssueNumbers, parseRepo } from "../src/links.js";
+import { extractLinkedIssueNumbers, parseRepo } from "../src/github/links.js";
 
 describe("extractLinkedIssueNumbers", () => {
   it("finds closing keywords, plain refs, links and branch numbers", () => {

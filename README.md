@@ -201,7 +201,7 @@ CLAUDIO_INTEGRATION=1 pnpm test    # also the browser integration tests (needs C
 | Part | What it contains |
 |---|---|
 | `packages/core` | schemas, budget tiers, report rendering |
-| `packages/github` | pull requests, issues, deployments, webhooks |
+| `packages/forge` | GitHub and GitLab: pull/merge requests, issues, deployments, webhooks |
 | `packages/browser` | Playwright driver, login, evidence capture, Claudio tools |
 | `packages/agent` | Agent SDK runners and prompts for reviews, analyses and tests |
 | `packages/db` | Drizzle schema, migrations, queries, encryption |

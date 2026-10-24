@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { query, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Language } from "@claudio/core";
-import type { PullRequestContext } from "@claudio/github";
+import type { PullRequestContext } from "@claudio/forge";
 import { modelEnv } from "./env.js";
 
 export type CriteriaInput = {

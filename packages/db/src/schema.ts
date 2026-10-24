@@ -2,7 +2,7 @@ import { bigint, boolean, customType, datetime, index, int, json, mediumtext, my
 
 /** Binary column up to 16 MB (screenshots). */
 const mediumblob = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "mediumblob" });
-import type { AutomationSettings } from "@claudio/github";
+import type { AutomationSettings } from "@claudio/forge";
 import type {
   AnalysisReport,
   AnalysisRequest,

@@ -1,6 +1,6 @@
 import { ViewportSchema, type TestRunRequest, type Viewport } from '@claudio/core';
 import { budgetState, type createTestRuns, type Repo } from '@claudio/db';
-import { botClient, createGithubClient } from '@claudio/github';
+import { botClient, createGithubClient } from '@claudio/forge';
 import type { I18n } from '#lib/i18n/index.js';
 import { userToken, type SessionUser } from './auth.js';
 import { db } from './db.js';

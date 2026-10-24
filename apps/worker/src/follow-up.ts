@@ -1,6 +1,6 @@
 import { criterionText, type FollowUpContext } from "@claudio/core";
 import { getReview, listFindings, type Db, type Review } from "@claudio/db";
-import { changedFilesBetween, createGithubClient } from "@claudio/github";
+import { changedFilesBetween, createGithubClient } from "@claudio/forge";
 
 /**
  * What a re-review builds on: the earlier review's open findings with the people's

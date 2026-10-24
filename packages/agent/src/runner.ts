@@ -25,7 +25,7 @@ import {
   type ReviewRequest,
   type RunStatus,
 } from "@claudio/core";
-import { createGithubClient, fetchPullRequestContext, postPullRequestReview, type PullRequestContext } from "@claudio/github";
+import { createGithubClient, fetchPullRequestContext, postPullRequestReview, type PullRequestContext } from "@claudio/forge";
 import { createBrowserGuard, createCaptchaHook, createStopHook } from "./hooks.js";
 import { envWithout, modelEnv } from "./env.js";
 import { SYSTEM_APPEND, buildReviewPrompt, extractAffectedAreas } from "./prompts.js";

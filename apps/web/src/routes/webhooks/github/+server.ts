@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { getRepo, webhookSecret } from '@claudio/db';
-import { githubAppWebhookSecret, verifyWebhookSignature } from '@claudio/github';
+import { githubAppWebhookSecret, verifyWebhookSignature } from '@claudio/forge';
 import { handleGithubEvent } from '#lib/server/automation.js';
 import { db } from '#lib/server/db.js';
 import { publicBaseUrl } from '#lib/server/env.js';

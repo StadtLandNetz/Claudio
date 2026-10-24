@@ -1,5 +1,5 @@
 import type { AnalysisRequest, BudgetProfile, KnowledgeBase, RepoConfig } from "@claudio/core";
-import type { ChangedSince } from "@claudio/github";
+import type { ChangedSince } from "@claudio/forge";
 import { renderKnowledgeSection } from "./prompts.js";
 
 export const ANALYSIS_SYSTEM_APPEND = `

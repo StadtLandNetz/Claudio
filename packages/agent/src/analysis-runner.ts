@@ -17,7 +17,7 @@ import {
   type KnowledgeDoc,
   type RunStatus,
 } from "@claudio/core";
-import { changedFilesBetween, createGithubClient, getDefaultBranch, type ChangedSince } from "@claudio/github";
+import { changedFilesBetween, createGithubClient, getDefaultBranch, type ChangedSince } from "@claudio/forge";
 import { ANALYSIS_SYSTEM_APPEND, buildAnalysisPrompt } from "./analysis-prompt.js";
 import { createBrowserGuard, createCaptchaHook, createStopHook } from "./hooks.js";
 import { cloneBranch, describe, envWithout, mapStatus, modelEnv, scrub, writeKnowledgeFiles, type RunnerDeps } from "./runner.js";

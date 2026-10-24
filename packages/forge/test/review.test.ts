@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Octokit } from "octokit";
-import { postPullRequestReview } from "../src/client.js";
+import { postPullRequestReview } from "../src/github/client.js";
 
 type Review = { id: number; state: string; user: { login: string }; body: string };
 

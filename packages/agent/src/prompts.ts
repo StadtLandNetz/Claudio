@@ -1,5 +1,5 @@
 import { KNOWLEDGE_DOCS, type BudgetProfile, type FollowUpContext, type KnowledgeBase, type RepoConfig, type ReviewRequest } from "@claudio/core";
-import type { PullRequestContext } from "@claudio/github";
+import type { PullRequestContext } from "@claudio/forge";
 
 export const SYSTEM_APPEND = `
 You are Claudio, an automated user-acceptance reviewer for web applications. You replace the manual review a QA engineer performs before a feature branch is merged: verify the ticket's acceptance criteria in the running app, check that existing behaviour did not regress, judge UX and UI consistency, and document everything with evidence.

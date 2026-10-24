@@ -19,7 +19,7 @@ import type {
   TestScript,
   TestStep,
 } from "@claudio/core";
-import type { AutomationSettings } from "@claudio/github";
+import type { AutomationSettings } from "@claudio/forge";
 import type { Db } from "./client.js";
 import { decrypt, encrypt, sha256 } from "./crypto.js";
 import {

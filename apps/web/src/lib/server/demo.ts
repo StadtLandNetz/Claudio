@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { addRepo, saveRole, updateRepoSettings, type Db } from '@claudio/db';
-import type { PullRequestContext } from '@claudio/github';
+import type { PullRequestContext } from '@claudio/forge';
 import { projectRoot } from './env.js';
 
 /** The offline demo: apps/demo-target with its fixture PR. Only used with CLAUDIO_DEV_FIXTURES=1. */

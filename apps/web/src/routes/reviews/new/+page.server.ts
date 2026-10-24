@@ -10,7 +10,7 @@ import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
 import { devFixtures } from '#lib/server/env.js';
 import { getPull, githubErrorMessage } from '#lib/server/github.js';
-import { createGithubClient } from '@claudio/github';
+import { createGithubClient } from '@claudio/forge';
 import { serverI18n, type I18n } from '#lib/i18n/index.js';
 import { budgetBlocks, runsPerViewport, viewportsOf } from '#lib/server/runs.js';
 import type { Actions, PageServerLoad } from './$types';

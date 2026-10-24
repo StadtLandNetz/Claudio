@@ -3,7 +3,7 @@ import { clearAccess, upsertUser } from '@claudio/db';
 import { STATE_COOKIE, isAllowed, safeNext, startSession } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 import { githubOAuthConfig, publicBaseUrl } from '#lib/server/env.js';
-import { exchangeCode } from '@claudio/github';
+import { exchangeCode } from '@claudio/forge';
 import { fetchGithubUser } from '#lib/server/github.js';
 import type { RequestHandler } from './$types';
 

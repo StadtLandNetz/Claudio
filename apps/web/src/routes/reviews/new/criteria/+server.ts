@@ -2,7 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { proposeCriteria } from '@claudio/agent/criteria';
 import { criterionText } from '@claudio/core';
 import { getReview, latestKnowledge, repoAnthropicKey } from '@claudio/db';
-import { createGithubClient, fetchPullRequestContext } from '@claudio/github';
+import { createGithubClient, fetchPullRequestContext } from '@claudio/forge';
 import { requireRepo } from '#lib/server/access.js';
 import { keyOptional } from '#lib/server/anthropic.js';
 import { userToken } from '#lib/server/auth.js';

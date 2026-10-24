@@ -13,7 +13,7 @@
     "@claudio/agent": "workspace:*",
     "@claudio/core": "workspace:*",
     "@claudio/db": "workspace:*",
-    "@claudio/github": "workspace:*",
+    "@claudio/forge": "workspace:*",
     "@claudio/browser": "workspace:*"
   }
 }

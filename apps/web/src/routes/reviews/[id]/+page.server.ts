@@ -34,7 +34,7 @@ import {
 	type FindingActivityKind
 } from '@claudio/db';
 import type { AccessLevel } from '@claudio/db';
-import { postPullRequestReview } from '@claudio/github';
+import { postPullRequestReview } from '@claudio/forge';
 import { githubAs } from '#lib/server/runs.js';
 import { publicEvidenceUrl } from '#lib/server/signed.js';
 import { requireRepo } from '#lib/server/access.js';

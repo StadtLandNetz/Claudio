@@ -26,7 +26,7 @@ import {
 	renderInstanceUrl,
 	setCommitStatus,
 	type AutomationSettings
-} from '@claudio/github';
+} from '@claudio/forge';
 import { DEFAULT_LOCALE, isLocale, serverI18n, type Locale } from '#lib/i18n/index.js';
 import { keyOptional } from './anthropic.js';
 import { budgetBlocks, runsPerViewport } from './runs.js';

@@ -1,4 +1,4 @@
-import { refreshAccessToken } from "@claudio/github";
+import { refreshAccessToken } from "@claudio/forge";
 import type { Db } from "./client.js";
 import { decrypt } from "./crypto.js";
 import { updateUserTokens } from "./queries.js";

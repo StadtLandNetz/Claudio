@@ -45,10 +45,10 @@ import { checkAnthropicKey, keyOptional, noKeyMessage } from '#lib/server/anthro
 import { userToken } from '#lib/server/auth.js';
 import { swr } from '#lib/server/cache.js';
 import { budgetBlocks, runsPerViewport, viewportsOf } from '#lib/server/runs.js';
-import { githubAppSlug, githubApp, installationFor } from '@claudio/github';
+import { githubAppSlug, githubApp, installationFor } from '@claudio/forge';
 import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
-import { WEBHOOK_EVENTS, addWebhookEvents, createGithubClient, createRepoWebhook, deleteRepoWebhook, getBranchHead, getRepoWebhook, listEnvironmentNames, suggestPreviewEnvironment } from '@claudio/github';
+import { WEBHOOK_EVENTS, addWebhookEvents, createGithubClient, createRepoWebhook, deleteRepoWebhook, getBranchHead, getRepoWebhook, listEnvironmentNames, suggestPreviewEnvironment } from '@claudio/forge';
 import { DEFAULT_AUTOMATION, DEFAULT_AUTO_REVIEW } from '#lib/server/automation.js';
 import { publicBaseUrl } from '#lib/server/env.js';
 import { renderMarkdown } from '#lib/markdown.js';

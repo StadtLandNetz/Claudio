@@ -49,7 +49,7 @@ import {
   type TestRun,
 } from "@claudio/db";
 import { persistArtifacts, persistTrace, purgeOldArtifacts } from "./artifacts.js";
-import { botToken } from "@claudio/github";
+import { botToken } from "@claudio/forge";
 import { finalizeReview } from "./finalize.js";
 import { followUpContext } from "./follow-up.js";
 import { humanBridge } from "./human.js";
