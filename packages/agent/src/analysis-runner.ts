@@ -9,7 +9,6 @@ import {
   analysisProfile,
   capBudget,
   forgeName,
-  loadRepoConfig,
   newRunId,
   nowIso,
   type AnalysisReport,
@@ -18,6 +17,7 @@ import {
   type KnowledgeDoc,
   type RunStatus,
 } from "@claudio/core";
+import { loadRepoConfig } from "@claudio/core/config-file";
 import type { ChangedSince, RepoRef } from "@claudio/forge";
 import { ANALYSIS_SYSTEM_APPEND, buildAnalysisPrompt } from "./analysis-prompt.js";
 import { createBrowserGuard, createCaptchaHook, createStopHook } from "./hooks.js";

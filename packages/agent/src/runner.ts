@@ -12,7 +12,6 @@ import {
   changeRef,
   changeTerms,
   criterionText,
-  loadRepoConfig,
   newRunId,
   nowIso,
   renderMarkdown,
@@ -29,6 +28,7 @@ import {
   type ReviewRequest,
   type RunStatus,
 } from "@claudio/core";
+import { loadRepoConfig } from "@claudio/core/config-file";
 import { forgeFor, type CloneSpec, type Forge, type PullRequestContext, type RepoRef } from "@claudio/forge";
 import { createBrowserGuard, createCaptchaHook, createStopHook } from "./hooks.js";
 import { envWithout, modelEnv } from "./env.js";

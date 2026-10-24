@@ -14,7 +14,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { chromium } from "playwright";
 import { z } from "zod";
 import { resolve } from "node:path";
-import { loadRepoConfig, newRunId } from "@claudio/core";
+import { newRunId } from "@claudio/core";
+import { loadRepoConfig } from "@claudio/core/config-file";
 import { CaptureBuffer } from "../capture.js";
 import type { BrowserAttachment } from "../driver.js";
 import { RunStore } from "../run-store.js";
