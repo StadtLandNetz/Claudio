@@ -1,4 +1,4 @@
-import type { Language, Verdict } from "@claudio/core";
+import { changeRef, type Language, type Provider, type Verdict } from "@claudio/core";
 import { slackWebhookUrl } from "./queries.js";
 import type { NotificationSettings, Repo } from "./schema.js";
 
@@ -126,7 +126,7 @@ export function wants(settings: NotificationSettings, e: NotifyEvent): boolean {
 }
 
 /** The message for one event. `baseUrl` is the web UI (links are left out without it). */
-export function renderSlack(repo: string, e: NotifyEvent, opts: { language: Language; baseUrl: string; mention: string }): SlackMessage {
+export function renderSlack(repo: string, e: NotifyEvent, opts: { language: Language; baseUrl: string; mention: string; provider?: Provider }): SlackMessage {
   const t = T[opts.language];
   const url = (path: string) => (opts.baseUrl ? `${opts.baseUrl}${path}` : null);
   const mention = opts.mention.trim() ? `${opts.mention.trim()} ` : "";
@@ -154,7 +154,7 @@ export function renderSlack(repo: string, e: NotifyEvent, opts: { language: Lang
       const finished = e.verdict !== null;
       const icon = !finished ? ":warning:" : e.verdict === "approve" ? ":white_check_mark:" : e.verdict === "request_changes" ? ":x:" : ":grey_question:";
       const word = finished ? t.verdict[e.verdict!] : t.failedRun;
-      const title = `#${e.prNumber} ${e.prTitle ?? ""}`.trim();
+      const title = `${changeRef(opts.provider, e.prNumber)} ${e.prTitle ?? ""}`.trim();
       const facts = finished
         ? [
             `${t.criteria} ${e.acPassed}/${e.acTotal}`,
@@ -173,7 +173,7 @@ export function renderSlack(repo: string, e: NotifyEvent, opts: { language: Lang
       return { text: `${word}: ${title}`, blocks };
     }
     case "automation": {
-      const title = `#${e.prNumber} ${e.prTitle ?? ""}`.trim();
+      const title = `${changeRef(opts.provider, e.prNumber)} ${e.prTitle ?? ""}`.trim();
       const word = e.started ? t.started : t.skipped;
       const how = t.trigger[e.trigger] ?? e.trigger;
       const target = e.reviewId ? link(url(`/reviews/${e.reviewId}`), title) : esc(title);
@@ -235,7 +235,7 @@ export const isSlackWebhookUrl = (url: string): boolean => /^https:\/\/hooks\.sl
  * break a run.
  */
 export async function notify(
-  repo: Pick<Repo, "fullName" | "slackWebhookEnc" | "notifications">,
+  repo: Pick<Repo, "fullName" | "provider" | "slackWebhookEnc" | "notifications">,
   e: NotifyEvent,
   opts: { language: Language; baseUrl: string; log?: (msg: string) => void },
 ): Promise<void> {
@@ -244,7 +244,7 @@ export async function notify(
     if (!hook) return;
     const settings = { ...DEFAULT_NOTIFICATIONS, ...(repo.notifications ?? {}) };
     if (!wants(settings, e)) return;
-    const err = await postSlack(hook, renderSlack(repo.fullName, e, { language: opts.language, baseUrl: opts.baseUrl, mention: settings.mention }));
+    const err = await postSlack(hook, renderSlack(repo.fullName, e, { language: opts.language, baseUrl: opts.baseUrl, mention: settings.mention, provider: repo.provider }));
     if (err) opts.log?.(`slack (${repo.fullName}, ${e.kind}): ${err}`);
   } catch (err) {
     opts.log?.(`slack (${repo.fullName}, ${e.kind}): ${(err as Error).message}`);

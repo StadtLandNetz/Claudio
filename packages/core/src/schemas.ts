@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ProviderSchema, RepoFullNameSchema } from "./forge.js";
 
 export const SeveritySchema = z.enum(["blocker", "major", "minor", "suggestion"]);
 export type Severity = z.infer<typeof SeveritySchema>;
@@ -98,7 +99,7 @@ export const FollowUpSchema = z.object({
   reviewId: z.number(),
   /** Commit the earlier review checked. */
   headSha: z.string().optional(),
-  /** Files changed since that commit; null when GitHub could not tell. */
+  /** Files changed since that commit; null when GitHub or GitLab could not tell. */
   changedFiles: z.array(z.string()).nullable().default(null),
   rechecks: z.array(RecheckSchema).default([]),
 });
@@ -113,7 +114,9 @@ export const TodoItemSchema = z.object({
 export type TodoItem = z.infer<typeof TodoItemSchema>;
 
 export const ReviewRequestSchema = z.object({
-  repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "repo must be owner/name"),
+  repo: RepoFullNameSchema,
+  /** Absent in requests from before GitLab support: GitHub. */
+  provider: ProviderSchema.optional(),
   pr: z.number().int().positive(),
   instanceUrl: z.string().url(),
   roles: z.array(z.string()).default([]),
@@ -187,7 +190,7 @@ export const criterionText = (s: string): string => s.trim().replace(/^\d+[.)]\s
 export type FollowUpContext = {
   reviewId: number;
   headSha?: string;
-  /** Files changed since that commit; null when GitHub could not tell (then everything counts as changed). */
+  /** Files changed since that commit; null when GitHub or GitLab could not tell (then everything counts as changed). */
   changedFiles: string[] | null;
   summary: string;
   criteria: { criterion: string; status: AcceptanceCriterionResult["status"]; notes: string }[];

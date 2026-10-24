@@ -9,6 +9,8 @@ import {
   ReviewRequestSchema,
   budgetProfile,
   capBudget,
+  changeRef,
+  changeTerms,
   criterionText,
   loadRepoConfig,
   newRunId,
@@ -20,12 +22,13 @@ import {
   KNOWLEDGE_DOCS,
   type FollowUpContext,
   type KnowledgeBase,
+  type Provider,
   type RepoConfig,
   type ReviewReport,
   type ReviewRequest,
   type RunStatus,
 } from "@claudio/core";
-import { createGithubClient, fetchPullRequestContext, postPullRequestReview, type PullRequestContext } from "@claudio/forge";
+import { forgeFor, type CloneSpec, type Forge, type PullRequestContext, type RepoRef } from "@claudio/forge";
 import { createBrowserGuard, createCaptchaHook, createStopHook } from "./hooks.js";
 import { envWithout, modelEnv } from "./env.js";
 import { SYSTEM_APPEND, buildReviewPrompt, extractAffectedAreas } from "./prompts.js";
@@ -44,8 +47,13 @@ export type RunnerDeps = {
   roleEnv?: Record<string, string>;
   /** Claudio project root (where .claude/agents and skills live). Default: process.cwd() */
   projectRoot?: string;
+  /** GitHub or GitLab, acting as Claudio's bot or the person the run is for. */
+  forge?: Forge | null;
+  /** GitLab's project id, so API calls survive a renamed project. */
+  repoExternalId?: number | null;
+  /** Without `forge`: a token for the request's provider (CLI). Default: GITHUB_TOKEN or GITLAB_TOKEN. */
   githubToken?: string;
-  /** Use a PullRequestContext JSON file instead of fetching from GitHub (offline runs, demo target). */
+  /** Use a PullRequestContext JSON file instead of fetching from GitHub or GitLab (offline runs, demo target). */
   prContextFile?: string;
   /** Use an existing checkout instead of cloning the PR branch. */
   repoDir?: string;
@@ -91,14 +99,16 @@ export async function runReview(input: z.input<typeof ReviewRequestSchema>, deps
   if (config && config.repo !== request.repo) log(`warning: claudio.config.json is for ${config.repo}, reviewing ${request.repo}`);
   const roleEnvVars = Object.values(config?.roles ?? {}).flatMap((r) => [r.usernameEnv, r.passwordEnv]);
 
-  const token = deps.githubToken ?? process.env.GITHUB_TOKEN;
+  const forge = runForge(deps, request.provider);
+  const ref: RepoRef = { fullName: request.repo, externalId: deps.repoExternalId };
   let pr: PullRequestContext;
   if (deps.prContextFile) {
     pr = JSON.parse(readFileSync(deps.prContextFile, "utf8")) as PullRequestContext;
     log(`using PR context from ${deps.prContextFile}`);
   } else {
-    log(`fetching PR #${request.pr} of ${request.repo}`);
-    pr = await fetchPullRequestContext(createGithubClient(token), request.repo, request.pr);
+    if (!forge) throw new Error(`${tokenEnv(request.provider)} is not set`);
+    log(`fetching ${changeTerms(request.provider).short} ${changeRef(request.provider, request.pr)} of ${request.repo}`);
+    pr = await forge.fetchChangeContext(ref, request.pr);
   }
   store.writeFile("pr-context.json", pr);
   log(`PR "${pr.title}" (${pr.headRef} → ${pr.baseRef}), ${pr.files.length} files, ${pr.issues.length} linked issues`);
@@ -106,14 +116,14 @@ export async function runReview(input: z.input<typeof ReviewRequestSchema>, deps
   let repoDir: string | null = null;
   if (deps.repoDir) {
     repoDir = resolve(deps.repoDir);
-  } else if (request.cloneRepo && token) {
+  } else if (request.cloneRepo && forge) {
     repoDir = join(runDir, "repo");
     try {
-      await cloneBranch(request.repo, pr.headRef, repoDir, token);
+      await cloneBranch(await forge.cloneSpec(ref), pr.headRef, repoDir);
       log(`checked out ${pr.headRef} at ${repoDir}`);
     } catch (e) {
       repoDir = null;
-      const msg = `clone failed: ${scrub((e as Error).message, token)}`;
+      const msg = `clone failed: ${forge.redact((e as Error).message)}`;
       errors.push(msg);
       log(msg);
     }
@@ -262,7 +272,8 @@ export async function runReview(input: z.input<typeof ReviewRequestSchema>, deps
     try {
       // Blocking findings request changes on the PR instead of failing a check.
       const requestChanges = verdict(report) === "request_changes";
-      const posted = await postPullRequestReview(createGithubClient(token), request.repo, request.pr, renderPrComment(report, deps.reportUrl), requestChanges, REVIEW_SUPERSEDED[request.language]);
+      if (!forge) throw new Error(`${tokenEnv(request.provider)} is not set`);
+      const posted = await forge.postReview(ref, request.pr, renderPrComment(report, deps.reportUrl), requestChanges, REVIEW_SUPERSEDED[request.language]);
       report.commentUrl = posted.url;
       writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2));
       log(`PR review posted (${posted.requestedChanges ? "changes requested" : "comment"}): ${posted.url}`);
@@ -344,13 +355,22 @@ export function short(text: string, max: number): string {
   return text.length <= max ? text : text.slice(0, max - 1) + "…";
 }
 
+/** The run's GitHub or GitLab access: the one passed in, else a token from the environment (CLI). */
+export function runForge(deps: Pick<RunnerDeps, "forge" | "githubToken">, provider: Provider | undefined): Forge | null {
+  if (deps.forge !== undefined) return deps.forge;
+  const p = provider ?? "github";
+  const token = deps.githubToken ?? process.env[tokenEnv(p)];
+  return token ? forgeFor(p, token) : null;
+}
+
+const tokenEnv = (provider: Provider | undefined) => (provider === "gitlab" ? "GITLAB_TOKEN" : "GITHUB_TOKEN");
+
 /** Shallow clone of one branch. Returns the checked-out commit sha. */
-export async function cloneBranch(repo: string, branch: string, dir: string, token: string): Promise<string> {
-  const url = `https://x-access-token:${token}@github.com/${repo}.git`;
+export async function cloneBranch(spec: CloneSpec, branch: string, dir: string): Promise<string> {
   const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
-  await execFileAsync("git", ["clone", "--depth", "1", "--branch", branch, "--single-branch", url, dir], { env, maxBuffer: 10 * 1024 * 1024 });
+  await execFileAsync("git", ["clone", "--depth", "1", "--branch", branch, "--single-branch", spec.url, dir], { env, maxBuffer: 10 * 1024 * 1024 });
   // The token is part of the remote URL; drop it so it does not linger in .git/config.
-  await execFileAsync("git", ["-C", dir, "remote", "set-url", "origin", `https://github.com/${repo}.git`], { env });
+  await execFileAsync("git", ["-C", dir, "remote", "set-url", "origin", spec.publicUrl], { env });
   const { stdout } = await execFileAsync("git", ["-C", dir, "rev-parse", "HEAD"], { env });
   return stdout.trim();
 }

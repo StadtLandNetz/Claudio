@@ -39,14 +39,14 @@
 	<h2>{i.t('common.reposSetUp')}</h2>
 	{#if data.repos.length > 0}
 		<ul class="repos sheet">
-			{#each data.repos as repo (repo.fullName)}
+			{#each data.repos as repo (repo.path)}
 				<li>
-					<a href="/repos/{repo.fullName}">{repo.fullName}</a>
+					<a href="/repos/{repo.path}">{repo.fullName}</a>
 					<span class="faint">
 						{repo.lastReview ? i.t('common.lastReview', { date: i.formatDate(repo.lastReview) }) : i.t('common.noReviewYet')}
 					</span>
 					{#if !repo.dataConfirmed}
-						<a class="setup" href="/repos/{repo.fullName}?tab=settings">{i.t('common.finishSetup')}</a>
+						<a class="setup" href="/repos/{repo.path}?tab=settings">{i.t('common.finishSetup')}</a>
 					{/if}
 				</li>
 			{/each}
@@ -87,7 +87,7 @@
 						{#if repo.description}<p class="faint">{repo.description}</p>{/if}
 					</div>
 					{#if repo.added}
-						<a class="btn small" href="/repos/{repo.fullName}">{i.t('common.open')}</a>
+						<a class="btn small" href="/repos/{repo.path}">{i.t('common.open')}</a>
 					{:else}
 						<form method="POST" action="?/add">
 							<input type="hidden" name="fullName" value={repo.fullName} />
@@ -106,7 +106,7 @@
 		<form method="POST" action="?/add" class="by-name sheet">
 			<label class="field">
 				<span>{i.t('common.repoNotListed')}</span>
-				<input type="text" name="fullName" required placeholder={i.t('common.repoNamePlaceholder')} />
+				<input type="text" name="fullName" required placeholder={data.gitlabUrl ? i.t('common.repoNamePlaceholderGitlab', { host: data.gitlabUrl }) : i.t('common.repoNamePlaceholder')} />
 				<small>
 					{i.t('common.orgReposHint')}
 					{#if data.grantUrl}<a href={data.grantUrl} target="_blank" rel="noopener noreferrer">{i.t('common.manageGrant')}</a>{/if}

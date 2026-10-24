@@ -10,7 +10,7 @@ import type { RequestHandler } from './$types';
  * either way. For a question of the agent, `answer` carries the reply.
  */
 export const POST: RequestHandler = async ({ params, request, locals }) => {
-	const { t } = serverI18n(locals.locale);
+	const { t } = serverI18n(locals.locale, locals.user?.provider);
 	const req = await getHumanRequest(db(), Number(params.id));
 	if (!req) error(404, t('common.unknownRequest'));
 	await requireRepo(locals.user, req.repoId, 'write');

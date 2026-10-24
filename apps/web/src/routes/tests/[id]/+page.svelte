@@ -43,7 +43,7 @@
 <div class="page-title">
 	<div>
 		<p class="crumbs">
-			<a href="/repos/{s.repo}">{s.repo}</a><span class="sep"></span><a href="/repos/{s.repo}?tab=tests">{i.t('test.allTests')}</a>
+			<a href="/repos/{s.repoPath}">{s.repo}</a><span class="sep"></span><a href="/repos/{s.repoPath}?tab=tests">{i.t('test.allTests')}</a>
 		</p>
 		<h1>{s.name}</h1>
 		<p class="lead kind">

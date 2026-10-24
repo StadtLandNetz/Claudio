@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ProviderSchema, RepoFullNameSchema } from "./forge.js";
 import { BudgetTierSchema, EvidenceSchema, FindingSchema, LanguageSchema, RunCostSchema, RunStatusSchema } from "./schemas.js";
 
 /**
@@ -48,7 +49,9 @@ export type KnowledgeBase = {
 };
 
 export const AnalysisRequestSchema = z.object({
-  repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "repo must be owner/name"),
+  repo: RepoFullNameSchema,
+  /** Absent in requests from before GitLab support: GitHub. */
+  provider: ProviderSchema.optional(),
   /** Branch to analyse; the default branch when omitted. */
   branch: z.string().optional(),
   instanceUrl: z.string().url(),

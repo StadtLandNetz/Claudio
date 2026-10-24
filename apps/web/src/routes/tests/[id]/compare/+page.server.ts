@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { describeStep, resolveStepTemplates } from '@claudio/core';
+import { describeStep, resolveStepTemplates, repoPath } from '@claudio/core';
 import { getTestRun, getTestScript } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
@@ -10,7 +10,7 @@ import type { PageServerLoad } from './$types';
 const runTagOf = (runId: string) => runId.split('-').slice(-2).join('');
 
 export const load: PageServerLoad = async ({ params, url, locals }) => {
-	const { t } = serverI18n(locals.locale);
+	const { t } = serverI18n(locals.locale, locals.user?.provider);
 	const script = await getTestScript(db(), Number(params.id));
 	if (!script) error(404, t('test.testNotFound'));
 	await requireRepo(locals.user, script.repoId, 'read');
@@ -46,5 +46,5 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		a: view[0]!.steps[i] ?? null,
 		b: view[1]!.steps[i] ?? null
 	}));
-	return { script: { id: script.id, name: script.name, repo: script.repoFullName }, a: view[0]!, b: view[1]!, rows };
+	return { script: { id: script.id, name: script.name, repo: script.repoFullName, repoPath: repoPath({ provider: script.repoProvider, fullName: script.repoFullName }) }, a: view[0]!, b: view[1]!, rows };
 };

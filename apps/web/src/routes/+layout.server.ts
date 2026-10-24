@@ -1,3 +1,4 @@
+import { repoPath } from '@claudio/core';
 import { countsByRepo, listOpenHumanRequests } from '@claudio/db';
 import { visibleRepos } from '#lib/server/access.js';
 import { keyOptional } from '#lib/server/anthropic.js';
@@ -22,6 +23,7 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 			const c = counts.get(r.id) ?? { tests: 0, reviews: 0, roles: 0 };
 			return {
 				fullName: r.fullName,
+				path: repoPath(r),
 				// false for the offline demo repo, which does not exist on GitHub.
 				onGithub: !(devFixtures() && r.fullName === DEMO_REPO),
 				level: levels.get(r.id) ?? 'read',

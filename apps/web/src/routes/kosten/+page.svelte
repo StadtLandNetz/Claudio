@@ -32,9 +32,9 @@
 		<section class="budgets" id="budgets">
 			<h2>{i.t('common.budgetsTitle')}</h2>
 			<ul class="sheet">
-				{#each data.budgets as b (b.repo)}
+				{#each data.budgets as b (b.path)}
 					<li class:warn={b.ratio >= 0.8} class:over={b.exhausted}>
-						<a href="/repos/{b.repo}?tab=settings#budget">{b.repo}</a>
+						<a href="/repos/{b.path}?tab=settings#budget">{b.repo}</a>
 						<span class="bar" aria-hidden="true"><span style:width="{Math.min(100, Math.round(b.ratio * 100))}%"></span></span>
 						<span class="num">{i.formatUsd(b.spent)} / {i.formatUsd(b.limit)}</span>
 					</li>
@@ -51,9 +51,9 @@
 						<tr><th>{i.t('common.colRepository')}</th><th class="num">{i.t('common.colReviews')}</th><th class="num">{i.t('common.colAnalyses')}</th><th class="num">{i.t('common.colTests')}</th><th class="num">{i.t('common.colTotal')}</th></tr>
 					</thead>
 					<tbody>
-						{#each m.repos as r (r.repo)}
+						{#each m.repos as r (r.path)}
 							<tr>
-								<td><a href="/repos/{r.repo}">{r.repo}</a></td>
+								<td><a href="/repos/{r.path}">{r.repo}</a></td>
 								<td class="num">{cell(r.review)}<span class="runs">{r.review.runs || ''}</span></td>
 								<td class="num">{cell(r.analysis)}<span class="runs">{r.analysis.runs || ''}</span></td>
 								<td class="num">{cell(r.test)}<span class="runs">{r.test.runs || ''}</span></td>

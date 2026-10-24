@@ -1,8 +1,6 @@
 import { ViewportSchema, type TestRunRequest, type Viewport } from '@claudio/core';
 import { budgetState, type createTestRuns, type Repo } from '@claudio/db';
-import { botClient, createGithubClient } from '@claudio/forge';
 import type { I18n } from '#lib/i18n/index.js';
-import { userToken, type SessionUser } from './auth.js';
 import { db } from './db.js';
 
 /** Viewports ticked in a form (`viewports` checkboxes); none ticked means desktop. */
@@ -27,15 +25,4 @@ export function runsPerViewport(
 export async function budgetBlocks(repo: Pick<Repo, 'id' | 'monthlyBudgetUsd'>, t: I18n['t']): Promise<string | null> {
 	const state = await budgetState(db(), repo);
 	return state.exhausted ? t('system.budgetExhausted', { spent: state.spent.toFixed(2), limit: state.limit!.toFixed(2) }) : null;
-}
-
-/**
- * Who Claudio writes to GitHub as: the GitHub App ("Claudio[bot]") when it is
- * installed on the repository, otherwise the signed-in person.
- */
-export async function githubAs(repoFullName: string, user: SessionUser | null): Promise<{ client: ReturnType<typeof createGithubClient>; as: 'app' | 'user' } | null> {
-	const bot = await botClient(repoFullName).catch(() => null);
-	if (bot) return { client: bot, as: 'app' };
-	const token = user ? await userToken(user) : null;
-	return token ? { client: createGithubClient(token), as: 'user' } : null;
 }

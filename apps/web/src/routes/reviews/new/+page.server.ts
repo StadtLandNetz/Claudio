@@ -1,28 +1,27 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { ReviewRequestSchema } from '@claudio/core';
+import { ReviewRequestSchema, parseRepoPath, repoHref, repoPath } from '@claudio/core';
 import { criterionText, verdict } from '@claudio/core';
 import { createReview, createTestRuns, dismissedFindingIds, listRoles, listTestScripts, previousReviewOf } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
 import { DEFAULT_AUTOMATION, resolveInstanceUrl } from '#lib/server/automation.js';
 import { keyOptional } from '#lib/server/anthropic.js';
-import { userToken } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 import { DEMO_FIXTURE, DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
 import { devFixtures } from '#lib/server/env.js';
-import { getPull, githubErrorMessage } from '#lib/server/github.js';
-import { createGithubClient } from '@claudio/forge';
+import { forgeErrorMessage, userForge } from '#lib/server/forge.js';
 import { serverI18n, type I18n } from '#lib/i18n/index.js';
 import { budgetBlocks, runsPerViewport, viewportsOf } from '#lib/server/runs.js';
 import type { Actions, PageServerLoad } from './$types';
 
 async function context(url: URL, user: App.Locals['user'], t: I18n['t']) {
-	const fullName = url.searchParams.get('repo') ?? '';
+	const key = parseRepoPath(url.searchParams.get('repo') ?? '');
+	if (!key) error(404, t('system.notFound'));
 	const prNumber = Number(url.searchParams.get('pr'));
-	const { repo } = await requireRepo(user, fullName, 'write');
+	const { repo } = await requireRepo(user, key, 'write');
 	if (!Number.isInteger(prNumber) || prNumber <= 0) error(400, t('review.prNumberMissing'));
 	const roles = await listRoles(db(), repo.id);
-	if (!repo.dataConfirmed || roles.length === 0) redirect(303, `/repos/${repo.fullName}?tab=settings`);
-	if (!repo.anthropicKeyEnc && !keyOptional(repo)) redirect(303, `/repos/${repo.fullName}?tab=settings#anthropic`);
+	if (!repo.dataConfirmed || roles.length === 0) redirect(303, repoHref(repo, 'tab=settings'));
+	if (!repo.anthropicKeyEnc && !keyOptional(repo)) redirect(303, `${repoHref(repo, 'tab=settings')}#anthropic`);
 
 	const fixture = repo.fullName === DEMO_REPO && devFixtures() ? DEMO_FIXTURE : null;
 	let pr: { title: string; headRef: string; headSha: string | null; url: string } | null = null;
@@ -31,14 +30,14 @@ async function context(url: URL, user: App.Locals['user'], t: I18n['t']) {
 		const p = demoPullRequest();
 		if (p.number === prNumber) pr = { title: p.title, headRef: p.headRef, headSha: null, url: p.url };
 	} else {
-		const token = await userToken(user!);
-		if (!token) prError = t('review.prNeedsGithub');
+		const forge = await userForge(user, repo.provider);
+		if (!forge) prError = t('review.prNeedsGithub');
 		else
 			try {
-				const p = await getPull(token, repo.fullName, prNumber);
+				const p = await forge.getChange(repo, prNumber);
 				pr = { title: p.title, headRef: p.headRef, headSha: p.headSha ?? null, url: p.url };
 			} catch (e) {
-				prError = githubErrorMessage(e);
+				prError = forgeErrorMessage(e);
 			}
 	}
 	return { repo, roles, prNumber, pr, prError, fixture };
@@ -64,9 +63,9 @@ async function suggestedInstance(ctx: Awaited<ReturnType<typeof context>>, user:
 	const { repo, pr, prNumber, fixture } = ctx;
 	const fallback = { url: repo.defaultInstanceUrl ?? '', source: null };
 	if (!pr) return fallback;
-	const token = fixture ? null : await userToken(user!);
+	const forge = fixture ? null : await userForge(user, repo.provider);
 	const settings = repo.automation ?? DEFAULT_AUTOMATION;
-	const resolved = await resolveInstanceUrl(repo, settings, token ? createGithubClient(token) : null, fixture, { prNumber, headSha: pr.headSha, branch: pr.headRef }).catch(() => null);
+	const resolved = await resolveInstanceUrl(repo, settings, forge, fixture, { prNumber, headSha: pr.headSha, branch: pr.headRef }).catch(() => null);
 	if (!resolved || 'missing' in resolved) return fallback;
 	return {
 		url: resolved.url,
@@ -76,7 +75,7 @@ async function suggestedInstance(ctx: Awaited<ReturnType<typeof context>>, user:
 }
 
 export const load: PageServerLoad = async ({ url, locals }) => {
-	const { t } = serverI18n(locals.locale);
+	const { t } = serverI18n(locals.locale, locals.user?.provider);
 	const ctx = await context(url, locals.user, t);
 	const { repo, roles, prNumber, pr, prError } = ctx;
 	const instance = await suggestedInstance(ctx, locals.user, t);
@@ -86,6 +85,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		previous,
 		reviewTests: tests.map((t) => t.name),
 		repo: repo.fullName,
+		repoPath: repoPath(repo),
 		prNumber,
 		pr,
 		prError,
@@ -108,7 +108,7 @@ function criteriaOf(f: FormData): string[] | undefined {
 
 export const actions: Actions = {
 	default: async ({ url, request, locals }) => {
-		const { t } = serverI18n(locals.locale);
+		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const { repo, prNumber, pr, fixture } = await context(url, locals.user, t);
 		if (!pr) return fail(400, { error: t('review.prLoadFailed') });
 		const blocked = await budgetBlocks(repo, t);
@@ -116,6 +116,7 @@ export const actions: Actions = {
 		const f = await request.formData();
 		const parsed = ReviewRequestSchema.safeParse({
 			repo: repo.fullName,
+			provider: repo.provider,
 			pr: prNumber,
 			instanceUrl: String(f.get('instanceUrl') ?? '').trim(),
 			roles: f.getAll('roles').map(String),
@@ -153,7 +154,7 @@ export const actions: Actions = {
 					scriptId: t.id,
 					repoId: repo.id,
 					reviewId: id,
-					request: { repo: repo.fullName, instanceUrl: parsed.data.instanceUrl, budget: 'quick' as const, language: parsed.data.language, headed: false, rerecord: false },
+					request: { repo: repo.fullName, provider: repo.provider, instanceUrl: parsed.data.instanceUrl, budget: 'quick' as const, language: parsed.data.language, headed: false, rerecord: false },
 					startedBy: locals.user!.id,
 					viewports: t.viewports?.length ? t.viewports : ['desktop']
 				})))

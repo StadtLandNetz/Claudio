@@ -79,3 +79,17 @@ describe("isSlackWebhookUrl", () => {
     expect(isSlackWebhookUrl("https://169.254.169.254/latest")).toBe(false);
   });
 });
+
+describe("wording", () => {
+  // Guards the GitHub wording while the messages become provider-aware.
+  it("names pull requests the GitHub way", () => {
+    expect(renderSlack("o/r", review(), opts).text).toMatchSnapshot();
+    expect(renderSlack("o/r", { kind: "automation", started: true, prNumber: 17, prTitle: "Neue Fahrt", trigger: "comment", reason: "", reviewId: 9 }, opts)).toMatchSnapshot();
+  });
+});
+
+describe("GitLab wording", () => {
+  it("references merge requests with !", () => {
+    expect(renderSlack("slw/dispo", review(), { ...opts, provider: "gitlab" }).text).toContain("!1448 Trip trackings");
+  });
+});

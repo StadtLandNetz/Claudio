@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ProviderSchema, RepoFullNameSchema } from "./forge.js";
 import { BudgetTierSchema, EvidenceSchema, FindingSchema, LanguageSchema, RunCostSchema, RunStatusSchema, ViewportSchema } from "./schemas.js";
 
 /**
@@ -74,7 +75,9 @@ export const TestBudgetTierSchema = z.enum(["quick", "standard", "thorough", "ex
 export type TestBudgetTier = z.infer<typeof TestBudgetTierSchema>;
 
 export const TestRunRequestSchema = z.object({
-  repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "repo must be owner/name"),
+  repo: RepoFullNameSchema,
+  /** Absent in requests from before GitLab support: GitHub. */
+  provider: ProviderSchema.optional(),
   instanceUrl: z.string().url(),
   budget: TestBudgetTierSchema.default("quick"),
   language: LanguageSchema.default("de"),

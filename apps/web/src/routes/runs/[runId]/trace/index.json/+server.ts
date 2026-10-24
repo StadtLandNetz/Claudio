@@ -6,7 +6,7 @@ import type { RequestHandler } from './$types';
 
 /** The compact index of a run's Playwright trace, for the timeline. 404 while the trace is not there. */
 export const GET: RequestHandler = async ({ params, locals }) => {
-	const { t } = serverI18n(locals.locale);
+	const { t } = serverI18n(locals.locale, locals.user?.provider);
 	await requireRunAccess(locals, params.runId);
 	const trace = await openRunTrace(params.runId);
 	if (!trace) error(404, t('common.fileNotFound'));

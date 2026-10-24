@@ -1,4 +1,4 @@
-import { AnalysisRequestSchema, ReviewRequestSchema, renderCommitStatus } from '@claudio/core';
+import { AnalysisRequestSchema, ReviewRequestSchema, changeRef, envMatches, renderCommitStatus } from '@claudio/core';
 import {
 	createAnalysis,
 	createReview,
@@ -14,19 +14,7 @@ import {
 	type AutoReviewDefaults,
 	type Repo
 } from '@claudio/db';
-import {
-	botClient,
-	createGithubClient,
-	decideTrigger,
-	findPreviewDeployment,
-	getPullHead,
-	postPullRequestComment,
-	pullsForCommit,
-	reactToComment,
-	renderInstanceUrl,
-	setCommitStatus,
-	type AutomationSettings
-} from '@claudio/forge';
+import { botForge, decideTrigger, forgeFor, gitlabBotUsername, renderInstanceUrl, type AutomationSettings, type Forge, type TriggerDecision } from '@claudio/forge';
 import { DEFAULT_LOCALE, isLocale, serverI18n, type Locale } from '#lib/i18n/index.js';
 import { keyOptional } from './anthropic.js';
 import { budgetBlocks, runsPerViewport } from './runs.js';
@@ -65,25 +53,26 @@ export type EventResult = {
 	prTitle?: string | null;
 };
 
-type Github = ReturnType<typeof createGithubClient>;
-
 /**
  * The person who set up the automation: automated runs act with their token and
- * post to GitHub in their language.
+ * post to GitHub or GitLab in their language.
  */
 async function automationUser(repo: Repo): Promise<{ token: string | null; userId: number; locale: Locale }> {
 	const userId = repo.automationUserId ?? repo.createdBy;
 	const user = await getUser(db(), userId);
-	return { token: user ? await freshAccessToken(db(), user) : null, userId, locale: isLocale(user?.locale) ? user.locale : DEFAULT_LOCALE };
+	const token = user && user.provider === repo.provider ? await freshAccessToken(db(), user) : null;
+	return { token, userId, locale: isLocale(user?.locale) ? user.locale : DEFAULT_LOCALE };
 }
 
 /**
- * Turns a verified GitHub event into a review or analysis job, and tells the
+ * Turns a verified GitHub or GitLab event into a review or analysis job, and tells the
  * repository's Slack channel about automatic reviews: started, or why not.
  */
-export async function handleGithubEvent(repo: Repo, event: string, payload: Record<string, any>, baseUrl: string): Promise<EventResult> {
+export async function handleWebhookEvent(repo: Repo, event: string, payload: Record<string, any>, baseUrl: string): Promise<EventResult> {
 	const settings = repo.automation ?? DEFAULT_AUTOMATION;
-	const decision = decideTrigger(event, payload, settings, repo.defaultBranch);
+	// GitLab marks no comment as a bot's: Claudio's own are recognised by the bot's name.
+	const bot = repo.provider === 'gitlab' ? await gitlabBotUsername() : null;
+	const decision = decideTrigger(repo.provider, event, payload, settings, repo.defaultBranch, { botUsernames: bot ? [bot] : [] });
 	if (decision.kind === 'ignore') return { action: 'ignored', reason: decision.reason };
 	const result = await handleDecision(repo, settings, decision, baseUrl);
 	if (decision.kind === 'review' || decision.kind === 'deployment') {
@@ -111,20 +100,20 @@ export async function handleGithubEvent(repo: Repo, event: string, payload: Reco
 	return result;
 }
 
-type Decision = Exclude<ReturnType<typeof decideTrigger>, { kind: 'ignore' }>;
+type Decision = Exclude<TriggerDecision, { kind: 'ignore' }>;
 
 async function handleDecision(repo: Repo, settings: AutomationSettings, decision: Decision, baseUrl: string): Promise<EventResult> {
 	const fixture = repo.fullName === DEMO_REPO && devFixtures() ? DEMO_FIXTURE : null;
 	const { token, userId, locale } = await automationUser(repo);
-	const { t } = serverI18n(locale);
-	// Claudio's own identity (GitHub App) when installed; otherwise the token of the person who set up the automation.
-	const bot = fixture ? null : await botClient(repo.fullName).catch(() => null);
-	const github = bot ?? (token && !fixture ? createGithubClient(token) : null);
+	const { t } = serverI18n(locale, repo.provider);
+	// Claudio's own identity (GitHub App, GitLab bot) where it has one; otherwise the token of the person who set up the automation.
+	const bot = fixture ? null : await botForge(repo).catch(() => null);
+	const forge = bot ?? (token && !fixture ? forgeFor(repo.provider, token) : null);
 
 	// Every model call of this repo runs on its own key; without one, nothing starts.
 	if (!repo.anthropicKeyEnc && !keyOptional(repo)) {
-		if (github && decision.kind === 'review' && decision.trigger === 'comment') {
-			await postPullRequestComment(github, repo.fullName, decision.prNumber, t('system.cannotReview', { reason: t('system.noKey') })).catch(() => undefined);
+		if (forge && decision.kind === 'review' && decision.trigger === 'comment') {
+			await forge.postComment(repo, decision.prNumber, t('system.cannotReview', { reason: t('system.noKey') })).catch(() => undefined);
 		}
 		return { action: 'ignored', reason: 'no Anthropic API key for this repository', notice: t('system.noKey') };
 	}
@@ -133,7 +122,7 @@ async function handleDecision(repo: Repo, settings: AutomationSettings, decision
 		if (!repo.defaultInstanceUrl) return { action: 'ignored', reason: 'no default instance URL for the analysis' };
 		if ((await listAnalyses(db(), { repoId: repo.id, activeOnly: true })).length > 0) return { action: 'ignored', reason: 'an analysis is already running' };
 		const roles = (await listRoles(db(), repo.id)).map((r) => r.name);
-		const request = AnalysisRequestSchema.parse({ repo: repo.fullName, branch: decision.branch, instanceUrl: repo.defaultInstanceUrl, roles, budget: 'quick' });
+		const request = AnalysisRequestSchema.parse({ repo: repo.fullName, provider: repo.provider, branch: decision.branch, instanceUrl: repo.defaultInstanceUrl, roles, budget: 'quick' });
 		const id = await createAnalysis(db(), { repoId: repo.id, request, fixture, startedBy: userId });
 		return { action: 'analysis', reason: `push to ${decision.branch}`, id };
 	}
@@ -141,23 +130,24 @@ async function handleDecision(repo: Repo, settings: AutomationSettings, decision
 	if (!repo.dataConfirmed) return { action: 'ignored', reason: 'the repository is not cleared for reviews (test data confirmation missing)', notice: t('system.notCleared') };
 	const blocked = await budgetBlocks(repo, t);
 	if (blocked) {
-		if (github && decision.kind === 'review' && decision.trigger === 'comment') {
-			await postPullRequestComment(github, repo.fullName, decision.prNumber, t('system.cannotReview', { reason: blocked })).catch(() => undefined);
+		if (forge && decision.kind === 'review' && decision.trigger === 'comment') {
+			await forge.postComment(repo, decision.prNumber, t('system.cannotReview', { reason: blocked })).catch(() => undefined);
 		}
 		return { action: 'ignored', reason: 'monthly budget used up', notice: blocked, prNumber: decision.kind === 'review' ? decision.prNumber : undefined };
 	}
 
 	// A review instance finished deploying: review the open PR it belongs to.
 	if (decision.kind === 'deployment') {
-		if (!github) return { action: 'ignored', reason: 'no GitHub access to find the pull request' };
-		const pulls = (await pullsForCommit(github, repo.fullName, decision.sha)).filter((p) => !p.draft);
+		if (!forge) return { action: 'ignored', reason: `no ${repo.provider} access to find the pull request` };
+		const pulls = (await forge.changesForCommit(repo, decision.sha)).filter((p) => !p.draft);
 		if (pulls.length === 0) return { action: 'ignored', reason: 'no open, non-draft pull request with this head commit' };
 		const results = [];
 		for (const p of pulls) {
 			results.push(
-				await queueReview(repo, settings, github, baseUrl, userId, locale, fixture, {
+				await queueReview(repo, settings, forge, baseUrl, userId, locale, fixture, {
 					prNumber: p.number,
 					headSha: decision.sha,
+					branch: p.branch,
 					title: p.title,
 					trigger: 'deployment',
 					instanceUrl: decision.url
@@ -170,56 +160,58 @@ async function handleDecision(repo: Repo, settings: AutomationSettings, decision
 
 	// Review. Comment events carry no head commit; fetch it.
 	let { headSha, branch, title } = decision;
-	if ((!headSha || !branch) && github) {
-		const head = await getPullHead(github, repo.fullName, decision.prNumber);
+	if ((!headSha || !branch) && forge) {
+		const head = await forge.getChange(repo, decision.prNumber);
 		if (!head.open) return { action: 'ignored', reason: 'pull request is closed' };
-		({ sha: headSha, branch, title } = head);
+		headSha = head.headSha ?? null;
+		branch = head.headRef;
+		title = head.title;
 	}
 
-	const resolved = await resolveInstanceUrl(repo, settings, github, fixture, { prNumber: decision.prNumber, headSha, branch }, locale);
+	const resolved = await resolveInstanceUrl(repo, settings, forge, fixture, { prNumber: decision.prNumber, headSha, branch }, locale);
 	if ('missing' in resolved) {
-		if (github && decision.trigger === 'comment') {
-			await postPullRequestComment(github, repo.fullName, decision.prNumber, t('system.cannotReview', { reason: resolved.missing })).catch(() => undefined);
+		if (forge && decision.trigger === 'comment') {
+			await forge.postComment(repo, decision.prNumber, t('system.cannotReview', { reason: resolved.missing })).catch(() => undefined);
 		}
 		return { action: 'ignored', reason: resolved.reason, notice: resolved.missing, prNumber: decision.prNumber, prTitle: title };
 	}
 
-	const result = await queueReview(repo, settings, github, baseUrl, userId, locale, fixture, {
+	const result = await queueReview(repo, settings, forge, baseUrl, userId, locale, fixture, {
 		prNumber: decision.prNumber,
 		headSha,
+		branch,
 		title,
 		trigger: decision.trigger,
 		budget: decision.budget,
 		instanceUrl: resolved.url
 	});
-	if (result.action === 'review' && github && decision.trigger === 'comment' && decision.commentId) {
-		await reactToComment(github, repo.fullName, decision.commentId).catch(() => undefined);
+	if (result.action === 'review' && forge && decision.trigger === 'comment' && decision.commentId) {
+		await forge.reactToComment(repo, decision.prNumber, decision.commentId).catch(() => undefined);
 	}
 	return { ...result, prNumber: decision.prNumber, prTitle: title };
 }
 
 /**
- * Where the PR's review instance runs: its GitHub deployment in the configured
- * environment, else the repo's URL template.
+ * Where the PR's review instance runs: its deployment in the configured
+ * environment (GitHub Deployments, GitLab environments), else the repo's URL template.
  */
 export async function resolveInstanceUrl(
 	repo: Repo,
 	settings: AutomationSettings,
-	github: Github | null,
+	forge: Forge | null,
 	fixture: string | null,
 	pr: { prNumber: number; headSha: string | null; branch: string | null },
 	locale?: Locale
 ): Promise<{ url: string; source: 'deployment' | 'template'; environment?: string; note?: string } | { missing: string; reason: string }> {
-	const { t } = locale ? serverI18n(locale) : requestI18n();
+	const { t } = locale ? serverI18n(locale, repo.provider) : requestI18n();
 	const env = settings.deploymentEnvironment?.trim();
-	if (env && github && pr.headSha) {
-		const lookup = (environment?: string) =>
-			findPreviewDeployment(github, repo.fullName, { sha: pr.headSha!, prNumber: pr.prNumber, environment }).catch(() => null);
+	if (env && forge && pr.headSha) {
+		const lookup = (environment?: string) => forge.findPreviewDeployment(repo, { sha: pr.headSha!, number: pr.prNumber, environment }).catch(() => null);
 		// The configured environment first; then any non-production one, in case the setting names the wrong environment.
 		const found = (await lookup(env)) ?? (await lookup());
 		if (found) {
 			const notes = [
-				found.environment.toLowerCase() !== env.toLowerCase()
+				!envMatches(env, found.environment)
 					? t('system.instanceOtherEnvironment', { env, found: found.environment })
 					: null,
 				found.exact ? null : t('system.instanceEarlierCommit', { sha: found.sha.slice(0, 7) })
@@ -236,12 +228,12 @@ export async function resolveInstanceUrl(
 async function queueReview(
 	repo: Repo,
 	settings: AutomationSettings,
-	github: Github | null,
+	forge: Forge | null,
 	baseUrl: string,
 	userId: number,
 	locale: Locale,
 	fixture: string | null,
-	input: { prNumber: number; headSha: string | null; title: string | null; trigger: string; budget?: 'quick' | 'standard' | 'thorough'; instanceUrl: string }
+	input: { prNumber: number; headSha: string | null; branch: string | null; title: string | null; trigger: string; budget?: 'quick' | 'standard' | 'thorough'; instanceUrl: string }
 ): Promise<EventResult> {
 	const { prNumber, headSha, title, trigger, instanceUrl } = input;
 	if (await findActiveReview(db(), repo.id, prNumber, trigger === 'push' || trigger === 'deployment' ? headSha : null)) {
@@ -254,6 +246,7 @@ async function queueReview(
 	const previous = defaults.followUp ? await previousReviewOf(db(), repo.id, prNumber) : undefined;
 	const parsed = ReviewRequestSchema.safeParse({
 		repo: repo.fullName,
+		provider: repo.provider,
 		pr: prNumber,
 		instanceUrl,
 		roles: defaults.roles.filter((r) => roleNames.includes(r)),
@@ -287,16 +280,18 @@ async function queueReview(
 				scriptId: t.id,
 				repoId: repo.id,
 				reviewId: id,
-				request: { repo: repo.fullName, instanceUrl, budget: 'quick' as const, language: parsed.data.language, headed: false, rerecord: false },
+				request: { repo: repo.fullName, provider: repo.provider, instanceUrl, budget: 'quick' as const, language: parsed.data.language, headed: false, rerecord: false },
 				startedBy: userId,
 				viewports: t.viewports?.length ? t.viewports : ['desktop']
 			})))
 		);
 	}
 
-	// Visible feedback on GitHub. Failures here must not lose the review.
-	if (github && settings.commitStatus && headSha) {
-		await setCommitStatus(github, repo.fullName, headSha, 'pending', renderCommitStatus(locale, { kind: 'pending' }), `${baseUrl}/reviews/${id}`).catch(() => undefined);
+	// Visible feedback on GitHub or GitLab. Failures here must not lose the review.
+	if (forge && settings.commitStatus && headSha) {
+		await forge
+			.setCommitStatus(repo, headSha, 'pending', renderCommitStatus(locale, { kind: 'pending' }, repo.provider), { targetUrl: `${baseUrl}/reviews/${id}`, ref: input.branch ?? undefined })
+			.catch(() => undefined);
 	}
-	return { action: 'review', reason: `${trigger} on #${prNumber}`, id };
+	return { action: 'review', reason: `${trigger} on ${changeRef(repo.provider, prNumber)}`, id };
 }

@@ -19,7 +19,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.locale = locale;
 	// Stored per person, so automated runs post to GitHub in their language too.
 	if (user && user.locale !== locale && (isLocale(cookie) || !user.locale)) await setUserLocale(db(), user.id, locale);
-	event.locals.user = user ? { id: user.id, login: user.login, name: user.name, avatarUrl: user.avatarUrl } : null;
+	event.locals.user = user ? { id: user.id, provider: user.provider, login: user.login, name: user.name, avatarUrl: user.avatarUrl } : null;
 
 	const path = event.url.pathname;
 	if (!event.locals.user && !PUBLIC_PATHS.some((p) => path === p || path.startsWith(p))) {

@@ -4,7 +4,8 @@ import { heatmap, pullState, reviewStats, weeklyHistory, type StatReview } from 
 import { swr } from './cache.js';
 import { db } from './db.js';
 import { DEMO_URL, demoPullRequest } from './demo.js';
-import { StatsPending, contributorWeeks, githubErrorMessage, listOpenPulls, listRecentBranches, type ContributorWeeks, type GithubBranch, type GithubPull } from './github.js';
+import { StatsPending, type ChangeSummary, type ContributorWeeks, type Forge, type ForgeBranch } from '@claudio/forge';
+import { forgeErrorMessage } from './forge.js';
 
 const DAY = 86_400_000;
 /** The chart and the tiles look back this far. */
@@ -22,40 +23,40 @@ async function withRatings(items: ReviewStatItem[]): Promise<StatReview[]> {
 	});
 }
 
-const errorOf = (e: unknown) => (e instanceof StatsPending ? null : githubErrorMessage(e));
+const errorOf = (e: unknown) => (e instanceof StatsPending ? null : forgeErrorMessage(e));
 
 /**
  * Everything the repository's start page shows: open pull requests with the state
  * of their reviews, active branches without one, commits per contributor, the
- * review history and the numbers. GitHub is asked through the short-lived cache;
- * the demo repository gets made-up GitHub data, marked as such.
+ * review history and the numbers. GitHub or GitLab is asked through the short-lived
+ * cache; the demo repository gets made-up data, marked as such.
  */
-export async function loadOverview(repo: Repo, token: string | null, isDemo: boolean, noToken: string) {
+export async function loadOverview(repo: Repo, forge: Forge | null, isDemo: boolean, noToken: string) {
 	const now = new Date();
-	const pullsP = (async (): Promise<{ pulls: GithubPull[]; error: string | null }> => {
+	const pullsP = (async (): Promise<{ pulls: ChangeSummary[]; error: string | null }> => {
 		if (isDemo) {
 			const pr = demoPullRequest();
 			return { pulls: [{ number: pr.number, title: pr.title, author: pr.author ?? null, headRef: pr.headRef, headSha: pr.headSha, draft: false, updatedAt: now.toISOString(), url: pr.url }], error: null };
 		}
-		if (!token) return { pulls: [], error: noToken };
-		return swr(`pulls:${repo.id}`, 30_000, 10 * 60_000, () => listOpenPulls(token, repo.fullName)).then(
+		if (!forge) return { pulls: [], error: noToken };
+		return swr(`pulls:${repo.id}`, 30_000, 10 * 60_000, () => forge.listOpenChanges(repo)).then(
 			(pulls) => ({ pulls, error: null }),
-			(e) => ({ pulls: [], error: githubErrorMessage(e) })
+			(e) => ({ pulls: [], error: forgeErrorMessage(e) })
 		);
 	})();
-	const branchesP = (async (): Promise<{ branches: GithubBranch[]; defaultBranch: string | null; error: string | null }> => {
+	const branchesP = (async (): Promise<{ branches: ForgeBranch[]; defaultBranch: string | null; error: string | null }> => {
 		if (isDemo) return { ...demoBranches(now), error: null };
-		if (!token) return { branches: [], defaultBranch: null, error: noToken };
-		return swr(`branches:${repo.id}`, 60_000, 10 * 60_000, () => listRecentBranches(token, repo.fullName)).then(
+		if (!forge) return { branches: [], defaultBranch: null, error: noToken };
+		return swr(`branches:${repo.id}`, 60_000, 10 * 60_000, () => forge.recentBranches(repo)).then(
 			(b) => ({ ...b, error: null }),
-			(e) => ({ branches: [], defaultBranch: null, error: githubErrorMessage(e) })
+			(e) => ({ branches: [], defaultBranch: null, error: forgeErrorMessage(e) })
 		);
 	})();
-	// GitHub computes these statistics in the background; until then it answers "come back later".
+	// GitHub computes these statistics in the background; until then it answers "come back later" (StatsPending).
 	const contributorsP = (async (): Promise<{ contributors: ContributorWeeks[]; pending: boolean; error: string | null }> => {
 		if (isDemo) return { contributors: demoContributors(now), pending: false, error: null };
-		if (!token) return { contributors: [], pending: false, error: noToken };
-		return swr(`contributors:${repo.id}`, 30 * 60_000, 6 * 3_600_000, () => contributorWeeks(token, repo.fullName)).then(
+		if (!forge) return { contributors: [], pending: false, error: noToken };
+		return swr(`contributors:${repo.id}`, 30 * 60_000, 6 * 3_600_000, () => forge.contributorWeeks(repo)).then(
 			(contributors) => ({ contributors, pending: false, error: null }),
 			(e) => ({ contributors: [], pending: e instanceof StatsPending, error: errorOf(e) })
 		);
@@ -154,7 +155,7 @@ function demoContributors(now: Date): ContributorWeeks[] {
 	});
 }
 
-function demoBranches(now: Date): { branches: GithubBranch[]; defaultBranch: string } {
+function demoBranches(now: Date): { branches: ForgeBranch[]; defaultBranch: string } {
 	const ago = (days: number) => new Date(now.getTime() - days * DAY).toISOString();
 	return {
 		defaultBranch: 'main',

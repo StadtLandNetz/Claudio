@@ -1,17 +1,5 @@
 import { error, fail } from '@sveltejs/kit';
-import {
-	REVIEW_SUPERSEDED,
-	StrictnessSchema,
-	blockingFindings,
-	renderPrComment,
-	sortBySeverity,
-	verdict,
-	withTests,
-	type FindingNote,
-	type ReviewTestResult,
-	type Strictness,
-	type Verdict
-} from '@claudio/core';
+import { REVIEW_SUPERSEDED, StrictnessSchema, blockingFindings, renderPrComment, sortBySeverity, verdict, withTests, type FindingNote, type ReviewTestResult, type Strictness, type Verdict, repoPath } from '@claudio/core';
 import {
 	addFindingActivity,
 	addLesson,
@@ -34,8 +22,7 @@ import {
 	type FindingActivityKind
 } from '@claudio/db';
 import type { AccessLevel } from '@claudio/db';
-import { postPullRequestReview } from '@claudio/forge';
-import { githubAs } from '#lib/server/runs.js';
+import { forgeAs } from '#lib/server/forge.js';
 import { publicEvidenceUrl } from '#lib/server/signed.js';
 import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
@@ -51,10 +38,10 @@ async function loadReview(idParam: string, locals: App.Locals, min: AccessLevel 
 	const { user } = locals;
 	const id = Number(idParam);
 	const review = Number.isInteger(id) ? await getReview(db(), id) : undefined;
-	if (!review) error(404, serverI18n(locals.locale).t('review.reviewNotFound'));
-	// Visible only with access to its repository on GitHub.
-	const { level } = await requireRepo(user, review.repoId, min);
-	return Object.assign(review, { level });
+	if (!review) error(404, serverI18n(locals.locale, locals.user?.provider).t('review.reviewNotFound'));
+	// Visible only with access to its repository on GitHub or GitLab.
+	const { repo, level } = await requireRepo(user, review.repoId, min);
+	return Object.assign(review, { level, repo });
 }
 
 const dismissedOf = (rows: Awaited<ReturnType<typeof listFindings>>) =>
@@ -140,6 +127,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 			id: review.id,
 			runId: review.runId,
 			repo: review.repoFullName,
+			repoPath: repoPath(review.repo),
 			prNumber: review.prNumber,
 			prTitle: review.prTitle,
 			status: review.status,
@@ -203,7 +191,7 @@ export const actions: Actions = {
 	 */
 	activity: async ({ params, request, locals }) => {
 		const review = await loadReview(params.id, locals, 'write');
-		const { t } = serverI18n(locals.locale);
+		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const f = await request.formData();
 		const findingId = String(f.get('findingId') ?? '');
 		const form = `activity:${findingId}`;
@@ -232,17 +220,17 @@ export const actions: Actions = {
 		const review = await loadReview(params.id, locals, 'write');
 		const id = Number((await request.formData()).get('id'));
 		if (!Number.isInteger(id) || !(await deleteFindingComment(db(), review.id, id, locals.user!.id))) {
-			return fail(400, { error: serverI18n(locals.locale).t('review.commentNotYours'), form: 'deleteComment' });
+			return fail(400, { error: serverI18n(locals.locale, locals.user?.provider).t('review.commentNotYours'), form: 'deleteComment' });
 		}
 		return { deleted: id };
 	},
 	comment: async ({ params, request, locals, url }) => {
 		const review = await loadReview(params.id, locals, 'write');
-		const { t } = serverI18n(locals.locale);
+		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		if (!review.report) return fail(400, { error: t('review.noReport'), form: 'comment' });
 		if (review.fixture) return fail(400, { error: t('review.demoNoComment'), form: 'comment' });
-		const github = await githubAs(review.repoFullName, locals.user);
-		if (!github) return fail(400, { error: t('review.commentNeedsGithub'), form: 'comment' });
+		const writer = await forgeAs(review.repo, locals.user);
+		if (!writer) return fail(400, { error: t('review.commentNeedsGithub'), form: 'comment' });
 		const f = await request.formData();
 		const requested = StrictnessSchema.safeParse(f.get('strictness'));
 		const strictness = requested.success ? requested.data : review.report.request.strictness;
@@ -255,17 +243,17 @@ export const actions: Actions = {
 			// Blocking findings become a "changes requested" review, like after automated runs.
 			const requestChanges = withTests(verdict(review.report, strictness, dismissed), tests) === 'request_changes';
 			const lang = review.report.request.language;
-			const posted = await postPullRequestReview(github.client, review.repoFullName, review.prNumber, body, requestChanges, REVIEW_SUPERSEDED[lang]);
+			const posted = await writer.forge.postReview(review.repo, review.prNumber, body, requestChanges, REVIEW_SUPERSEDED[lang]);
 			await setReviewCommentUrl(db(), review.id, posted.url);
 			return { commented: posted.url };
 		} catch (e) {
 			return fail(400, { error: t('review.commentRejected', { message: (e as Error).message }), form: 'comment' });
 		}
 	},
-	/** A confirmed finding becomes a GitHub issue: steps, expected and observed behaviour, screenshots, link back. */
+	/** A confirmed finding becomes a GitHub or GitLab issue: steps, expected and observed behaviour, screenshots, link back. */
 	issue: async ({ params, request, locals, url }) => {
 		const review = await loadReview(params.id, locals, 'write');
-		const { t } = serverI18n(locals.locale);
+		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const findingId = String((await request.formData()).get('findingId') ?? '');
 		const report = review.report;
 		const finding = report?.findings.find((f) => f.id === findingId);
@@ -274,12 +262,12 @@ export const actions: Actions = {
 		if (row?.status !== 'confirmed') return fail(400, { error: t('review.issueNeedsConfirmed'), form: `issue:${findingId}` });
 		if (row.issueUrl) return { issued: findingId, issueUrl: row.issueUrl };
 		if (review.fixture) return fail(400, { error: t('review.demoNoIssue'), form: `issue:${findingId}` });
-		const github = await githubAs(review.repoFullName, locals.user);
-		if (!github) return fail(400, { error: t('review.commentNeedsGithub'), form: `issue:${findingId}` });
+		const writer = await forgeAs(review.repo, locals.user);
+		if (!writer) return fail(400, { error: t('review.commentNeedsGithub'), form: `issue:${findingId}` });
 
 		const base = publicBaseUrl(url);
 		const comments = commentsOf(await listFindingActivity(db(), review.id), findingId);
-		const { t: lt, labels } = serverI18n(report.request.language);
+		const { t: lt, labels } = serverI18n(report.request.language, review.repo.provider);
 		const shots = finding.evidenceIds
 			.map((id) => report.evidence.find((e) => e.id === id))
 			.flatMap((e) => (e?.path && e.kind === 'screenshot' ? [{ e, src: review.runId ? publicEvidenceUrl(base, review.runId, e.path) : null }] : []));
@@ -297,10 +285,9 @@ export const actions: Actions = {
 			.filter(Boolean)
 			.join('\n');
 		try {
-			const [owner, repo] = review.repoFullName.split('/') as [string, string];
-			const { data } = await github.client.rest.issues.create({ owner, repo, title: finding.title, body });
-			await setFindingIssue(db(), review.id, findingId, data.html_url);
-			return { issued: findingId, issueUrl: data.html_url };
+			const issue = await writer.forge.createIssue(review.repo, { title: finding.title, body });
+			await setFindingIssue(db(), review.id, findingId, issue.url);
+			return { issued: findingId, issueUrl: issue.url };
 		} catch (e) {
 			return fail(400, { error: t('review.issueRejected', { message: (e as Error).message }), form: `issue:${findingId}` });
 		}

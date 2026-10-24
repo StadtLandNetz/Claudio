@@ -13,7 +13,7 @@ import type { RequestHandler } from './$types';
  * everything else, and screenshots of a run still in progress, from the run directory.
  */
 export const GET: RequestHandler = async ({ params, locals }) => {
-	const { t } = serverI18n(locals.locale);
+	const { t } = serverI18n(locals.locale, locals.user?.provider);
 	const path = resolveRunFile(runsRoot, params.runId, params.file);
 	if (!path) error(404, t('common.fileNotFound'));
 	await requireRunAccess(locals, params.runId);

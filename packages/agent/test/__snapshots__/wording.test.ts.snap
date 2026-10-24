@@ -1,0 +1,212 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`prompt wording > analysis prompt with a truncated change list 1`] = `
+"# Browser
+
+# Analysis task
+
+Run id: analysis-test
+Repository: vanderlars/dispo-demo, branch main, commit def5678
+Write the documents in German; keep code identifiers, paths and UI labels verbatim.
+Budget: about 150 turns and 250 browser steps. This is an update: spend the budget on what changed and on screens the previous analysis did not cover.
+
+# Repository checkout
+
+No checkout is available. Build modules and routes from what the running app reveals (URLs, navigation, network requests) and say in overview.md that the code was not read.
+
+# Instance
+
+Base URL: http://127.0.0.1:4310
+No roles are configured. Explore what is reachable without login and note in overview.md that authenticated areas were not analysed.
+
+# Knowledge base directory
+
+write_knowledge stores the documents in /tmp/knowledge. You may Read them there to check what you already wrote.
+
+# Knowledge base (commit abc1234 on main, analysed 2026-10-01)
+
+
+
+This is the knowledge base from the previous analysis. Update it rather than starting over: keep what is still true, correct what changed, add what is new.
+
+# Changes since the previous analysis
+
+4 commits, 1 files (list truncated by GitHub):
+
+- modified src/server.mjs
+
+Update modules.md and routes.md for these files, then re-check the screens they affect and update their app-map entries. Spot-check a few unaffected screens to confirm the rest still holds.
+
+# Procedure
+
+1. Code: from the app itself, write modules.md and routes.md with write_knowledge, and a first version of overview.md.
+2. Plan the walk: add one todo_add item per screen or flow from routes.md, ordered by importance for everyday users. Include role-specific areas.
+3. Walk the app with todo_next / todo_done. For each screen: log in with a role that can see it, open it, take a snapshot, capture_evidence once for the main state, and try the main actions in a harmless way (open dialogs, sort, filter, submit an empty form to see validation). Check get_console and get_network for errors. Then append one section to app-map with write_knowledge (mode "append") in this format (translate the field labels into German):
+
+   ## <Screen name> (<URL path>)
+   - Purpose: one sentence.
+   - Roles: who sees it, what differs per role.
+   - Elements: main lists, columns, fields (with required/optional and format), buttons.
+   - Actions and expected behaviour: one bullet per action, with the feedback the user gets (messages verbatim), validation rules, navigation after success.
+   - Code: route file and key components (from routes.md).
+   - Evidence: the evidence id.
+
+4. Record clear bugs you encounter with report_finding; do not go looking for bugs, that is the reviews' job.
+5. Write notes.md: test data that exists and what you created, quirks, slow or flaky areas, what you could not explore and why. For each obstacle that cost you attempts (a field without label, a banner, a slow page, a login quirk), also call remember_learning with a concrete instruction for later runs.
+6. Finalise overview.md: purpose, users, stack, domain objects, roles and permissions, login, navigation structure.
+7. Finish with a short summary in German as your final message: what is covered, what is missing, and anything a reviewer should know."
+`;
+
+exports[`prompt wording > criteria prompt 1`] = `
+"Derive the acceptance criteria a QA tester would verify in the running app for this pull request.
+
+# Pull request #17: Fahrten: Neue Fahrt anlegen und Suche in der Fahrtenliste
+
+Closes #16
+
+Fügt das Formular zum Anlegen einer Fahrt hinzu und eine Suche (Fahrgast/Fahrzeug) in der Fahrtenliste.
+
+# Linked issues
+
+## #16: Disponent kann eine neue Fahrt anlegen
+Als Disponent möchte ich eine neue Fahrt anlegen, damit sie in der Fahrtenliste erscheint.
+
+**Acceptance Criteria**
+- In der Fahrtenliste gibt es einen Button "Neue Fahrt", der ein Formular öffnet.
+- Das Formular hat die Felder Fahrgast, Datum, Uhrzeit, Von, Nach und Fahrzeug. Fahrgast, Datum, Uhrzeit und Fahrzeug sind Pflichtfelder.
+- Das Datum darf nicht in der Vergangenheit liegen; sonst erscheint eine Fehlermeldung am Feld.
+- Nach dem Speichern erscheint die neue Fahrt in der Liste und eine Erfolgsmeldung wird angezeigt.
+- Die Fahrtenliste lässt sich nach Fahrgast oder Fahrzeug durchsuchen.
+- Nur Disponenten und Admins dürfen Fahrten anlegen.
+
+# Changed files (1)
+
+- src/server.mjs
+
+# Criteria of the earlier review of this pull request
+
+- Eine Fahrt lässt sich speichern
+Keep these unless the ticket now says otherwise.
+
+Rules:
+- Each criterion is one observable, testable statement about the app's behaviour from a user's point of view ("A dispatcher can … and then sees …"), not about code.
+- Explicit requirements of the ticket first, then implicit ones that clearly follow (a new form validates required fields and shows the saved data).
+- No regression checks of unrelated areas, no UX wishes, no duplicates. Usually 3 to 10 criteria.
+- Write the criteria and the remarks in German."
+`;
+
+exports[`prompt wording > review prompt with a re-review whose changed files are unknown 1`] = `
+"# Browser
+
+# Review task
+
+Run id: review-pr17-test
+Report language: German
+Verbosity: normal. Write a concise summary (one or two paragraphs) plus a short list of the most important observations.
+Strictness: normal. Report functional problems and clear UX/UI inconsistencies; use minor for cosmetic issues and suggestion for ideas.
+Budget: about 150 turns and 250 browser steps. Plan accordingly: cover acceptance criteria first, then regressions on the affected areas, then UX/UI.
+
+# Pull request #17: Fahrten: Neue Fahrt anlegen und Suche in der Fahrtenliste
+
+URL: https://github.com/vanderlars/dispo-demo/pull/17
+Branch: feature/16-neue-fahrt → main
+Author: dev
+
+## Description
+
+Closes #16
+
+Fügt das Formular zum Anlegen einer Fahrt hinzu und eine Suche (Fahrgast/Fahrzeug) in der Fahrtenliste.
+
+# Linked issues
+
+## #16: Disponent kann eine neue Fahrt anlegen [feature]
+https://github.com/vanderlars/dispo-demo/issues/16
+
+Als Disponent möchte ich eine neue Fahrt anlegen, damit sie in der Fahrtenliste erscheint.
+
+**Acceptance Criteria**
+- In der Fahrtenliste gibt es einen Button "Neue Fahrt", der ein Formular öffnet.
+- Das Formular hat die Felder Fahrgast, Datum, Uhrzeit, Von, Nach und Fahrzeug. Fahrgast, Datum, Uhrzeit und Fahrzeug sind Pflichtfelder.
+- Das Datum darf nicht in der Vergangenheit liegen; sonst erscheint eine Fehlermeldung am Feld.
+- Nach dem Speichern erscheint die neue Fahrt in der Liste und eine Erfolgsmeldung wird angezeigt.
+- Die Fahrtenliste lässt sich nach Fahrgast oder Fahrzeug durchsuchen.
+- Nur Disponenten und Admins dürfen Fahrten anlegen.
+
+# Changed files (1)
+
+- modified src/server.mjs (+38 -4)
+
+## Patches
+
+### src/server.mjs
+\`\`\`diff
+@@ -40,6 +40,20 @@
+   if (p === "/trips" && req.method === "GET") {
++    const q = (url.searchParams.get("q") ?? "").toLowerCase();
++    const rows = trips.filter((t) => !q || t.passenger.toLowerCase().includes(q) || t.vehicle.toLowerCase().includes(q));
++    const created = url.searchParams.get("created");
+     return html(res, page("Fahrten", \`<h1>Fahrten</h1>
++<form method="get" action="/trips"><label>Suche (Fahrgast oder Fahrzeug)</label><input name="q" value="\${q}"> <button type="submit">Filtern</button></form>
++<p><a href="/trips/new"><button type="button">Neue Fahrt</button></a></p>
+@@ -60,0 +75,22 @@
++  if (p === "/trips/new" && req.method === "GET") {
++    return html(res, page("Neue Fahrt", \`<h1>Neue Fahrt</h1><form method="post" action="/trips/new">
++<label>Fahrgast</label><input name="passenger" required>
++<label>Datum</label><input name="date" type="date" required>
++<label>Uhrzeit</label><input name="time" type="time" required>
++<input name="from" placeholder="Von"> <input name="to" placeholder="Nach">
++<p><button type="submit">Senden</button></p></form>\`, user));
++  }
++  if (p === "/trips/new" && req.method === "POST") {
++    const b = await readBody(req);
++    const trip = { id: trips.length + 1, passenger: b.get("passenger") ?? "", date: b.get("date") ?? "", time: b.get("time") ?? "", from: b.get("from") ?? "", to: b.get("to") ?? "", vehicle: null };
++    trips.push(trip);
++    return redirect(res, \`/trips?created=\${trip.id}\`);
++  }
+\`\`\`
+
+
+# Instance under test
+
+Base URL: http://127.0.0.1:4310
+No roles are configured. If the app needs a login, record the affected criteria as blocked.
+
+# Repository checkout
+
+The PR branch is checked out at /tmp/checkout. Use Read/Grep/Glob there for impact analysis (routes, components, shared modules the diff touches). You may delegate the code reading to the impact-analyst subagent.
+
+# Re-review of review #3
+
+This pull request was reviewed before at commit abc1234. This run is a re-review: confirm what was fixed, re-check what is still open, and test only what changed since. Do not repeat the whole review.
+
+## What changed since review #3
+
+GitHub could not tell which files changed since then: treat every affected area as changed.
+
+## Its acceptance criteria and their results
+
+(none recorded)
+
+## Its open findings (to re-check)
+
+(no open findings)
+
+## Its summary
+
+Vorher.
+
+# Procedure (re-review)
+
+1. The criteria of review #3 are the criteria of this run; add criteria only if the PR or the ticket changed in a way that requires them. Use each criterion's text verbatim in record_ac_result.
+2. Map the changed files to screens and flows (route index from the knowledge base, if available). These and the screens of the open findings are what you test.
+3. Log in with login_as. For every open finding of review #3: follow its steps, capture_evidence of the current state, then call recheck_finding with "fixed" or "still_open". Do not report it again with report_finding.
+4. Re-test every criterion that failed, was blocked or not testable, and every criterion whose screens are touched by the changes; record_ac_result for each. Criteria you do not re-test keep their earlier result automatically: say in the notes of the summary which ones you left as they were.
+5. Look for regressions only around the changed files, and report new problems with report_finding as usual.
+6. Finish with a summary in German as your final message. Structure it as:
+   - A verdict sentence.
+   - Summary (per the verbosity setting).
+   - A section titled "Affected areas:" with one bullet per affected screen or flow (one line each, keep this heading in English).
+   - Anything you could not test and why.
+Do not repeat every finding in the summary; they are rendered from the records. Begin the summary with what was fixed and what is still open."
+`;

@@ -1,13 +1,13 @@
 import { criterionText, type FollowUpContext } from "@claudio/core";
 import { getReview, listFindings, type Db, type Review } from "@claudio/db";
-import { changedFilesBetween, createGithubClient } from "@claudio/forge";
+import type { Forge } from "@claudio/forge";
 
 /**
  * What a re-review builds on: the earlier review's open findings with the people's
  * rating, its criteria, and the files changed since the commit it checked. Null when
  * the earlier review is gone, belongs to another pull request or has no report.
  */
-export async function followUpContext(db: Db, review: Review, githubToken: string | undefined, log: (msg: string) => void): Promise<FollowUpContext | null> {
+export async function followUpContext(db: Db, review: Review, forge: Forge | null, log: (msg: string) => void): Promise<FollowUpContext | null> {
   const prevId = review.request.followUpOf;
   if (!prevId) return null;
   const prev = await getReview(db, prevId);
@@ -24,9 +24,9 @@ export async function followUpContext(db: Db, review: Review, githubToken: strin
 
   const headSha = prev.headSha ?? report.pr.headSha ?? undefined;
   let changedFiles: string[] | null = null;
-  if (headSha && githubToken && !review.fixture) {
+  if (headSha && forge && !review.fixture) {
     try {
-      const diff = await changedFilesBetween(createGithubClient(githubToken), review.request.repo, headSha, review.headSha ?? report.pr.headRef);
+      const diff = await forge.changedFilesBetween({ fullName: review.request.repo }, headSha, review.headSha ?? report.pr.headRef);
       changedFiles = diff.truncated ? null : diff.files.map((f) => f.filename);
     } catch (e) {
       log(`re-review: could not compare ${headSha.slice(0, 7)} with the branch: ${(e as Error).message}`);

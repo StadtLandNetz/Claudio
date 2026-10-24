@@ -14,7 +14,7 @@ export function demoPullRequest(): PullRequestContext {
 }
 
 export async function createDemoRepo(db: Db, userId: number): Promise<void> {
-	const repo = await addRepo(db, { fullName: DEMO_REPO, isPrivate: false, defaultBranch: 'main', createdBy: userId });
+	const repo = await addRepo(db, { provider: 'github', fullName: DEMO_REPO, isPrivate: false, defaultBranch: 'main', createdBy: userId });
 	await updateRepoSettings(db, repo.id, {
 		notes: 'Demo-Dispositionsapp. Rollen: Disponent (legt Fahrten an), Admin. Datum im Format JJJJ-MM-TT.',
 		extraAllowedHosts: [],

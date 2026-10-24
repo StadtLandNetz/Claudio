@@ -8,7 +8,7 @@ const FRAME = /^page@[0-9a-f]{1,64}-\d{1,16}\.jpeg$/;
 
 /** One screencast frame out of the trace archive. Frames never change, so the browser may keep them. */
 export const GET: RequestHandler = async ({ params, locals }) => {
-	const { t } = serverI18n(locals.locale);
+	const { t } = serverI18n(locals.locale, locals.user?.provider);
 	if (!FRAME.test(params.file)) error(404, t('common.fileNotFound'));
 	await requireRunAccess(locals, params.runId);
 	const trace = await openRunTrace(params.runId);

@@ -5,19 +5,21 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import LocaleSwitch from '#lib/components/LocaleSwitch.svelte';
 	import ThemeSwitch from '#lib/components/ThemeSwitch.svelte';
+	import { splitRepo } from '@claudio/core';
 	import { provideI18n, type MessageKey } from '#lib/i18n/index.js';
 	import type { LayoutProps } from './$types';
 
 	let { children, data }: LayoutProps = $props();
-	const i = provideI18n(() => data.locale);
+	// Everyone sees only repositories of the provider they signed in with, so texts follow the account.
+	const i = provideI18n(() => data.locale, () => data.user?.provider ?? 'github');
 	const repos = $derived(data.repos ?? []);
 
-	// The repository the current page belongs to, whatever kind of page it is.
+	// The repository the current page belongs to (its path below /repos), whatever kind of page it is.
 	const currentRepo = $derived.by((): string | null => {
-		if (page.params.owner && page.params.name) return `${page.params.owner}/${page.params.name}`;
+		if (page.params.path) return page.params.path;
 		const d = page.data as Record<string, any>;
 		const candidate = d.review?.repo ?? d.analysis?.repo ?? d.script?.repo ?? d.run?.repo ?? (typeof d.repo === 'string' ? d.repo : d.repo?.fullName);
-		return typeof candidate === 'string' ? candidate : null;
+		return typeof candidate === 'string' ? (repos.find((r) => r.fullName === candidate)?.path ?? null) : null;
 	});
 
 	const nav = [
@@ -38,7 +40,7 @@
 	];
 	const activeTab = $derived.by((): RepoTab | null => {
 		const p = page.url.pathname;
-		if (page.params.owner && page.params.name) {
+		if (page.params.path) {
 			const t = page.url.searchParams.get('tab') ?? '';
 			return (REPO_TABS as readonly string[]).includes(t) ? (t as RepoTab) : 'overview';
 		}
@@ -114,19 +116,19 @@
 				</div>
 				{#if repos.length}
 					<ul class="repo-list" id="repo-list" class:collapsed={!reposOpen}>
-						{#each repos as repo (repo.fullName)}
-							{@const [owner, name] = repo.fullName.split('/')}
-							{@const current = currentRepo === repo.fullName}
+						{#each repos as repo (repo.path)}
+							{@const { namespace, name } = splitRepo(repo.fullName)}
+							{@const current = currentRepo === repo.path}
 							<li class:current>
-								<a href="/repos/{repo.fullName}" class="repo" class:current title={repo.fullName}>
+								<a href="/repos/{repo.path}" class="repo" class:current title={repo.fullName}>
 									<span class="avatar" aria-hidden="true">{name?.[0]?.toUpperCase() ?? '?'}</span>
-									<span class="label"><span class="owner">{owner}/</span>{name}</span>
+									<span class="label"><span class="owner">{namespace}/</span>{name}</span>
 								</a>
 								{#if current}
 									<ul class="sub" aria-label={i.t('repo.tabsLabel')}>
 										{#each subItems.filter((it) => it.id !== 'settings' || repo.level === 'admin') as it (it.id)}
 											<li>
-												<a href="/repos/{repo.fullName}{it.id === 'overview' ? '' : `?tab=${it.id}`}" aria-current={activeTab === it.id ? 'page' : undefined}>
+												<a href="/repos/{repo.path}{it.id === 'overview' ? '' : `?tab=${it.id}`}" aria-current={activeTab === it.id ? 'page' : undefined}>
 													{i.t(it.label)}
 													{#if it.id === 'reviews' && repo.reviewCount}<span class="count">{repo.reviewCount}</span>{/if}
 													{#if it.id === 'tests' && repo.testCount}<span class="count">{repo.testCount}</span>{/if}

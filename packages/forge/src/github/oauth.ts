@@ -1,5 +1,7 @@
-/** Tokens from GitHub's OAuth endpoint. Expiry fields are set only when the OAuth App issues expiring tokens. */
-export type TokenSet = { accessToken: string; refreshToken?: string; expiresAt?: Date };
+import { Octokit } from "octokit";
+import type { OAuthProvider, TokenSet } from "../types.js";
+
+export type { TokenSet } from "../types.js";
 
 type TokenResponse = { access_token?: string; refresh_token?: string; expires_in?: number; error?: string; error_description?: string };
 
@@ -26,3 +28,51 @@ export function exchangeCode(clientId: string, clientSecret: string, code: strin
 export function refreshAccessToken(clientId: string, clientSecret: string, refreshToken: string): Promise<TokenSet> {
   return tokenRequest({ client_id: clientId, client_secret: clientSecret, grant_type: "refresh_token", refresh_token: refreshToken });
 }
+
+const config = () => {
+  const clientId = process.env.GITHUB_CLIENT_ID?.trim();
+  const clientSecret = process.env.GITHUB_CLIENT_SECRET?.trim();
+  return clientId && clientSecret ? { clientId, clientSecret } : null;
+};
+
+function required() {
+  const c = config();
+  if (!c) throw new Error("GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are not set");
+  return c;
+}
+
+/** Sign-in with a GitHub OAuth App (GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET). */
+export const githubOAuth: OAuthProvider = {
+  provider: "github",
+  configured: () => config() !== null,
+  authorizeUrl(redirectUri, state) {
+    const url = new URL("https://github.com/login/oauth/authorize");
+    url.searchParams.set("client_id", required().clientId);
+    url.searchParams.set("redirect_uri", redirectUri);
+    url.searchParams.set("scope", "repo read:user read:org");
+    url.searchParams.set("state", state);
+    return url.toString();
+  },
+  exchangeCode(code, redirectUri) {
+    const c = required();
+    return exchangeCode(c.clientId, c.clientSecret, code, redirectUri);
+  },
+  refresh(refreshToken) {
+    const c = required();
+    return refreshAccessToken(c.clientId, c.clientSecret, refreshToken);
+  },
+  async fetchUser(token) {
+    const { data } = await new Octokit({ auth: token }).rest.users.getAuthenticated();
+    return { externalId: data.id, login: data.login, name: data.name ?? null, avatarUrl: data.avatar_url ?? null };
+  },
+  async memberships(token) {
+    const octokit = new Octokit({ auth: token });
+    const orgs = await octokit.paginate(octokit.rest.orgs.listForAuthenticatedUser, { per_page: 100 });
+    return orgs.map((o) => o.login.toLowerCase());
+  },
+  grantUrl() {
+    const c = config();
+    // Organisations with OAuth access restrictions must grant Claudio access before their repos show up.
+    return c ? `https://github.com/settings/connections/applications/${c.clientId}` : null;
+  },
+};

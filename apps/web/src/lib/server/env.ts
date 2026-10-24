@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { Provider } from '@claudio/core';
 
 /** Monorepo root: apps/web is two levels down. Override with CLAUDIO_ROOT. */
 export const projectRoot = resolve(process.env.CLAUDIO_ROOT ?? resolve(process.cwd(), '../..'));
@@ -17,12 +18,6 @@ export function env(name: string): string | undefined {
 
 export const devFixtures = () => process.env.CLAUDIO_DEV_FIXTURES === '1';
 
-export function githubOAuthConfig(): { clientId: string; clientSecret: string } | null {
-	const clientId = env('GITHUB_CLIENT_ID');
-	const clientSecret = env('GITHUB_CLIENT_SECRET');
-	return clientId && clientSecret ? { clientId, clientSecret } : null;
-}
-
 export function publicBaseUrl(fallback: URL): string {
 	return (env('PUBLIC_BASE_URL') ?? fallback.origin).replace(/\/$/, '');
 }
@@ -34,5 +29,6 @@ function list(name: string): string[] {
 		.filter(Boolean);
 }
 
-export const allowedUsers = () => list('CLAUDIO_ALLOWED_GITHUB_USERS');
-export const allowedOrgs = () => list('CLAUDIO_ALLOWED_GITHUB_ORGS');
+/** Who may sign in with a provider: user names, and organisations (GitHub) or groups (GitLab). */
+export const allowedUsers = (provider: Provider) => list(provider === 'gitlab' ? 'CLAUDIO_ALLOWED_GITLAB_USERS' : 'CLAUDIO_ALLOWED_GITHUB_USERS');
+export const allowedGroups = (provider: Provider) => list(provider === 'gitlab' ? 'CLAUDIO_ALLOWED_GITLAB_GROUPS' : 'CLAUDIO_ALLOWED_GITHUB_ORGS');

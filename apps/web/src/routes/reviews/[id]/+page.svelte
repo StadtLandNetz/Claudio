@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { changeRef } from '@claudio/core';
 	import { enhance } from '$app/forms';
 	import EvidenceThumbs, { type ThumbEvidence } from '#lib/components/EvidenceThumbs.svelte';
 	import FindingHistory from '#lib/components/FindingHistory.svelte';
@@ -238,14 +239,14 @@
 	});
 </script>
 
-<svelte:head><title>#{review.prNumber} {review.prTitle ?? ''} · Claudio</title></svelte:head>
+<svelte:head><title>{changeRef(i.provider, review.prNumber)} {review.prTitle ?? ''} · Claudio</title></svelte:head>
 
 <div class="page-title">
 	<div>
 		<p class="crumbs">
-			<a href="/repos/{review.repo}">{review.repo}</a><span class="sep"></span><a href="/repos/{review.repo}?tab=reviews">{i.t('review.allReviews')}</a>
+			<a href="/repos/{review.repoPath}">{review.repo}</a><span class="sep"></span><a href="/repos/{review.repoPath}?tab=reviews">{i.t('review.allReviews')}</a>
 		</p>
-		<h1>#{review.prNumber} {review.prTitle ?? ''}</h1>
+		<h1>{changeRef(i.provider, review.prNumber)} {review.prTitle ?? ''}</h1>
 	</div>
 	{#if active}
 		<form method="POST" action="?/abort" use:enhance>
@@ -258,7 +259,7 @@
 	{/if}
 </div>
 
-<PageNav title="#{review.prNumber} {review.prTitle ?? ''}" {sections} />
+<PageNav title="{changeRef(i.provider, review.prNumber)} {review.prTitle ?? ''}" {sections} />
 
 {#if report}
 	<!-- The verdict: the one loud element on the page. -->
@@ -686,7 +687,7 @@
 			<dd><StatusBadge status={review.status} verdict={report?.verdict ?? null} /></dd>
 			{#if report}
 				<dt>{i.t('review.pullRequest')}</dt>
-				<dd><a href={report.pr.url} target="_blank" rel="noopener noreferrer">#{report.pr.number}</a> {i.t('review.refs', { head: report.pr.headRef, base: report.pr.baseRef })}</dd>
+				<dd><a href={report.pr.url} target="_blank" rel="noopener noreferrer">{changeRef(i.provider, report.pr.number)}</a> {i.t('review.refs', { head: report.pr.headRef, base: report.pr.baseRef })}</dd>
 				{#if report.issues.length}
 					<dt>{i.t('review.tickets')}</dt>
 					<dd>

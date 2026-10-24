@@ -1,16 +1,8 @@
 import type { Octokit } from "octokit";
+import type { PreviewDeployment } from "../types.js";
 import { parseRepo } from "./links.js";
 
-/** A running review instance of a pull request, as recorded in GitHub's deployments. */
-export type PreviewDeployment = {
-  url: string;
-  environment: string;
-  /** Commit the instance was deployed from. */
-  sha: string;
-  /** False when the head commit has no instance yet and an earlier commit's instance is used. */
-  exact: boolean;
-  deployedAt: string;
-};
+export type { PreviewDeployment } from "../types.js";
 
 /** How many of a PR's newest commits are searched when the head commit has no deployment. */
 const FALLBACK_COMMITS = 10;

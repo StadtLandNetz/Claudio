@@ -9,7 +9,7 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ params, url, request, locals }) => {
 	const id = Number(params.id);
 	const item = Number.isInteger(id) ? await getTestRun(db(), id) : undefined;
-	if (!item) error(404, serverI18n(locals.locale).t('test.runNotFound'));
+	if (!item) error(404, serverI18n(locals.locale, locals.user?.provider).t('test.runNotFound'));
 	await requireRepo(locals.user, item.repoId, 'read');
 	return runEventStream(request, url, { testRunId: id }, async () => (await getTestRun(db(), id))?.status ?? null);
 };

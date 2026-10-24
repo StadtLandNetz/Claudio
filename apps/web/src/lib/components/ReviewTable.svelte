@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { changeRef } from '@claudio/core';
 	import StatusBadge from './StatusBadge.svelte';
 	import { isActive } from '#lib/labels.js';
 	import { i18n } from '#lib/i18n/index.js';
@@ -28,7 +29,7 @@
 					<td class="pr">
 						<a href="/reviews/{r.id}">
 							{#if showRepo}<span class="repo">{r.repo}</span>{/if}
-							<span class="title">#{r.prNumber} {r.prTitle ?? ''}</span>
+							<span class="title">{changeRef(i.provider, r.prNumber)} {r.prTitle ?? ''}</span>
 						</a>
 					</td>
 					<td class="result"><StatusBadge status={r.status} verdict={r.verdict} /></td>

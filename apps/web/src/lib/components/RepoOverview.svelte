@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { changeRef, forgeLinks, type Provider } from '@claudio/core';
 	import type { OverviewData } from '#lib/server/overview.js';
 	import type { PullState } from '#lib/overview.js';
 	import { level } from '#lib/heat.js';
@@ -11,7 +12,8 @@
 	 * review history per week and commits per contributor. Every number and mark
 	 * explains itself on hover.
 	 */
-	let { data, repo, canStart }: { data: OverviewData; repo: string; canStart: boolean } = $props();
+	let { data, repo, canStart }: { data: OverviewData; repo: { path: string; provider: Provider; webUrl: string }; canStart: boolean } = $props();
+	const links = $derived(forgeLinks(repo.provider, repo.webUrl));
 	const i = i18n();
 
 	const pct = (v: number | null) => (v === null ? '–' : `${Math.round(v * 100)} %`);
@@ -123,7 +125,7 @@
 						<li>
 							<span class="pill {p.state}" use:tooltip={stateTip(p)}>{stateLabel(p.state)}</span>
 							<div class="main">
-								<a class="title" href={p.review ? `/reviews/${p.review.id}` : p.url} target={p.review ? undefined : '_blank'} rel={p.review ? undefined : 'noopener noreferrer'}>#{p.number} {p.title}</a>
+								<a class="title" href={p.review ? `/reviews/${p.review.id}` : p.url} target={p.review ? undefined : '_blank'} rel={p.review ? undefined : 'noopener noreferrer'}>{changeRef(repo.provider, p.number)} {p.title}</a>
 								<span class="faint meta">
 									<span class="mono">{p.headRef}</span>{p.author ? ` · ${p.author}` : ''} · <span use:tooltip={i.formatDate(p.updatedAt)}>{i.t('repo.ovUpdated', { date: dayOf(p.updatedAt) })}</span>
 									{#if p.review}· {i.t('repo.ovReviewFindings', { n: p.review.findings, blocking: p.review.blocking })}{/if}
@@ -131,7 +133,7 @@
 								</span>
 							</div>
 							{#if canStart && p.state !== 'running'}
-								<a class="btn small {p.state === 'unreviewed' ? 'primary' : ''}" href="/reviews/new?repo={encodeURIComponent(repo)}&pr={p.number}">
+								<a class="btn small {p.state === 'unreviewed' ? 'primary' : ''}" href="/reviews/new?repo={encodeURIComponent(repo.path)}&pr={p.number}">
 									{p.state === 'unreviewed' ? i.t('repo.startReview') : i.t('repo.ovReviewAgain')}
 								</a>
 							{/if}
@@ -160,14 +162,14 @@
 								{#if data.demo}
 									<span class="title mono">{b.name}</span>
 								{:else}
-									<a class="title mono" href="https://github.com/{repo}/tree/{b.name}" target="_blank" rel="noopener noreferrer">{b.name}</a>
+									<a class="title mono" href={links.branch(b.name)} target="_blank" rel="noopener noreferrer">{b.name}</a>
 								{/if}
 								<span class="faint meta">
 									{#if b.committedAt}<span use:tooltip={i.formatDate(b.committedAt)}>{i.t('repo.ovLastCommit', { date: dayOf(b.committedAt) })}</span>{/if}{b.author ? ` · ${b.author}` : ''}
 								</span>
 							</div>
 							{#if !data.demo}
-								<a class="btn small" href="https://github.com/{repo}/compare/{b.name}?expand=1" target="_blank" rel="noopener noreferrer" use:tooltip={i.t('repo.ovOpenPullTip')}>{i.t('repo.ovOpenPull')}</a>
+								<a class="btn small" href={links.newChange(b.name)} target="_blank" rel="noopener noreferrer" use:tooltip={i.t('repo.ovOpenPullTip')}>{i.t('repo.ovOpenPull')}</a>
 							{/if}
 						</li>
 					{/each}

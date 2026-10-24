@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { DeterminismSchema, TestRunRequestSchema, describeStep, parseHostList } from '@claudio/core';
+import { DeterminismSchema, TestRunRequestSchema, describeStep, parseHostList, repoHref, repoPath } from '@claudio/core';
 import {
 	createTestRuns,
 	deleteTestScript,
@@ -22,7 +22,7 @@ async function loadScript(idParam: string, locals: App.Locals, min: AccessLevel 
 	const user = locals.user;
 	const id = Number(idParam);
 	const script = Number.isInteger(id) ? await getTestScript(db(), id) : undefined;
-	if (!script) error(404, serverI18n(locals.locale).t('test.testNotFound'));
+	if (!script) error(404, serverI18n(locals.locale, locals.user?.provider).t('test.testNotFound'));
 	// Visible only with access to its repository on GitHub.
 	const { level } = await requireRepo(user, script.repoId, min);
 	return { script, level };
@@ -37,6 +37,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		script: {
 			id: script.id,
 			repo: script.repoFullName,
+			repoPath: repoPath({ provider: script.repoProvider, fullName: script.repoFullName }),
 			name: script.name,
 			description: script.description,
 			expectation: script.expectation,
@@ -75,7 +76,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 export const actions: Actions = {
 	update: async ({ params, request, locals }) => {
 		const { script } = await loadScript(params.id, locals, 'write');
-		const { t } = serverI18n(locals.locale);
+		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const f = await request.formData();
 		const determinism = DeterminismSchema.safeParse(f.get('determinism'));
 		const input = {
@@ -95,7 +96,7 @@ export const actions: Actions = {
 	},
 	run: async ({ params, request, locals }) => {
 		const { script } = await loadScript(params.id, locals, 'write');
-		const { t } = serverI18n(locals.locale);
+		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await getRepoById(db(), script.repoId);
 		if (!repo?.dataConfirmed) return fail(400, { error: t('test.errorDataNotConfirmed'), form: 'run' });
 		const f = await request.formData();
@@ -106,6 +107,7 @@ export const actions: Actions = {
 		}
 		const parsed = TestRunRequestSchema.safeParse({
 			repo: script.repoFullName,
+			provider: script.repoProvider,
 			instanceUrl: text(f.get('instanceUrl')),
 			budget: f.get('budget'),
 			rerecord: f.get('rerecord') === 'on',
@@ -127,6 +129,6 @@ export const actions: Actions = {
 	delete: async ({ params, locals }) => {
 		const { script } = await loadScript(params.id, locals, 'write');
 		await deleteTestScript(db(), script.id);
-		redirect(303, `/repos/${script.repoFullName}?tab=tests`);
+		redirect(303, repoHref({ provider: script.repoProvider, fullName: script.repoFullName }, 'tab=tests'));
 	}
 };

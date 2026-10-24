@@ -1,0 +1,41 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`wording > names pull requests the GitHub way 1`] = `"Änderungen nötig: #1448 Trip trackings <can> be edited"`;
+
+exports[`wording > names pull requests the GitHub way 2`] = `
+{
+  "blocks": [
+    {
+      "text": {
+        "text": ":robot_face: *Automatisches Review gestartet* · <https://claudio.example.test/reviews/9|#17 Neue Fahrt>
+Kommentar",
+        "type": "mrkdwn",
+      },
+      "type": "section",
+    },
+    {
+      "elements": [
+        {
+          "text": "o/r",
+          "type": "mrkdwn",
+        },
+      ],
+      "type": "context",
+    },
+    {
+      "elements": [
+        {
+          "text": {
+            "text": "Öffnen",
+            "type": "plain_text",
+          },
+          "type": "button",
+          "url": "https://claudio.example.test/reviews/9",
+        },
+      ],
+      "type": "actions",
+    },
+  ],
+  "text": "Automatisches Review gestartet: #17 Neue Fahrt",
+}
+`;

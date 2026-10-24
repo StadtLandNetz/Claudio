@@ -9,8 +9,8 @@ import type { RequestHandler } from './$types';
 
 /** Offline demo login without GitHub. Only on the dev server with CLAUDIO_DEV_FIXTURES=1. */
 export const POST: RequestHandler = async ({ cookies, locals }) => {
-	if (!dev || !devFixtures()) error(404, serverI18n(locals.locale).t('common.notFound'));
-	const user = await upsertUser(db(), { githubId: 0, login: 'demo', name: 'Demo (ohne GitHub)', avatarUrl: null, accessToken: '' });
+	if (!dev || !devFixtures()) error(404, serverI18n(locals.locale, locals.user?.provider).t('common.notFound'));
+	const user = await upsertUser(db(), { provider: 'github', externalId: 0, login: 'demo', name: 'Demo (ohne GitHub)', avatarUrl: null, accessToken: '' });
 	await startSession(cookies, user.id, false);
 	redirect(303, '/');
 };

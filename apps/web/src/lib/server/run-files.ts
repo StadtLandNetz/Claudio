@@ -21,7 +21,7 @@ function readJson<T>(runId: string, file: string, schema: z.ZodType<T>): T[] {
 
 /** Files belong to a run, the run to a repository: the same access rule as the run's page. 404 for unknown runs. */
 export async function requireRunAccess(locals: App.Locals, runId: string): Promise<number> {
-	const { t } = serverI18n(locals.locale);
+	const { t } = serverI18n(locals.locale, locals.user?.provider);
 	const repoId = await repoIdOfRun(db(), runId);
 	if (repoId === null) error(404, t('common.fileNotFound'));
 	await requireRepo(locals.user, repoId, 'read');

@@ -15,7 +15,7 @@ const InputSchema = z.discriminatedUnion('type', [
 
 /** One click or keystroke from the live view; the worker replays it in the run's browser. */
 export const POST: RequestHandler = async ({ params, request, locals }) => {
-	const { t } = serverI18n(locals.locale);
+	const { t } = serverI18n(locals.locale, locals.user?.provider);
 	const req = await getHumanRequest(db(), Number(params.id));
 	if (!req) error(404, t('common.unknownRequest'));
 	await requireRepo(locals.user, req.repoId, 'write');

@@ -112,7 +112,7 @@
 <div class="page-title">
 	<div>
 		<p class="crumbs">
-			<a href="/repos/{run.repo}">{run.repo}</a><span class="sep"></span><a href="/repos/{run.repo}?tab=tests">{i.t('test.tests')}</a><span class="sep"></span><a href="/tests/{run.scriptId}">{run.scriptName}</a>
+			<a href="/repos/{run.repoPath}">{run.repo}</a><span class="sep"></span><a href="/repos/{run.repoPath}?tab=tests">{i.t('test.tests')}</a><span class="sep"></span><a href="/tests/{run.scriptId}">{run.scriptName}</a>
 		</p>
 		<h1>{i.t('test.runHeading', { name: run.scriptName })}</h1>
 	</div>

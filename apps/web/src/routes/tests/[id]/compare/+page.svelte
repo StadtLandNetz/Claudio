@@ -14,7 +14,7 @@
 <div class="page-title">
 	<div>
 		<p class="crumbs">
-			<a href="/repos/{data.script.repo}">{data.script.repo}</a><span class="sep"></span><a href="/repos/{data.script.repo}?tab=tests">{i.t('test.tests')}</a><span class="sep"></span><a href="/tests/{data.script.id}">{data.script.name}</a>
+			<a href="/repos/{data.script.repoPath}">{data.script.repo}</a><span class="sep"></span><a href="/repos/{data.script.repoPath}?tab=tests">{i.t('test.tests')}</a><span class="sep"></span><a href="/tests/{data.script.id}">{data.script.name}</a>
 		</p>
 		<h1>{i.t('test.compareRuns')}</h1>
 	</div>

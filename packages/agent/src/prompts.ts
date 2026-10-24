@@ -1,4 +1,4 @@
-import { KNOWLEDGE_DOCS, type BudgetProfile, type FollowUpContext, type KnowledgeBase, type RepoConfig, type ReviewRequest } from "@claudio/core";
+import { KNOWLEDGE_DOCS, changeTerms, forgeName, type BudgetProfile, type FollowUpContext, type KnowledgeBase, type Provider, type RepoConfig, type ReviewRequest } from "@claudio/core";
 import type { PullRequestContext } from "@claudio/forge";
 
 export const SYSTEM_APPEND = `
@@ -53,7 +53,8 @@ export function buildReviewPrompt(input: PromptInput): string {
   sections.push(driverPrefix);
   sections.push(`# Review task\n\nRun id: ${input.runId}\nReport language: ${lang}\nVerbosity: ${request.verbosity}. ${verbosityGuide}\nStrictness: ${request.strictness}. ${strictnessGuide}\nBudget: about ${profile.maxTurns} turns and ${profile.maxBrowserSteps} browser steps. Plan accordingly: cover acceptance criteria first, then regressions on the affected areas, then UX/UI.`);
 
-  sections.push(`# Pull request #${pr.number}: ${pr.title}\n\nURL: ${pr.url}\nBranch: ${pr.headRef} → ${pr.baseRef}${pr.author ? `\nAuthor: ${pr.author}` : ""}${pr.draft ? "\nDraft PR" : ""}\n\n## Description\n\n${pr.body.trim() || "(empty)"}`);
+  const terms = changeTerms(request.provider);
+  sections.push(`# ${terms.Change} ${terms.prefix}${pr.number}: ${pr.title}\n\nURL: ${pr.url}\nBranch: ${pr.headRef} → ${pr.baseRef}${pr.author ? `\nAuthor: ${pr.author}` : ""}${pr.draft ? `\nDraft ${terms.short}` : ""}\n\n## Description\n\n${pr.body.trim() || "(empty)"}`);
 
   if (pr.issues.length > 0) {
     sections.push(
@@ -95,7 +96,7 @@ export function buildReviewPrompt(input: PromptInput): string {
   }
   if (request.viewports.includes("mobile")) sections.push(renderViewports(request.viewports));
   if (request.criteria?.length) sections.push(renderConfirmedCriteria(request.criteria));
-  if (input.followUp) sections.push(renderFollowUp(input.followUp));
+  if (input.followUp) sections.push(renderFollowUp(input.followUp, request.provider));
   if (request.extraInstructions) sections.push(`# Additional instructions for this run\n\n${request.extraInstructions.trim()}`);
 
   const confirmed = Boolean(request.criteria?.length);
@@ -166,10 +167,10 @@ const STEP_CRITERIA = (confirmed: boolean) =>
     : "Extract the acceptance criteria from the issue(s) and PR description. If they are implicit, formulate them explicitly. Add them to the todo list with todo_add, one item per criterion.";
 
 /** Re-review: what the earlier review found, so this one can check the fixes and what changed since. */
-export function renderFollowUp(f: FollowUpContext): string {
+export function renderFollowUp(f: FollowUpContext, provider?: Provider): string {
   const changed =
     f.changedFiles === null
-      ? "GitHub could not tell which files changed since then: treat every affected area as changed."
+      ? `${forgeName(provider ?? "github")} could not tell which files changed since then: treat every affected area as changed.`
       : f.changedFiles.length === 0
         ? "No files changed since then (the instance may have been redeployed or its data changed)."
         : `${f.changedFiles.length} file(s) changed since then:\n${f.changedFiles.slice(0, 80).map((x) => `- ${x}`).join("\n")}${f.changedFiles.length > 80 ? `\n- … +${f.changedFiles.length - 80}` : ""}`;

@@ -11,12 +11,12 @@ import {
   freshAccessToken,
   type Db,
 } from "@claudio/db";
-import { botClient, createGithubClient, postPullRequestReview, setCommitStatus } from "@claudio/forge";
+import { botForge, forgeFor } from "@claudio/forge";
 
 const ACTIVE = new Set(["queued", "running"]);
 
 /**
- * Reports a review back to GitHub once it and its regression tests are done:
+ * Reports a review back to GitHub or GitLab once it and its regression tests are done:
  * the commit status, and the PR comment if the review asked for one. Called
  * after the review and after each of its test runs; does nothing until all
  * are finished, and posts the comment only once.
@@ -59,14 +59,16 @@ export async function finalizeReview(db: Db, reviewId: number, publicBaseUrl: st
   }
 
   if (review.fixture) return;
-  // Claudio's own identity (GitHub App) when installed, else the person who set up the automation or started the review.
-  let github = await botClient(repo.fullName).catch(() => null);
-  if (!github) {
+  // Claudio's own identity (GitHub App, GitLab bot) where it has one, else the person who set up the automation or started the review.
+  let forge = await botForge(repo).catch(() => null);
+  if (!forge) {
     const user = await getUser(db, repo.automationUserId ?? review.startedBy);
-    const token = user ? await freshAccessToken(db, user) : null;
+    const token = user && user.provider === repo.provider ? await freshAccessToken(db, user) : null;
     if (!token) return;
-    github = createGithubClient(token);
+    forge = forgeFor(repo.provider, token);
   }
+  const ref = { fullName: repo.fullName, externalId: repo.externalId };
+  const branch = review.report?.pr.headRef;
   const url = publicBaseUrl ? `${publicBaseUrl}/reviews/${reviewId}` : undefined;
   const sha = review.headSha ?? review.report?.pr.headSha ?? null;
   const wantsStatus = Boolean(repo.automation?.commitStatus && sha);
@@ -75,7 +77,9 @@ export async function finalizeReview(db: Db, reviewId: number, publicBaseUrl: st
 
   if (pendingTests > 0) {
     if (wantsStatus) {
-      await setCommitStatus(github, repo.fullName, sha!, "pending", renderCommitStatus(language, { kind: "testsRunning", pendingTests }), url).catch((e) => log(`commit status failed: ${(e as Error).message}`));
+      await forge
+        .setCommitStatus(ref, sha!, "running", renderCommitStatus(language, { kind: "testsRunning", pendingTests }, repo.provider), { targetUrl: url, ref: branch })
+        .catch((e) => log(`commit status failed: ${(e as Error).message}`));
     }
     return;
   }
@@ -94,12 +98,13 @@ export async function finalizeReview(db: Db, reviewId: number, publicBaseUrl: st
           acTotal: report.acceptanceCriteria.length,
           blocking: blockingFindings(report, report.request.strictness, dismissed).length,
           tests: tests.length ? { passed: tests.filter((t) => t.outcome === "passed").length, total: tests.length } : undefined,
-        })
-      : renderCommitStatus(language, { kind: "failed", verdict: v, reason: review.error ?? review.status });
+        }, repo.provider)
+      : renderCommitStatus(language, { kind: "failed", verdict: v, reason: review.error ?? review.status }, repo.provider);
     // A finished review is a green check whatever it found: the verdict is in the description, and
     // blocking findings come as a "changes requested" review. Only a run that crashed without a report is an error.
     const state = report ? "success" : "error";
-    await setCommitStatus(github, repo.fullName, sha!, state, description, url)
+    await forge
+      .setCommitStatus(ref, sha!, state, description, { targetUrl: url, ref: branch })
       .then(() => log(`review ${reviewId}: commit status ${state}`))
       .catch((e) => log(`commit status failed: ${(e as Error).message}`));
   }
@@ -107,7 +112,7 @@ export async function finalizeReview(db: Db, reviewId: number, publicBaseUrl: st
   if (report && review.request.postComment && !review.commentUrl) {
     try {
       const body = renderPrComment(report, url, { dismissedIds: dismissed, tests: results });
-      const posted = await postPullRequestReview(github, repo.fullName, review.prNumber, body, v === "request_changes", REVIEW_SUPERSEDED[language]);
+      const posted = await forge.postReview(ref, review.prNumber, body, v === "request_changes", REVIEW_SUPERSEDED[language]);
       await setReviewCommentUrl(db, reviewId, posted.url);
       log(`review ${reviewId}: PR review ${posted.requestedChanges ? "requesting changes" : "comment"} ${posted.url}`);
     } catch (e) {

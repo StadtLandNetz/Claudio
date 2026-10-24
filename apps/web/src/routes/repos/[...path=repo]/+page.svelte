@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { changeRef } from '@claudio/core';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import Icon from '#lib/components/Icon.svelte';
@@ -16,6 +17,7 @@
 
 	let { data, form }: PageProps = $props();
 	const i = i18n();
+	const gitlab = $derived(data.repo.provider === 'gitlab');
 
 	const tabs = [
 		{ id: 'overview', label: 'repo.tabOverview' },
@@ -88,8 +90,8 @@
 
 <div class="page-title">
 	<h1>{data.repo.fullName}</h1>
-	{#if data.repos.find((r) => r.fullName === data.repo.fullName)?.onGithub}
-		<a class="btn ghost small gh" href="https://github.com/{data.repo.fullName}" target="_blank" rel="noopener noreferrer">
+	{#if data.repos.find((r) => r.path === data.repo.path)?.onGithub}
+		<a class="btn ghost small gh" href={data.repo.webUrl} target="_blank" rel="noopener noreferrer">
 			{i.t('common.onGithub')}
 			<Icon name="external" size={12} />
 		</a>
@@ -121,7 +123,7 @@
 			{#if isAdmin}<a href="?tab=settings">{i.t('repo.openSettings')}</a>{:else}{i.t('repo.adminCanSetUp')}{/if}
 		</p>
 	{/if}
-	<RepoOverview data={data.overview} repo={data.repo.fullName} canStart={canWrite && ready} />
+	<RepoOverview data={data.overview} repo={data.repo} canStart={canWrite && ready} />
 {:else if data.tab === 'pulls'}
 	{#if !canWrite}
 		<p class="notice">{i.t('repo.readOnly')}</p>
@@ -141,7 +143,7 @@
 			{#each data.pulls as pr (pr.number)}
 				<li>
 					<div class="pr">
-						<a href={pr.url} target="_blank" rel="noopener noreferrer" class="title">#{pr.number} {pr.title}</a>
+						<a href={pr.url} target="_blank" rel="noopener noreferrer" class="title">{changeRef(data.repo.provider, pr.number)} {pr.title}</a>
 						<span class="faint">
 							{pr.headRef}{pr.author ? i.t('repo.prBy', { author: pr.author }) : ''}{i.t('repo.prUpdated', { date: i.formatDate(pr.updatedAt) })}
 							{#if pr.draft}<span class="tag">{i.t('repo.draft')}</span>{/if}
@@ -149,7 +151,7 @@
 						</span>
 					</div>
 					{#if ready && canWrite}
-						<a class="btn small primary" href="/reviews/new?repo={encodeURIComponent(data.repo.fullName)}&pr={pr.number}">{i.t('repo.startReview')}</a>
+						<a class="btn small primary" href="/reviews/new?repo={encodeURIComponent(data.repo.path)}&pr={pr.number}">{i.t('repo.startReview')}</a>
 					{/if}
 				</li>
 			{/each}
@@ -480,8 +482,8 @@
 					<label class="field">
 						<span>{i.t('repo.keyCopyFrom')}</span>
 						<select name="source">
-							{#each data.keySources as src (src.fullName)}
-								<option value={src.fullName}>{src.fullName} (…{src.hint})</option>
+							{#each data.keySources as src (src.id)}
+								<option value={src.id}>{src.fullName} (…{src.hint})</option>
 							{/each}
 						</select>
 						<small>{i.t('repo.keyCopyHint')}</small>
@@ -556,12 +558,12 @@
 				{#if formError('automation')}<p class="notice error" role="alert">{formError('automation')}</p>{/if}
 				<label class="field">
 					<span>{i.t('repo.envLabel')}</span>
-					<input type="text" name="deploymentEnvironment" value={data.automation.deploymentEnvironment ?? ''} list="environments" placeholder={data.suggestedEnvironment ?? 'Preview'} />
+					<input type="text" name="deploymentEnvironment" value={data.automation.deploymentEnvironment ?? ''} list="environments" placeholder={data.suggestedEnvironment ?? (gitlab ? 'review' : 'Preview')} />
 					<datalist id="environments">
 						{#each data.environments as env (env)}<option value={env}></option>{/each}
 					</datalist>
 					<small>
-						{i.t('repo.envHint')}
+						{i.t('repo.envHint')}{#if gitlab}{i.t('repo.envHintGitlab')}{/if}
 						{#if data.suggestedEnvironment}<strong>{i.t('repo.envSuggestion', { env: data.suggestedEnvironment })}</strong>{i.t('repo.envSuggestionTail')}{/if}
 						{#if data.environments.length}{i.t('repo.envList', { list: data.environments.join(', ') })}{/if}
 						{#if data.suggestedEnvironment && data.automation.deploymentEnvironment && data.automation.deploymentEnvironment.toLowerCase() !== data.suggestedEnvironment.toLowerCase()}
@@ -614,6 +616,28 @@
 				</div>
 			</form>
 
+			{#if data.gitlabBot}
+				<div class="sheet fields hook">
+					<h3>{i.t('repo.botTitle')}</h3>
+					{#if !data.gitlabBot.configured}
+						<p class="muted">{i.t('repo.botMissing')}</p>
+					{:else if !data.gitlabBot.username}
+						<p><span class="dot-ok bad"></span> {i.t('repo.botUnknown')}</p>
+					{:else}
+						<p>
+							<span class="dot-ok" class:bad={!data.gitlabBot.ok}></span>
+							{data.gitlabBot.ok
+								? i.t('repo.botStatus', { user: data.gitlabBot.username, role: data.gitlabBot.role })
+								: i.t('repo.botNoAccess', { user: data.gitlabBot.username, role: data.gitlabBot.role })}
+						</p>
+						{#if data.gitlabBot.expiresAt}
+							<p class:warn={data.gitlabBot.expiresSoon} class="faint">
+								{i.t(data.gitlabBot.expiresSoon ? 'repo.botExpiresSoon' : 'repo.botExpires', { date: i.formatDay(data.gitlabBot.expiresAt) })}
+							</p>
+						{/if}
+					{/if}
+				</div>
+			{/if}
 			{#if data.githubApp}
 				<div class="sheet fields hook">
 					<h3>{i.t('repo.appTitle')}</h3>
@@ -646,21 +670,32 @@
 				<details class="howto">
 					<summary>{i.t('repo.howTo')}</summary>
 					<div class="howto-body">
-						<p><strong>{i.t('repo.howWhatTitle')}</strong> {i.t('repo.howWhat')} <code>{data.webhookUrl}</code>{i.t('repo.howWhatAfter')}</p>
+						<p>
+							<strong>{i.t('repo.howWhatTitle')}</strong>
+							{i.t(gitlab ? 'repo.glHowWhat' : 'repo.howWhat')} <code>{data.webhookUrl}</code>{i.t(gitlab ? 'repo.glHowWhatAfter' : 'repo.howWhatAfter')}
+						</p>
 						<p><strong>{i.t('repo.howPrereqTitle')}</strong></p>
 						<ul>
-							<li>{i.t('repo.howPrereqAdmin')}</li>
+							<li>{i.t(gitlab ? 'repo.glHowPrereqMaintainer' : 'repo.howPrereqAdmin')}</li>
 							<li>{i.t('repo.howPrereqPublicBefore')}<code>PUBLIC_BASE_URL</code>{i.t('repo.howPrereqPublicAfter')}</li>
 							<li>{i.t('repo.howPrereqTemplate')}</li>
 						</ul>
 						<p><strong>{i.t('repo.howAfterTitle')}</strong> {i.t('repo.howAfterA')} <code>/claudio review</code> {i.t('repo.howAfterB')} <code>claudio-review</code> {i.t('repo.howAfterC')}</p>
 						<p><strong>{i.t('repo.howWhoTitle')}</strong> {i.t('repo.howWho')}</p>
-						<p><strong>{i.t('repo.howCheckTitle')}</strong> {i.t('repo.howCheck')}</p>
-						<ol>
-							<li>{i.t('repo.howCheckStep1')}</li>
-							<li>{i.t('repo.howCheckStep2', { branch: data.repo.defaultBranch ?? i.t('repo.mainBranch') })}</li>
-							<li>{i.t('repo.howCheckStep3')}</li>
-						</ol>
+						<p><strong>{i.t('repo.howCheckTitle')}</strong> {i.t(gitlab ? 'repo.glHowCheck' : 'repo.howCheck')}</p>
+						{#if gitlab}
+							<ol>
+								<li>{i.t('repo.glHowCheckStep1')}</li>
+								<li>{i.t('repo.glHowCheckStep2')}</li>
+								<li>{i.t('repo.glHowCheckStep3')}</li>
+							</ol>
+						{:else}
+							<ol>
+								<li>{i.t('repo.howCheckStep1', { branch: data.repo.defaultBranch ?? i.t('repo.mainBranch') })}</li>
+								<li>{i.t('repo.howCheckStep2')}</li>
+								<li>{i.t('repo.howCheckStep3')}</li>
+							</ol>
+						{/if}
 						<p><strong>{i.t('repo.howRemoveTitle')}</strong> {i.t('repo.howRemove')}</p>
 					</div>
 				</details>

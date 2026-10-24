@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Command, InvalidArgumentError } from "commander";
 import { runReview } from "@claudio/agent";
-import { BudgetTierSchema, DriverNameSchema, LanguageSchema, StrictnessSchema, VerbositySchema, blockingFindings, verdict } from "@claudio/core";
+import { BudgetTierSchema, DriverNameSchema, LanguageSchema, ProviderSchema, StrictnessSchema, VerbositySchema, blockingFindings, verdict } from "@claudio/core";
 
 if (existsSync(".env")) {
   process.loadEnvFile(".env");
@@ -21,9 +21,10 @@ function enumParser(name: string, values: readonly string[]) {
 
 program
   .command("review")
-  .description("Review a pull request against a running instance of the app")
-  .requiredOption("--repo <owner/name>", "GitHub repository")
-  .requiredOption("--pr <number>", "Pull request number", (v) => {
+  .description("Review a pull request (GitHub) or merge request (GitLab) against a running instance of the app")
+  .requiredOption("--repo <path>", "Repository: owner/name on GitHub, group/…/project on GitLab")
+  .option("--provider <name>", "github | gitlab (token from GITHUB_TOKEN or GITLAB_TOKEN, GitLab instance from GITLAB_URL)", enumParser("provider", ProviderSchema.options), "github")
+  .requiredOption("--pr <number>", "Pull request number, or the merge request's !number on GitLab", (v) => {
     const n = Number(v);
     if (!Number.isInteger(n) || n <= 0) throw new InvalidArgumentError("pr must be a positive integer");
     return n;
@@ -36,13 +37,13 @@ program
   .option("--strictness <level>", "lenient | normal | strict", enumParser("strictness", StrictnessSchema.options), "normal")
   .option("--lang <code>", "Report language: de | en", enumParser("lang", LanguageSchema.options), "de")
   .option("--headed", "Show the browser window (playwright driver)", false)
-  .option("--comment", "Post a TL;DR comment to the pull request", false)
+  .option("--comment", "Post a TL;DR comment to the pull or merge request", false)
   .option("--no-clone", "Skip cloning the PR branch for code analysis")
   .option("--model <id>", "Override the orchestrator model")
   .option("--instructions <text>", "Extra instructions for this run")
   .option("--mobile", "Also check the changed screens on a phone (desktop first)", false)
   .option("--mobile-only", "Review on a phone only", false)
-  .option("--pr-context <path>", "Use a PullRequestContext JSON file instead of GitHub (offline runs)")
+  .option("--pr-context <path>", "Use a PullRequestContext JSON file instead of GitHub or GitLab (offline runs)")
   .option("--repo-dir <path>", "Use an existing checkout instead of cloning the PR branch")
   .option("--config <path>", "Path to claudio.config.json", "claudio.config.json")
   .option("--runs <dir>", "Directory for run outputs", "runs")
@@ -55,6 +56,7 @@ program
     const report = await runReview(
       {
         repo: opts.repo,
+        provider: opts.provider,
         pr: opts.pr,
         instanceUrl: opts.url,
         roles: opts.role ?? [],

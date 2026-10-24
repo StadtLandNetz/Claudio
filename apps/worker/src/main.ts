@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAnalysis, runReview, runTest, type RunHandle } from "@claudio/agent";
-import { verdict } from "@claudio/core";
+import { changeRef, verdict, type Provider } from "@claudio/core";
 import {
   appendEvent,
   claimNextAnalysis,
@@ -49,7 +49,7 @@ import {
   type TestRun,
 } from "@claudio/db";
 import { persistArtifacts, persistTrace, purgeOldArtifacts } from "./artifacts.js";
-import { botToken } from "@claudio/forge";
+import { botForge, forgeFor } from "@claudio/forge";
 import { finalizeReview } from "./finalize.js";
 import { followUpContext } from "./follow-up.js";
 import { humanBridge } from "./human.js";
@@ -139,12 +139,13 @@ async function prepare(db: Db, job: Job) {
   const budget = await budgetState(db, repo);
   if (budget.exhausted) throw new Error(BUDGET_STOP[runLanguage(job)](budget.spent.toFixed(2), budget.limit!.toFixed(2)));
   const user = await getUser(db, job.row.startedBy);
-  // The GitHub App's installation token when the app is installed; otherwise the starting person's token.
-  const appToken = await botToken(repo.fullName).catch((e) => {
-    log(`github app token for ${repo.fullName} failed: ${(e as Error).message}`);
+  // Claudio's own identity (GitHub App, GitLab bot) where it has one; otherwise the starting person's token.
+  const bot = await botForge(repo).catch((e) => {
+    log(`bot access to ${repo.fullName} failed: ${(e as Error).message}`);
     return null;
   });
-  const githubToken = appToken ?? (user ? ((await freshAccessToken(db, user)) ?? undefined) : undefined);
+  const userToken = user && user.provider === repo.provider ? await freshAccessToken(db, user) : null;
+  const forge = bot ?? (userToken ? forgeFor(repo.provider, userToken) : null);
   const learnings = (await listLearnings(db, repo.id, LEARNINGS_IN_PROMPT)).map((l) => l.text);
   const { config, roleEnv } = toRepoConfig(repo, await listRoles(db, repo.id), undefined, learnings);
   const knowledge = await latestKnowledge(db, repo.id);
@@ -176,14 +177,15 @@ async function prepare(db: Db, job: Job) {
       projectRoot,
       config,
       roleEnv,
-      githubToken,
+      forge,
+      repoExternalId: repo.externalId,
       abortController: abort,
       stopSignal: stop.signal,
       remainingBudgetUsd: budget.remaining,
       anthropicApiKey,
       requireApiKey: !keyOptional,
       onProgress: emit,
-      human: humanBridge(db, { kind: job.kind, id: job.row.id, repoId: job.row.repoId, repo, what: runLabel(job), language: runLanguage(job) }, emit, stop.signal, publicBaseUrl),
+      human: humanBridge(db, { kind: job.kind, id: job.row.id, repoId: job.row.repoId, repo, what: runLabel(job, repo.provider), language: runLanguage(job) }, emit, stop.signal, publicBaseUrl),
       onLearning: (text: string) => {
         emit(`Gelernt: ${text}`);
         void addLearning(db, { repoId: job.row.repoId, text, runKind: job.kind, runRefId: job.row.id }).catch((e) => log(`learning not saved: ${(e as Error).message}`));
@@ -196,8 +198,8 @@ async function prepare(db: Db, job: Job) {
 }
 
 /** How a run is named in a notification. */
-function runLabel(job: Job): string {
-  if (job.kind === "review") return `#${job.row.prNumber} ${job.row.prTitle ?? ""}`.trim();
+function runLabel(job: Job, provider: Provider): string {
+  if (job.kind === "review") return `${changeRef(provider, job.row.prNumber)} ${job.row.prTitle ?? ""}`.trim();
   if (job.kind === "analysis") return job.row.request.repo;
   return `#${job.row.id}`;
 }
@@ -219,10 +221,10 @@ async function execute(db: Db, job: Job): Promise<void> {
     const c = ctx;
     if (job.kind === "review") {
       if (c.knowledge) c.emit(`Wissensbasis von Commit ${c.knowledge.commitSha.slice(0, 7)} wird mitgegeben.`);
-      const followUp = await followUpContext(db, job.row, c.common.githubToken, c.emit);
+      const followUp = await followUpContext(db, job.row, c.common.forge, c.emit);
       if (followUp) c.emit(`Nachprüfung von Review #${followUp.reviewId}: ${followUp.findings.length} offene Findings, ${followUp.changedFiles ? `${followUp.changedFiles.length} geänderte Dateien` : "Änderungen unbekannt"}.`);
       // The comment is posted by finalizeReview once the regression tests are done, so it can include them.
-      const report = await runReview({ ...job.row.request, postComment: false }, {
+      const report = await runReview({ ...job.row.request, provider: c.repo.provider, postComment: false }, {
         ...c.common,
         knowledge: c.knowledge,
         followUp,
@@ -247,7 +249,7 @@ async function execute(db: Db, job: Job): Promise<void> {
       const row = await getTestScript(db, job.row.scriptId);
       if (!row) throw new Error("Der Test existiert nicht mehr.");
       const script = toTestScript(row);
-      const report = await runTest(script, job.row.request, {
+      const report = await runTest(script, { ...job.row.request, provider: c.repo.provider }, {
         ...c.common,
         knowledge: c.knowledge,
         onRunStarted: (h: RunHandle) => {
@@ -273,7 +275,7 @@ async function execute(db: Db, job: Job): Promise<void> {
       else await notifyTestRun(db, job.row.id, c.repo, log);
     } else {
       if (c.knowledge) c.emit(`Aktualisiert die Wissensbasis von Commit ${c.knowledge.commitSha.slice(0, 7)}.`);
-      const report = await runAnalysis(job.row.request, {
+      const report = await runAnalysis({ ...job.row.request, provider: c.repo.provider }, {
         ...c.common,
         previous: c.knowledge,
         repoDir: c.fixture?.repoDir,
@@ -390,7 +392,7 @@ async function main(): Promise<void> {
         return null;
       });
       if (job) {
-        const what = job.kind === "review" ? `${job.row.request.repo}#${job.row.prNumber}` : job.kind === "test" ? `test script ${job.row.scriptId}` : job.row.request.repo;
+        const what = job.kind === "review" ? `${job.row.request.repo}${changeRef(job.row.request.provider, job.row.prNumber)}` : job.kind === "test" ? `test script ${job.row.scriptId}` : job.row.request.repo;
         log(`${job.kind} ${job.row.id}: ${what} → ${job.row.instanceUrl}`);
         const run = execute(db, job).finally(() => active.delete(run));
         active.add(run);

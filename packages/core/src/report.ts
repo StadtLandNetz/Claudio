@@ -1,3 +1,4 @@
+import { changeRef, changeTerms, type Provider } from "./forge.js";
 import type { Finding, Language, ReviewReport, Severity, Strictness, Verbosity } from "./schemas.js";
 
 export const SEVERITY_RANK: Record<Severity, number> = {
@@ -84,7 +85,7 @@ const L = {
     stillOpen: "Weiterhin offen",
     carried: "aus Review #{id} übernommen",
     commitStatus: {
-      pending: "Claudio prüft den Pull Request …",
+      pending: "Claudio prüft den {pr} …",
       testsRunning: "Review fertig, {n} Regressionstest(s) laufen noch",
       verdict: { approve: "Abnahme empfohlen", request_changes: "Änderungen nötig", inconclusive: "Review unvollständig" },
       criteria: "Kriterien",
@@ -125,7 +126,7 @@ const L = {
     stillOpen: "Still open",
     carried: "carried over from review #{id}",
     commitStatus: {
-      pending: "Claudio is reviewing the pull request …",
+      pending: "Claudio is reviewing the {pr} …",
       testsRunning: "Review done, {n} regression test(s) still running",
       verdict: { approve: "Approval recommended", request_changes: "Changes needed", inconclusive: "Review incomplete" },
       criteria: "criteria",
@@ -165,11 +166,14 @@ export function renderCommitStatus(
     | { kind: "testsRunning"; pendingTests: number }
     | { kind: "done"; verdict: Verdict; acPassed: number; acTotal: number; blocking: number; tests?: { passed: number; total: number } }
     | { kind: "failed"; verdict: Verdict; reason: string },
+  provider?: Provider | null,
 ): string {
   const t = L[language].commitStatus;
   switch (state.kind) {
-    case "pending":
-      return t.pending;
+    case "pending": {
+      const terms = changeTerms(provider);
+      return fill(t.pending, { pr: language === "de" ? terms.Title : terms.change });
+    }
     case "testsRunning":
       return t.testsRunning.replace("{n}", String(state.pendingTests));
     case "done": {
@@ -230,7 +234,7 @@ export function renderMarkdown(report: ReviewReport, verbosity: Verbosity = repo
   const evidenceById = new Map(report.evidence.map((e) => [e.id, e]));
 
   const out: string[] = [];
-  out.push(`# Claudio Review: PR #${report.pr.number} ${report.pr.title}`);
+  out.push(`# Claudio Review: ${changeTerms(report.request.provider).short} ${changeRef(report.request.provider, report.pr.number)} ${report.pr.title}`);
   out.push("");
   out.push(`**${t.verdict[v]}** (${t.status}: ${report.status}, strictness: ${strictness})`);
   out.push("");

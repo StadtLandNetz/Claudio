@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getRepo, webhookSecret } from '@claudio/db';
 import { githubAppWebhookSecret, verifyWebhookSignature } from '@claudio/forge';
-import { handleGithubEvent } from '#lib/server/automation.js';
+import { handleWebhookEvent } from '#lib/server/automation.js';
 import { db } from '#lib/server/db.js';
 import { publicBaseUrl } from '#lib/server/env.js';
 import type { RequestHandler } from './$types';
@@ -22,7 +22,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		return json({ error: 'invalid JSON' }, { status: 400 });
 	}
 	const fullName = payload.repository?.full_name;
-	const repo = typeof fullName === 'string' ? await getRepo(db(), fullName) : undefined;
+	const repo = typeof fullName === 'string' ? await getRepo(db(), 'github', fullName) : undefined;
 	const signature = request.headers.get('x-hub-signature-256');
 	const secrets = [repo ? webhookSecret(repo) : null, githubAppWebhookSecret()].filter((s): s is string => Boolean(s));
 	if (!repo || !secrets.some((s) => verifyWebhookSignature(s, raw, signature))) {
@@ -32,7 +32,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
 	// The app's webhook also sends installation events; nothing to do for them.
 	if (event === 'installation' || event === 'installation_repositories' || event === 'ping') return json({ action: 'ignored', reason: event });
 	try {
-		const result = await handleGithubEvent(repo, event, payload, publicBaseUrl(url));
+		const result = await handleWebhookEvent(repo, event, payload, publicBaseUrl(url));
 		console.log(`[webhook] ${repo.fullName} ${event}${payload.action ? `.${payload.action}` : ''}: ${result.action} (${result.reason})`);
 		return json(result, { status: result.action === 'ignored' ? 200 : 202 });
 	} catch (e) {

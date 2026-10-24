@@ -4,7 +4,7 @@ import type { Messages, Translation } from '../index.js';
 export const de = {
 	notSignedIn: 'Nicht angemeldet',
 	notFound: 'Nicht gefunden.',
-	needAccess: 'Dafür brauchst du {need} am Repository {repo} auf GitHub.',
+	needAccess: 'Dafür brauchst du {need} am Repository {repo} auf {forge}.',
 	needNone: 'keine Rechte',
 	needRead: 'Lesezugriff',
 	needWrite: 'Schreibrechte',
@@ -18,21 +18,21 @@ export const de = {
 	noKey: 'Für dieses Repository ist kein Anthropic-API-Key hinterlegt. Ein Admin kann ihn in den Einstellungen eintragen.',
 	budgetExhausted: 'Das Monatsbudget dieses Repositories ist aufgebraucht ({spent} von {limit} USD). Ein Admin kann es in den Einstellungen erhöhen.',
 	notCleared: 'Die Testdaten-Bestätigung fehlt: Ein Admin muss in den Einstellungen bestätigen, dass die Instanzen nur Testdaten enthalten.',
-	githubExpired: 'Dein GitHub-Zugang ist abgelaufen. Melde dich ab und wieder an.',
-	githubForbidden: 'GitHub verweigert den Zugriff (fehlende Rechte oder Rate-Limit).',
-	githubNotFound: 'GitHub kennt dieses Repository nicht oder du hast keinen Zugriff.',
-	githubError: 'GitHub-Fehler: {message}',
-	cannotReview: 'Claudio kann diesen PR nicht prüfen: {reason}',
-	instanceOtherEnvironment: 'Im Environment „{env}“ gibt es für diesen PR keine Bereitstellung; genutzt wird die aus „{found}“. Prüfe die Einstellung in den Repo-Einstellungen.',
+	githubExpired: 'Dein {forge}-Zugang ist abgelaufen. Melde dich ab und wieder an.',
+	githubForbidden: '{forge} verweigert den Zugriff (fehlende Rechte oder Rate-Limit).',
+	githubNotFound: '{forge} kennt dieses Repository nicht oder du hast keinen Zugriff.',
+	githubError: '{forge}-Fehler: {message}',
+	cannotReview: 'Claudio kann diesen {prAbbr} nicht prüfen: {reason}',
+	instanceOtherEnvironment: 'Im Environment „{env}“ gibt es für diesen {prAbbr} keine Bereitstellung; genutzt wird die aus „{found}“. Prüfe die Einstellung in den Repo-Einstellungen.',
 	instanceEarlierCommit: 'Für den neuesten Commit gibt es noch keine Instanz; geprüft wird die von {sha}.',
-	instanceNoDeployment: 'Für diesen PR gibt es noch keine erfolgreiche Bereitstellung im Environment „{env}“.',
-	instanceNoTemplate: 'In den Repo-Einstellungen fehlt die URL-Vorlage für die PR-Instanzen.'
+	instanceNoDeployment: 'Für diesen {prAbbr} gibt es noch keine erfolgreiche Bereitstellung im Environment „{env}“.',
+	instanceNoTemplate: 'In den Repo-Einstellungen fehlt die URL-Vorlage für die {prAbbr}-Instanzen.'
 } satisfies Messages;
 
 export const en: Translation<typeof de> = {
 	notSignedIn: 'Not signed in',
 	notFound: 'Not found.',
-	needAccess: 'You need {need} to the repository {repo} on GitHub for this.',
+	needAccess: 'You need {need} to the repository {repo} on {forge} for this.',
 	needNone: 'no access',
 	needRead: 'read access',
 	needWrite: 'write access',
@@ -46,13 +46,13 @@ export const en: Translation<typeof de> = {
 	noKey: 'No Anthropic API key is stored for this repository. An admin can add it in the settings.',
 	budgetExhausted: 'This repository’s monthly budget is used up ({spent} of {limit} USD). An admin can raise it in the settings.',
 	notCleared: 'The test data confirmation is missing: an admin has to confirm in the settings that the instances hold test data only.',
-	githubExpired: 'Your GitHub access has expired. Sign out and in again.',
-	githubForbidden: 'GitHub denies access (missing permissions or rate limit).',
-	githubNotFound: 'GitHub does not know this repository, or you have no access to it.',
-	githubError: 'GitHub error: {message}',
-	cannotReview: 'Claudio cannot review this PR: {reason}',
-	instanceOtherEnvironment: 'The environment "{env}" has no deployment for this PR; the one from "{found}" is used. Check the setting in the repository settings.',
+	githubExpired: 'Your {forge} access has expired. Sign out and in again.',
+	githubForbidden: '{forge} denies access (missing permissions or rate limit).',
+	githubNotFound: '{forge} does not know this repository, or you have no access to it.',
+	githubError: '{forge} error: {message}',
+	cannotReview: 'Claudio cannot review this {prAbbr}: {reason}',
+	instanceOtherEnvironment: 'The environment "{env}" has no deployment for this {prAbbr}; the one from "{found}" is used. Check the setting in the repository settings.',
 	instanceEarlierCommit: 'The latest commit has no instance yet; the one from {sha} is checked.',
-	instanceNoDeployment: 'This PR has no successful deployment in the environment "{env}" yet.',
-	instanceNoTemplate: 'The URL template for PR instances is missing in the repository settings.'
+	instanceNoDeployment: 'This {prAbbr} has no successful deployment in the environment "{env}" yet.',
+	instanceNoTemplate: 'The URL template for {prAbbr} instances is missing in the repository settings.'
 };

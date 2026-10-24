@@ -2,9 +2,9 @@ import { bigint, boolean, customType, datetime, index, int, json, mediumtext, my
 
 /** Binary column up to 16 MB (screenshots). */
 const mediumblob = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "mediumblob" });
-import type { AutomationSettings } from "@claudio/forge";
 import type {
   AnalysisReport,
+  AutomationSettings,
   AnalysisRequest,
   Finding,
   KnowledgeDocName,
@@ -20,22 +20,32 @@ const id = () => bigint("id", { mode: "number", unsigned: true }).autoincrement(
 const ref = (name: string) => bigint(name, { mode: "number", unsigned: true });
 const createdAt = () => datetime("created_at", { mode: "date" }).notNull().$defaultFn(() => new Date());
 
-export const users = mysqlTable("users", {
-  id: id(),
-  githubId: bigint("github_id", { mode: "number", unsigned: true }).notNull().unique(),
-  login: varchar("login", { length: 100 }).notNull(),
-  name: varchar("name", { length: 200 }),
-  avatarUrl: varchar("avatar_url", { length: 500 }),
-  /** AES-GCM encrypted OAuth access token. */
-  accessTokenEnc: text("access_token_enc").notNull(),
-  /** Set when the OAuth App issues expiring tokens: used to renew the access token. */
-  refreshTokenEnc: text("refresh_token_enc"),
-  tokenExpiresAt: datetime("token_expires_at", { mode: "date" }),
-  /** UI language ("de" | "en"); also the language of what Claudio posts to GitHub on this person's behalf. Null: not chosen yet. */
-  locale: varchar("locale", { length: 5 }),
-  createdAt: createdAt(),
-  lastLoginAt: datetime("last_login_at", { mode: "date" }).notNull().$defaultFn(() => new Date()),
-});
+/** Same values as Provider in @claudio/core (kept literal: drizzle-kit loads this file on its own). */
+const provider = () => mysqlEnum("provider", ["github", "gitlab"]).notNull().default("github");
+
+export const users = mysqlTable(
+  "users",
+  {
+    id: id(),
+    /** Where the person signs in. One Claudio account per provider identity. */
+    provider: provider(),
+    /** The person's numeric id at the provider. The column keeps its name from before GitLab support. */
+    externalId: bigint("github_id", { mode: "number", unsigned: true }).notNull(),
+    login: varchar("login", { length: 100 }).notNull(),
+    name: varchar("name", { length: 200 }),
+    avatarUrl: varchar("avatar_url", { length: 500 }),
+    /** AES-GCM encrypted OAuth access token. */
+    accessTokenEnc: text("access_token_enc").notNull(),
+    /** Set when the OAuth App issues expiring tokens: used to renew the access token. */
+    refreshTokenEnc: text("refresh_token_enc"),
+    tokenExpiresAt: datetime("token_expires_at", { mode: "date" }),
+    /** UI language ("de" | "en"); also the language of what Claudio posts to GitHub or GitLab on this person's behalf. Null: not chosen yet. */
+    locale: varchar("locale", { length: 5 }),
+    createdAt: createdAt(),
+    lastLoginAt: datetime("last_login_at", { mode: "date" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("users_provider_external_idx").on(t.provider, t.externalId)],
+);
 
 export const sessions = mysqlTable(
   "sessions",
@@ -49,44 +59,51 @@ export const sessions = mysqlTable(
   (t) => [index("sessions_user_idx").on(t.userId)],
 );
 
-export const repos = mysqlTable("repos", {
-  id: id(),
-  /** owner/name as on GitHub. */
-  fullName: varchar("full_name", { length: 200 }).notNull().unique(),
-  isPrivate: boolean("is_private").notNull().default(false),
-  defaultBranch: varchar("default_branch", { length: 200 }),
-  notes: text("notes"),
-  extraAllowedHosts: json("extra_allowed_hosts").$type<string[]>().notNull().$defaultFn(() => []),
-  /** Confirmation that review instances only hold synthetic data (screenshots go to Anthropic). */
-  dataConfirmed: boolean("data_confirmed").notNull().default(false),
-  defaultInstanceUrl: varchar("default_instance_url", { length: 500 }),
-  /** Webhook-driven automation (Phase 5). Null until configured. */
-  automation: json("automation").$type<AutomationSettings | null>(),
-  /** Defaults for reviews started by GitHub events. */
-  autoReview: json("auto_review").$type<AutoReviewDefaults | null>(),
-  webhookId: bigint("webhook_id", { mode: "number" }),
-  webhookSecretEnc: text("webhook_secret_enc"),
-  /** Whose GitHub token automated runs use (the person who installed the webhook). */
-  automationUserId: ref("automation_user_id"),
-  /** The repository's own Anthropic API key (encrypted). Runs of this repo use only this key. */
-  anthropicKeyEnc: text("anthropic_key_enc"),
-  /** Last characters of the key, to recognise it without showing it. */
-  anthropicKeyHint: varchar("anthropic_key_hint", { length: 12 }),
-  anthropicKeySetBy: ref("anthropic_key_set_by"),
-  anthropicKeySetAt: datetime("anthropic_key_set_at", { mode: "date" }),
-  /** Dismissed findings with a reason; every later review is told about them. */
-  lessons: json("lessons").$type<Lesson[]>().notNull().$defaultFn(() => []),
-  /** Slack incoming webhook (encrypted) and what to post there. */
-  slackWebhookEnc: text("slack_webhook_enc"),
-  slackWebhookHint: varchar("slack_webhook_hint", { length: 40 }),
-  notifications: json("notifications").$type<NotificationSettings | null>(),
-  /** Spending cap per calendar month in USD (null: none). Runs do not start beyond it. */
-  monthlyBudgetUsd: varchar("monthly_budget_usd", { length: 20 }),
-  /** Month (YYYY-MM) for which the 80 % warning went out, so it goes once. */
-  budgetWarnedMonth: varchar("budget_warned_month", { length: 7 }),
-  createdBy: ref("created_by").notNull(),
-  createdAt: createdAt(),
-});
+export const repos = mysqlTable(
+  "repos",
+  {
+    id: id(),
+    provider: provider(),
+    /** owner/name on GitHub, group/…/project on GitLab. */
+    fullName: varchar("full_name", { length: 255 }).notNull(),
+    /** GitLab's project id, so API calls and webhooks survive renaming or moving the project. Null on GitHub. */
+    externalId: bigint("external_id", { mode: "number", unsigned: true }),
+    isPrivate: boolean("is_private").notNull().default(false),
+    defaultBranch: varchar("default_branch", { length: 200 }),
+    notes: text("notes"),
+    extraAllowedHosts: json("extra_allowed_hosts").$type<string[]>().notNull().$defaultFn(() => []),
+    /** Confirmation that review instances only hold synthetic data (screenshots go to Anthropic). */
+    dataConfirmed: boolean("data_confirmed").notNull().default(false),
+    defaultInstanceUrl: varchar("default_instance_url", { length: 500 }),
+    /** Webhook-driven automation (Phase 5). Null until configured. */
+    automation: json("automation").$type<AutomationSettings | null>(),
+    /** Defaults for reviews started by GitHub or GitLab events. */
+    autoReview: json("auto_review").$type<AutoReviewDefaults | null>(),
+    webhookId: bigint("webhook_id", { mode: "number" }),
+    webhookSecretEnc: text("webhook_secret_enc"),
+    /** Whose GitHub or GitLab token automated runs use (the person who installed the webhook). */
+    automationUserId: ref("automation_user_id"),
+    /** The repository's own Anthropic API key (encrypted). Runs of this repo use only this key. */
+    anthropicKeyEnc: text("anthropic_key_enc"),
+    /** Last characters of the key, to recognise it without showing it. */
+    anthropicKeyHint: varchar("anthropic_key_hint", { length: 12 }),
+    anthropicKeySetBy: ref("anthropic_key_set_by"),
+    anthropicKeySetAt: datetime("anthropic_key_set_at", { mode: "date" }),
+    /** Dismissed findings with a reason; every later review is told about them. */
+    lessons: json("lessons").$type<Lesson[]>().notNull().$defaultFn(() => []),
+    /** Slack incoming webhook (encrypted) and what to post there. */
+    slackWebhookEnc: text("slack_webhook_enc"),
+    slackWebhookHint: varchar("slack_webhook_hint", { length: 40 }),
+    notifications: json("notifications").$type<NotificationSettings | null>(),
+    /** Spending cap per calendar month in USD (null: none). Runs do not start beyond it. */
+    monthlyBudgetUsd: varchar("monthly_budget_usd", { length: 20 }),
+    /** Month (YYYY-MM) for which the 80 % warning went out, so it goes once. */
+    budgetWarnedMonth: varchar("budget_warned_month", { length: 7 }),
+    createdBy: ref("created_by").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("repos_provider_full_name_idx").on(t.provider, t.fullName), index("repos_provider_external_idx").on(t.provider, t.externalId)],
+);
 
 /** What a repository's Slack channel hears about. */
 export type NotificationSettings = {

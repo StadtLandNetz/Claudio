@@ -1,13 +1,14 @@
 import type { Cookies } from '@sveltejs/kit';
 import { createSession, deleteSession, freshAccessToken, getUser, type User } from '@claudio/db';
 import { db } from './db.js';
-import { allowedOrgs, allowedUsers } from './env.js';
-import { fetchUserOrgs } from './github.js';
+import type { Provider } from '@claudio/core';
+import { oauth } from '@claudio/forge';
+import { allowedGroups, allowedUsers } from './env.js';
 
 export const SESSION_COOKIE = 'claudio_session';
 export const STATE_COOKIE = 'claudio_oauth_state';
 
-export type SessionUser = Pick<User, 'id' | 'login' | 'name' | 'avatarUrl'>;
+export type SessionUser = Pick<User, 'id' | 'provider' | 'login' | 'name' | 'avatarUrl'>;
 
 export async function startSession(cookies: Cookies, userId: number, secure: boolean): Promise<void> {
 	const { token, expiresAt } = await createSession(db(), userId);
@@ -20,18 +21,26 @@ export async function endSession(cookies: Cookies): Promise<void> {
 	cookies.delete(SESSION_COOKIE, { path: '/' });
 }
 
-/** Applies CLAUDIO_ALLOWED_GITHUB_USERS / _ORGS. With neither set, every GitHub user may sign in. */
-export async function isAllowed(login: string, token: string): Promise<boolean> {
-	const users = allowedUsers();
-	const orgs = allowedOrgs();
-	if (users.length === 0 && orgs.length === 0) return true;
+/**
+ * Applies CLAUDIO_ALLOWED_GITHUB_USERS / _ORGS and CLAUDIO_ALLOWED_GITLAB_USERS / _GROUPS.
+ * Without any list, everybody may sign in. With lists for one provider only, the
+ * other provider lets nobody in, so connecting GitLab does not open Claudio to all of gitlab.com.
+ */
+export async function isAllowed(provider: Provider, login: string, token: string): Promise<boolean> {
+	const users = allowedUsers(provider);
+	const groups = allowedGroups(provider);
+	if (users.length === 0 && groups.length === 0) {
+		const other: Provider = provider === 'github' ? 'gitlab' : 'github';
+		return allowedUsers(other).length === 0 && allowedGroups(other).length === 0;
+	}
 	if (users.includes(login.toLowerCase())) return true;
-	if (orgs.length === 0) return false;
-	const memberOf = await fetchUserOrgs(token);
-	return memberOf.some((o) => orgs.includes(o));
+	if (groups.length === 0) return false;
+	const memberOf = await oauth(provider).memberships(token);
+	// A member of a GitLab subgroup (slw/apps) counts for the group above it (slw).
+	return memberOf.some((m) => groups.some((g) => m === g || m.startsWith(`${g}/`)));
 }
 
-/** The signed-in user's GitHub token, or null for the offline demo user. */
+/** The signed-in user's GitHub or GitLab token, or null for the offline demo user. */
 export async function userToken(user: SessionUser): Promise<string | null> {
 	const row = await getUser(db(), user.id);
 	return row ? freshAccessToken(db(), row) : null;

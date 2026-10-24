@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { changeRef } from '@claudio/core';
 	import CriteriaEditor from '#lib/components/CriteriaEditor.svelte';
 	import ViewportChoice from '#lib/components/ViewportChoice.svelte';
 	import { i18n } from '#lib/i18n/index.js';
@@ -16,11 +17,11 @@
 
 <div class="page-title">
 	<div>
-		<p class="crumbs"><a href="/repos/{data.repo}?tab=pulls">{data.repo}</a></p>
+		<p class="crumbs"><a href="/repos/{data.repoPath}?tab=pulls">{data.repo}</a></p>
 		<h1>{i.t('review.start')}</h1>
 		{#if data.pr}
 			<p class="lead pr">
-				<a href={data.pr.url} target="_blank" rel="noopener noreferrer">#{data.prNumber} {data.pr.title}</a>
+				<a href={data.pr.url} target="_blank" rel="noopener noreferrer">{changeRef(i.provider, data.prNumber)} {data.pr.title}</a>
 				<span class="faint">{i.t('review.branch', { ref: data.pr.headRef })}</span>
 			</p>
 		{/if}
@@ -81,7 +82,7 @@
 
 	{#key followUp}
 		<CriteriaEditor
-			repo={data.repo}
+			repo={data.repoPath}
 			pr={data.prNumber}
 			followUpOf={followUp ? (data.previous?.id ?? null) : null}
 			initial={followUp ? (data.previous?.criteria ?? []) : []}

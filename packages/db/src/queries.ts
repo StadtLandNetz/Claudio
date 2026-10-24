@@ -19,7 +19,7 @@ import type {
   TestScript,
   TestStep,
 } from "@claudio/core";
-import type { AutomationSettings } from "@claudio/forge";
+import type { AutomationSettings, Provider } from "@claudio/core";
 import type { Db } from "./client.js";
 import { decrypt, encrypt, sha256 } from "./crypto.js";
 import {
@@ -63,32 +63,42 @@ import {
 
 export async function upsertUser(
   db: Db,
-  input: { githubId: number; login: string; name: string | null; avatarUrl: string | null; accessToken: string; refreshToken?: string; expiresAt?: Date },
+  input: { provider: Provider; externalId: number; login: string; name: string | null; avatarUrl: string | null; accessToken: string; refreshToken?: string; expiresAt?: Date },
 ): Promise<User> {
   const tokens = {
     accessTokenEnc: encrypt(input.accessToken),
     refreshTokenEnc: input.refreshToken ? encrypt(input.refreshToken) : null,
     tokenExpiresAt: input.expiresAt ?? null,
   };
-  const values = { githubId: input.githubId, login: input.login, name: input.name, avatarUrl: input.avatarUrl, ...tokens, lastLoginAt: new Date() };
+  const values = { provider: input.provider, externalId: input.externalId, login: input.login, name: input.name, avatarUrl: input.avatarUrl, ...tokens, lastLoginAt: new Date() };
   await db
     .insert(users)
     .values(values)
     .onDuplicateKeyUpdate({ set: { login: values.login, name: values.name, avatarUrl: values.avatarUrl, ...tokens, lastLoginAt: values.lastLoginAt } });
-  const [user] = await db.select().from(users).where(eq(users.githubId, input.githubId));
+  const [user] = await db.select().from(users).where(and(eq(users.provider, input.provider), eq(users.externalId, input.externalId)));
   if (!user) throw new Error("user upsert failed");
   return user;
 }
 
-export async function updateUserTokens(db: Db, userId: number, t: { accessToken: string; refreshToken?: string; expiresAt?: Date }): Promise<void> {
-  await db
+/**
+ * Stores renewed tokens. With `ifRefreshTokenEnc`, only while the row still holds
+ * that refresh token (another process may have renewed first). True when stored.
+ */
+export async function updateUserTokens(
+  db: Db,
+  userId: number,
+  t: { accessToken: string; refreshToken?: string; expiresAt?: Date },
+  ifRefreshTokenEnc?: string | null,
+): Promise<boolean> {
+  const [res] = await db
     .update(users)
     .set({
       accessTokenEnc: encrypt(t.accessToken),
       ...(t.refreshToken ? { refreshTokenEnc: encrypt(t.refreshToken) } : {}),
       tokenExpiresAt: t.expiresAt ?? null,
     })
-    .where(eq(users.id, userId));
+    .where(and(eq(users.id, userId), ifRefreshTokenEnc ? eq(users.refreshTokenEnc, ifRefreshTokenEnc) : undefined));
+  return res.affectedRows === 1;
 }
 
 export function userAccessToken(user: Pick<User, "accessTokenEnc">): string {
@@ -140,8 +150,14 @@ export async function listRepos(db: Db): Promise<Repo[]> {
   return db.select().from(repos).orderBy(asc(repos.fullName));
 }
 
-export async function getRepo(db: Db, fullName: string): Promise<Repo | undefined> {
-  const [repo] = await db.select().from(repos).where(eq(repos.fullName, fullName));
+export async function getRepo(db: Db, provider: Provider, fullName: string): Promise<Repo | undefined> {
+  const [repo] = await db.select().from(repos).where(and(eq(repos.provider, provider), eq(repos.fullName, fullName)));
+  return repo;
+}
+
+/** A repository by the provider's own id (GitLab project id), which survives renames. */
+export async function getRepoByExternalId(db: Db, provider: Provider, externalId: number): Promise<Repo | undefined> {
+  const [repo] = await db.select().from(repos).where(and(eq(repos.provider, provider), eq(repos.externalId, externalId)));
   return repo;
 }
 
@@ -170,10 +186,13 @@ export async function countsByRepo(db: Db, repoIds: number[]): Promise<Map<numbe
 
 export async function addRepo(
   db: Db,
-  input: { fullName: string; isPrivate: boolean; defaultBranch: string | null; createdBy: number },
+  input: { provider: Provider; fullName: string; externalId?: number | null; isPrivate: boolean; defaultBranch: string | null; createdBy: number },
 ): Promise<Repo> {
-  await db.insert(repos).values(input).onDuplicateKeyUpdate({ set: { isPrivate: input.isPrivate, defaultBranch: input.defaultBranch } });
-  const repo = await getRepo(db, input.fullName);
+  await db
+    .insert(repos)
+    .values(input)
+    .onDuplicateKeyUpdate({ set: { isPrivate: input.isPrivate, defaultBranch: input.defaultBranch, ...(input.externalId ? { externalId: input.externalId } : {}) } });
+  const repo = await getRepo(db, input.provider, input.fullName);
   if (!repo) throw new Error("repo insert failed");
   return repo;
 }
@@ -228,7 +247,7 @@ export async function claimNotification(db: Db, target: { reviewId: number } | {
 /** The latest finished review of a pull request before `beforeId`, with a report (what a re-review builds on). */
 export async function previousReviewOf(db: Db, repoId: number, prNumber: number, beforeId?: number): Promise<ReviewListItem | undefined> {
   const [row] = await db
-    .select({ review: reviews, repoFullName: repos.fullName, startedByLogin: users.login })
+    .select({ review: reviews, repoFullName: repos.fullName, repoProvider: repos.provider, startedByLogin: users.login })
     .from(reviews)
     .innerJoin(repos, eq(repos.id, reviews.repoId))
     .innerJoin(users, eq(users.id, reviews.startedBy))
@@ -243,7 +262,7 @@ export async function previousReviewOf(db: Db, repoId: number, prNumber: number,
     )
     .orderBy(desc(reviews.id))
     .limit(1);
-  return row ? { ...row.review, repoFullName: row.repoFullName, startedByLogin: row.startedByLogin } : undefined;
+  return row ? { ...row.review, repoFullName: row.repoFullName, repoProvider: row.repoProvider, startedByLogin: row.startedByLogin } : undefined;
 }
 
 export function webhookSecret(repo: Pick<Repo, "webhookSecretEnc">): string | null {
@@ -375,7 +394,7 @@ export function roleUsername(role: { usernameEnc: string }): string {
 
 // ---------------------------------------------------------------- reviews
 
-export type ReviewListItem = Review & { repoFullName: string; startedByLogin: string };
+export type ReviewListItem = Review & { repoFullName: string; repoProvider: Provider; startedByLogin: string };
 
 export async function createReview(
   db: Db,
@@ -407,18 +426,18 @@ export async function createReview(
 export async function listReviews(db: Db, opts: { repoId?: number; repoIds?: number[]; limit?: number } = {}): Promise<ReviewListItem[]> {
   if (opts.repoIds && opts.repoIds.length === 0) return [];
   const rows = await db
-    .select({ review: reviews, repoFullName: repos.fullName, startedByLogin: users.login })
+    .select({ review: reviews, repoFullName: repos.fullName, repoProvider: repos.provider, startedByLogin: users.login })
     .from(reviews)
     .innerJoin(repos, eq(repos.id, reviews.repoId))
     .innerJoin(users, eq(users.id, reviews.startedBy))
     .where(and(opts.repoId ? eq(reviews.repoId, opts.repoId) : undefined, opts.repoIds ? inArray(reviews.repoId, opts.repoIds) : undefined))
     .orderBy(desc(reviews.id))
     .limit(opts.limit ?? 50);
-  return rows.map((r) => ({ ...r.review, repoFullName: r.repoFullName, startedByLogin: r.startedByLogin }));
+  return rows.map((r) => ({ ...r.review, repoFullName: r.repoFullName, repoProvider: r.repoProvider, startedByLogin: r.startedByLogin }));
 }
 
 /** A review for a list: everything but the report, of which only what the verdict needs is extracted in MySQL. */
-export type ReviewDigestItem = Omit<Review, "report"> & { repoFullName: string; startedByLogin: string; report: ReportLike | null };
+export type ReviewDigestItem = Omit<Review, "report"> & { repoFullName: string; repoProvider: Provider; startedByLogin: string; report: ReportLike | null };
 
 const { report: _reviewReport, ...reviewColumns } = getTableColumns(reviews);
 const jsonList = (v: unknown): unknown[] => {
@@ -436,7 +455,7 @@ export async function listReviewDigests(db: Db, opts: { repoId?: number; repoIds
   const rows = await db
     .select({
       ...reviewColumns,
-      repoFullName: repos.fullName,
+      repoFullName: repos.fullName, repoProvider: repos.provider,
       startedByLogin: users.login,
       hasReport: sql<number>`(${reviews.report} is not null)`.mapWith(Number),
       reportStatus: sql<string | null>`json_unquote(json_extract(${reviews.report}, '$.status'))`,
@@ -635,12 +654,12 @@ export async function lastReviewByRepo(db: Db, repoIds: number[]): Promise<Map<n
 
 export async function getReview(db: Db, id: number): Promise<ReviewListItem | undefined> {
   const [row] = await db
-    .select({ review: reviews, repoFullName: repos.fullName, startedByLogin: users.login })
+    .select({ review: reviews, repoFullName: repos.fullName, repoProvider: repos.provider, startedByLogin: users.login })
     .from(reviews)
     .innerJoin(repos, eq(repos.id, reviews.repoId))
     .innerJoin(users, eq(users.id, reviews.startedBy))
     .where(eq(reviews.id, id));
-  return row ? { ...row.review, repoFullName: row.repoFullName, startedByLogin: row.startedByLogin } : undefined;
+  return row ? { ...row.review, repoFullName: row.repoFullName, repoProvider: row.repoProvider, startedByLogin: row.startedByLogin } : undefined;
 }
 
 /** A queued or running review of the same PR (and commit, if given): a new event should not start another. */
@@ -777,7 +796,7 @@ export async function eventsSince(db: Db, target: EventTarget, afterSeq: number,
 
 // ---------------------------------------------------------------- analyses & knowledge
 
-export type AnalysisListItem = Analysis & { repoFullName: string; startedByLogin: string; docCount: number };
+export type AnalysisListItem = Analysis & { repoFullName: string; repoProvider: Provider; startedByLogin: string; docCount: number };
 
 export async function createAnalysis(
   db: Db,
@@ -795,7 +814,7 @@ export async function createAnalysis(
 
 const analysisSelect = {
   analysis: analyses,
-  repoFullName: repos.fullName,
+  repoFullName: repos.fullName, repoProvider: repos.provider,
   startedByLogin: users.login,
   docCount: sql<number>`(select count(*) from ${knowledgeDocs} where ${knowledgeDocs.analysisId} = ${analyses.id})`.mapWith(Number),
 };
@@ -816,7 +835,7 @@ export async function listAnalyses(db: Db, opts: { repoId?: number; repoIds?: nu
     )
     .orderBy(desc(analyses.id))
     .limit(opts.limit ?? 50);
-  return rows.map((r) => ({ ...r.analysis, repoFullName: r.repoFullName, startedByLogin: r.startedByLogin, docCount: r.docCount }));
+  return rows.map((r) => ({ ...r.analysis, repoFullName: r.repoFullName, repoProvider: r.repoProvider, startedByLogin: r.startedByLogin, docCount: r.docCount }));
 }
 
 export async function getAnalysis(db: Db, id: number): Promise<AnalysisListItem | undefined> {
@@ -826,7 +845,7 @@ export async function getAnalysis(db: Db, id: number): Promise<AnalysisListItem 
     .innerJoin(repos, eq(repos.id, analyses.repoId))
     .innerJoin(users, eq(users.id, analyses.startedBy))
     .where(eq(analyses.id, id));
-  return r ? { ...r.analysis, repoFullName: r.repoFullName, startedByLogin: r.startedByLogin, docCount: r.docCount } : undefined;
+  return r ? { ...r.analysis, repoFullName: r.repoFullName, repoProvider: r.repoProvider, startedByLogin: r.startedByLogin, docCount: r.docCount } : undefined;
 }
 
 export async function claimNextAnalysis(db: Db): Promise<Analysis | null> {
@@ -953,6 +972,7 @@ export async function deleteTestScript(db: Db, id: number): Promise<void> {
 
 export type TestScriptListItem = TestScriptRow & {
   repoFullName: string;
+  repoProvider: Provider;
   lastOutcome: string | null;
   lastStatus: string | null;
   lastRunAt: Date | null;
@@ -961,7 +981,7 @@ export type TestScriptListItem = TestScriptRow & {
 
 export async function listTestScripts(db: Db, repoId: number): Promise<TestScriptListItem[]> {
   const rows = await db
-    .select({ script: testScripts, repoFullName: repos.fullName })
+    .select({ script: testScripts, repoFullName: repos.fullName, repoProvider: repos.provider })
     .from(testScripts)
     .innerJoin(repos, eq(repos.id, testScripts.repoId))
     .where(eq(testScripts.repoId, repoId))
@@ -969,7 +989,7 @@ export async function listTestScripts(db: Db, repoId: number): Promise<TestScrip
   const last = await lastRunsByScript(db, rows.map((r) => r.script.id));
   return rows.map((r) => {
     const l = last.get(r.script.id);
-    return { ...r.script, repoFullName: r.repoFullName, lastOutcome: l?.outcome ?? null, lastStatus: l?.status ?? null, lastRunAt: l?.createdAt ?? null, lastHealed: l?.healed ?? false };
+    return { ...r.script, repoFullName: r.repoFullName, repoProvider: r.repoProvider, lastOutcome: l?.outcome ?? null, lastStatus: l?.status ?? null, lastRunAt: l?.createdAt ?? null, lastHealed: l?.healed ?? false };
   });
 }
 
@@ -992,9 +1012,9 @@ async function lastRunsByScript(db: Db, scriptIds: number[]): Promise<Map<number
   return out;
 }
 
-export async function getTestScript(db: Db, id: number): Promise<(TestScriptRow & { repoFullName: string }) | undefined> {
-  const [r] = await db.select({ script: testScripts, repoFullName: repos.fullName }).from(testScripts).innerJoin(repos, eq(repos.id, testScripts.repoId)).where(eq(testScripts.id, id));
-  return r ? { ...r.script, repoFullName: r.repoFullName } : undefined;
+export async function getTestScript(db: Db, id: number): Promise<(TestScriptRow & { repoFullName: string; repoProvider: Provider }) | undefined> {
+  const [r] = await db.select({ script: testScripts, repoFullName: repos.fullName, repoProvider: repos.provider }).from(testScripts).innerJoin(repos, eq(repos.id, testScripts.repoId)).where(eq(testScripts.id, id));
+  return r ? { ...r.script, repoFullName: r.repoFullName, repoProvider: r.repoProvider } : undefined;
 }
 
 export function toTestScript(row: TestScriptRow): TestScript {
@@ -1040,9 +1060,9 @@ export async function createTestRun(
   return res.insertId;
 }
 
-export type TestRunListItem = TestRun & { scriptName: string; repoFullName: string; startedByLogin: string };
+export type TestRunListItem = TestRun & { scriptName: string; repoFullName: string; repoProvider: Provider; startedByLogin: string };
 
-const testRunSelect = { run: testRuns, scriptName: testScripts.name, repoFullName: repos.fullName, startedByLogin: users.login };
+const testRunSelect = { run: testRuns, scriptName: testScripts.name, repoFullName: repos.fullName, repoProvider: repos.provider, startedByLogin: users.login };
 
 export async function listTestRuns(
   db: Db,
@@ -1066,7 +1086,7 @@ export async function listTestRuns(
     )
     .orderBy(desc(testRuns.id))
     .limit(limit);
-  return rows.map((r) => ({ ...r.run, scriptName: r.scriptName, repoFullName: r.repoFullName, startedByLogin: r.startedByLogin }));
+  return rows.map((r) => ({ ...r.run, scriptName: r.scriptName, repoFullName: r.repoFullName, repoProvider: r.repoProvider, startedByLogin: r.startedByLogin }));
 }
 
 export async function getTestRun(db: Db, id: number): Promise<TestRunListItem | undefined> {
@@ -1077,7 +1097,7 @@ export async function getTestRun(db: Db, id: number): Promise<TestRunListItem | 
     .innerJoin(repos, eq(repos.id, testRuns.repoId))
     .innerJoin(users, eq(users.id, testRuns.startedBy))
     .where(eq(testRuns.id, id));
-  return r ? { ...r.run, scriptName: r.scriptName, repoFullName: r.repoFullName, startedByLogin: r.startedByLogin } : undefined;
+  return r ? { ...r.run, scriptName: r.scriptName, repoFullName: r.repoFullName, repoProvider: r.repoProvider, startedByLogin: r.startedByLogin } : undefined;
 }
 
 /** Regression test results per review, for verdicts in lists. */
@@ -1166,16 +1186,16 @@ export async function openHumanRequest(db: Db, runKind: RunKind, runRefId: numbe
   return row;
 }
 
-export type OpenHumanRequest = HumanRequest & { repoFullName: string };
+export type OpenHumanRequest = HumanRequest & { repoFullName: string; repoProvider: Provider };
 
 export async function listOpenHumanRequests(db: Db): Promise<OpenHumanRequest[]> {
   const rows = await db
-    .select({ req: humanRequests, repoFullName: repos.fullName })
+    .select({ req: humanRequests, repoFullName: repos.fullName, repoProvider: repos.provider })
     .from(humanRequests)
     .innerJoin(repos, eq(repos.id, humanRequests.repoId))
     .where(eq(humanRequests.status, "open"))
     .orderBy(asc(humanRequests.id));
-  return rows.map((r) => ({ ...r.req, repoFullName: r.repoFullName }));
+  return rows.map((r) => ({ ...r.req, repoFullName: r.repoFullName, repoProvider: r.repoProvider }));
 }
 
 export async function closeHumanRequest(db: Db, id: number, status: "resolved" | "cancelled" | "timeout", userId: number | null): Promise<void> {
@@ -1266,7 +1286,7 @@ export async function dismissedFindingIds(db: Db, reviewIds: number[]): Promise<
 
 // ---------------------------------------------------------------- costs
 
-export type CostRow = { repo: string; month: string; kind: "review" | "analysis" | "test"; runs: number; usd: number };
+export type CostRow = { repoId: number; repo: string; provider: Provider; month: string; kind: "review" | "analysis" | "test"; runs: number; usd: number };
 
 /**
  * Model costs per repository, month and kind of run, as reported by the Agent SDK
@@ -1274,7 +1294,7 @@ export type CostRow = { repo: string; month: string; kind: "review" | "analysis"
  */
 export async function costSummary(db: Db, since: Date): Promise<CostRow[]> {
   const [rows] = (await db.execute(sql`
-    SELECT r.full_name AS repo, DATE_FORMAT(x.created_at, '%Y-%m') AS month, x.kind AS kind,
+    SELECT r.id AS repoId, r.full_name AS repo, r.provider AS provider, DATE_FORMAT(x.created_at, '%Y-%m') AS month, x.kind AS kind,
            COUNT(*) AS runs, COALESCE(SUM(CAST(x.cost_usd AS DECIMAL(14,4))), 0) AS usd
     FROM (
       SELECT repo_id, created_at, cost_usd, 'review' AS kind FROM ${reviews}
@@ -1283,10 +1303,10 @@ export async function costSummary(db: Db, since: Date): Promise<CostRow[]> {
     ) x
     JOIN ${repos} r ON r.id = x.repo_id
     WHERE x.created_at >= ${since}
-    GROUP BY r.full_name, month, x.kind
+    GROUP BY r.id, r.full_name, r.provider, month, x.kind
     ORDER BY month DESC, r.full_name
-  `)) as unknown as [{ repo: string; month: string; kind: CostRow["kind"]; runs: number | string; usd: number | string }[]];
-  return rows.map((r) => ({ repo: r.repo, month: r.month, kind: r.kind, runs: Number(r.runs), usd: Number(r.usd) }));
+  `)) as unknown as [{ repoId: number | string; repo: string; provider: Provider; month: string; kind: CostRow["kind"]; runs: number | string; usd: number | string }[]];
+  return rows.map((r) => ({ repoId: Number(r.repoId), repo: r.repo, provider: r.provider, month: r.month, kind: r.kind, runs: Number(r.runs), usd: Number(r.usd) }));
 }
 
 // ---------------------------------------------------------------- access

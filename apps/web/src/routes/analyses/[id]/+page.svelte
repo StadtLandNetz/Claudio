@@ -40,7 +40,7 @@
 <div class="page-title">
 	<div>
 		<p class="crumbs">
-			<a href="/repos/{a.repo}">{a.repo}</a><span class="sep"></span><a href="/repos/{a.repo}?tab=knowledge">{i.t('analysis.crumbKnowledge')}</a>
+			<a href="/repos/{a.repoPath}">{a.repo}</a><span class="sep"></span><a href="/repos/{a.repoPath}?tab=knowledge">{i.t('analysis.crumbKnowledge')}</a>
 		</p>
 		<h1>{isUpdate ? i.t('analysis.titleUpdate') : i.t('analysis.titleAnalyse')}</h1>
 		<p class="lead">

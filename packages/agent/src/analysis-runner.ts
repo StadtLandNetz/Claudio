@@ -8,6 +8,7 @@ import {
   KnowledgeDocNameSchema,
   analysisProfile,
   capBudget,
+  forgeName,
   loadRepoConfig,
   newRunId,
   nowIso,
@@ -17,10 +18,10 @@ import {
   type KnowledgeDoc,
   type RunStatus,
 } from "@claudio/core";
-import { changedFilesBetween, createGithubClient, getDefaultBranch, type ChangedSince } from "@claudio/forge";
+import type { ChangedSince, RepoRef } from "@claudio/forge";
 import { ANALYSIS_SYSTEM_APPEND, buildAnalysisPrompt } from "./analysis-prompt.js";
 import { createBrowserGuard, createCaptchaHook, createStopHook } from "./hooks.js";
-import { cloneBranch, describe, envWithout, mapStatus, modelEnv, scrub, writeKnowledgeFiles, type RunnerDeps } from "./runner.js";
+import { cloneBranch, describe, envWithout, mapStatus, modelEnv, runForge, writeKnowledgeFiles, type RunnerDeps } from "./runner.js";
 import { createClaudioSdkServer } from "./sdk-tools.js";
 
 export type AnalysisDeps = Omit<RunnerDeps, "prContextFile" | "knowledge"> & {
@@ -33,7 +34,7 @@ export type AnalysisDeps = Omit<RunnerDeps, "prContextFile" | "knowledge"> & {
 export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {}): Promise<AnalysisReport> {
   const request = AnalysisRequestSchema.parse(input);
   const log = deps.onProgress ?? (() => undefined);
-  const runId = newRunId(`analysis-${request.repo.split("/")[1]}`);
+  const runId = newRunId(`analysis-${request.repo.split("/").at(-1)}`);
   const runDir = join(resolve(deps.runsRoot ?? "runs"), runId);
   const store = new RunStore(runDir);
   const knowledgeDir = join(runDir, "knowledge");
@@ -44,7 +45,8 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
 
   const config = deps.config !== undefined ? deps.config : loadRepoConfig(deps.configPath);
   const roleEnvVars = Object.values(config?.roles ?? {}).flatMap((r) => [r.usernameEnv, r.passwordEnv]);
-  const token = deps.githubToken ?? process.env.GITHUB_TOKEN;
+  const forge = runForge(deps, request.provider);
+  const ref: RepoRef = { fullName: request.repo, externalId: deps.repoExternalId };
 
   // Checkout: an existing directory (demo, local) or a fresh clone of the branch.
   let repoDir: string | null = null;
@@ -53,21 +55,20 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
   if (deps.repoDir) {
     repoDir = resolve(deps.repoDir);
     branch ||= "local";
-  } else if (token) {
+  } else if (forge) {
     try {
-      const github = createGithubClient(token);
-      branch ||= await getDefaultBranch(github, request.repo);
+      branch ||= await forge.getDefaultBranch(ref);
       repoDir = join(runDir, "repo");
-      commitSha = await cloneBranch(request.repo, branch, repoDir, token);
+      commitSha = await cloneBranch(await forge.cloneSpec(ref), branch, repoDir);
       log(`checked out ${branch} at ${commitSha.slice(0, 7)}`);
     } catch (e) {
       repoDir = null;
-      const msg = `clone failed: ${scrub((e as Error).message, token)}`;
+      const msg = `clone failed: ${forge.redact((e as Error).message)}`;
       errors.push(msg);
       log(msg);
     }
   } else {
-    errors.push("No GitHub token: the code was not read.");
+    errors.push(`No ${forgeName(request.provider ?? "github")} token: the code was not read.`);
   }
 
   // Update mode: start from the previous documents and the list of files changed since.
@@ -75,12 +76,12 @@ export async function runAnalysis(input: AnalysisRequest, deps: AnalysisDeps = {
   let changedSince: ChangedSince | null = null;
   if (previous) {
     writeKnowledgeFiles(knowledgeDir, previous);
-    if (token && !deps.repoDir && commitSha !== "unknown" && previous.commitSha !== commitSha) {
+    if (forge && !deps.repoDir && commitSha !== "unknown" && previous.commitSha !== commitSha) {
       try {
-        changedSince = await changedFilesBetween(createGithubClient(token), request.repo, previous.commitSha, commitSha);
+        changedSince = await forge.changedFilesBetween(ref, previous.commitSha, commitSha);
         log(`update from ${previous.commitSha.slice(0, 7)}: ${changedSince.files.length} changed files`);
       } catch (e) {
-        log(`compare failed: ${scrub((e as Error).message, token)}`);
+        log(`compare failed: ${forge.redact((e as Error).message)}`);
       }
     }
   }

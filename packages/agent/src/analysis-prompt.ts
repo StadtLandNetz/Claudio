@@ -1,4 +1,4 @@
-import type { AnalysisRequest, BudgetProfile, KnowledgeBase, RepoConfig } from "@claudio/core";
+import { forgeName, type AnalysisRequest, type BudgetProfile, type KnowledgeBase, type RepoConfig } from "@claudio/core";
 import type { ChangedSince } from "@claudio/forge";
 import { renderKnowledgeSection } from "./prompts.js";
 
@@ -61,7 +61,7 @@ export function buildAnalysisPrompt(input: AnalysisPromptInput): string {
     if (changedSince) {
       const list = changedSince.files.slice(0, 300).map((f) => `- ${f.status} ${f.filename}`).join("\n");
       sections.push(
-        `# Changes since the previous analysis\n\n${changedSince.totalCommits} commits, ${changedSince.files.length} files${changedSince.truncated ? " (list truncated by GitHub)" : ""}:\n\n${list || "(none)"}\n\nUpdate modules.md and routes.md for these files, then re-check the screens they affect and update their app-map entries. Spot-check a few unaffected screens to confirm the rest still holds.`,
+        `# Changes since the previous analysis\n\n${changedSince.totalCommits} commits, ${changedSince.files.length} files${changedSince.truncated ? ` (list truncated by ${forgeName(request.provider ?? "github")})` : ""}:\n\n${list || "(none)"}\n\nUpdate modules.md and routes.md for these files, then re-check the screens they affect and update their app-map entries. Spot-check a few unaffected screens to confirm the rest still holds.`,
       );
     } else {
       sections.push("# Changes since the previous analysis\n\nThe list of changed files is not available. Re-check the code structure briefly, then verify the app map screen by screen and correct what changed.");

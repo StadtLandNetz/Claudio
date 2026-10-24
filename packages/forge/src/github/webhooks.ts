@@ -1,4 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { AutomationSettings } from "@claudio/core";
+import { REVIEW_LABEL, reviewCommand } from "../shared/commands.js";
+
+export { renderInstanceUrl, type AutomationSettings } from "@claudio/core";
 
 /** Verifies GitHub's X-Hub-Signature-256 header against the raw request body. */
 export function verifyWebhookSignature(secret: string, rawBody: string | Buffer, header: string | null | undefined): boolean {
@@ -8,42 +12,7 @@ export function verifyWebhookSignature(secret: string, rawBody: string | Buffer,
   return expected.length === given.length && timingSafeEqual(expected, given);
 }
 
-/** Per-repository automation settings. */
-export type AutomationSettings = {
-  /** Instance URL of a PR, e.g. https://pr-{pr}.preview.example.de. Placeholders: {pr}, {branch}, {branch_slug}, {sha}. */
-  instanceUrlTemplate: string;
-  onComment: boolean;
-  onLabel: boolean;
-  /** Review every opened, reopened or updated (pushed) PR. */
-  onPush: boolean;
-  /** Update the knowledge base when the default branch receives a push. */
-  analyzeOnMerge: boolean;
-  /** Report the result as a commit status on the PR head. */
-  commitStatus: boolean;
-  /**
-   * GitHub environment of the PR review instances (e.g. "Preview"). When set, the
-   * instance URL comes from the PR's deployment in that environment, and automatic
-   * reviews start once that deployment succeeds instead of on the push.
-   */
-  deploymentEnvironment?: string;
-};
-
-export const REVIEW_LABEL = "claudio-review";
-const COMMAND = /^\s*\/claudio\s+review\b(.*)$/im;
-
-/** Builds a PR's instance URL from the repo's template. */
-export function renderInstanceUrl(template: string, pr: { number: number; branch: string; sha: string }): string {
-  const slug = pr.branch
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 50);
-  return template
-    .replace(/\{pr\}/g, String(pr.number))
-    .replace(/\{branch_slug\}/g, slug)
-    .replace(/\{branch\}/g, encodeURIComponent(pr.branch))
-    .replace(/\{sha\}/g, pr.sha);
-}
+export { REVIEW_LABEL } from "../shared/commands.js";
 
 export type TriggerDecision =
   | { kind: "review"; prNumber: number; headSha: string | null; branch: string | null; title: string | null; trigger: "comment" | "label" | "push"; budget?: "quick" | "standard" | "thorough"; commentId?: number }
@@ -84,9 +53,9 @@ export function decideTrigger(event: string, payload: Payload, settings: Automat
     if (!payload.issue?.pull_request) return { kind: "ignore", reason: "comment is not on a pull request" };
     if (!settings.onComment) return { kind: "ignore", reason: "comment trigger is off" };
     if (payload.comment?.user?.type === "Bot") return { kind: "ignore", reason: "comment by a bot" };
-    const m = String(payload.comment?.body ?? "").match(COMMAND);
-    if (!m) return { kind: "ignore", reason: "no /claudio review command" };
-    const budget = m[1]!.match(/\b(quick|standard|thorough)\b/i)?.[1]?.toLowerCase() as "quick" | "standard" | "thorough" | undefined;
+    const command = reviewCommand(String(payload.comment?.body ?? ""));
+    if (!command) return { kind: "ignore", reason: "no /claudio review command" };
+    const budget = command.budget;
     return { kind: "review", prNumber: payload.issue.number, headSha: null, branch: null, title: payload.issue.title ?? null, trigger: "comment", budget, commentId: payload.comment?.id };
   }
 

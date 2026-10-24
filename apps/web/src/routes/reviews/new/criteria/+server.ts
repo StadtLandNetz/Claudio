@@ -1,15 +1,13 @@
 import { error, json } from '@sveltejs/kit';
 import { proposeCriteria } from '@claudio/agent/criteria';
-import { criterionText } from '@claudio/core';
+import { criterionText, parseRepoPath } from '@claudio/core';
 import { getReview, latestKnowledge, repoAnthropicKey } from '@claudio/db';
-import { createGithubClient, fetchPullRequestContext } from '@claudio/forge';
 import { requireRepo } from '#lib/server/access.js';
 import { keyOptional } from '#lib/server/anthropic.js';
-import { userToken } from '#lib/server/auth.js';
 import { db } from '#lib/server/db.js';
 import { DEMO_REPO, demoPullRequest } from '#lib/server/demo.js';
 import { devFixtures } from '#lib/server/env.js';
-import { githubErrorMessage } from '#lib/server/github.js';
+import { forgeErrorMessage, userForge } from '#lib/server/forge.js';
 import { isLocale, serverI18n } from '#lib/i18n/index.js';
 import type { RequestHandler } from './$types';
 
@@ -18,11 +16,12 @@ import type { RequestHandler } from './$types';
  * a person can correct them. One short model call on the repository's key, no browser.
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
-	const { t } = serverI18n(locals.locale);
+	const { t } = serverI18n(locals.locale, locals.user?.provider);
 	const body = (await request.json().catch(() => ({}))) as { repo?: unknown; pr?: unknown; followUpOf?: unknown; language?: unknown };
 	const prNumber = Number(body.pr);
-	if (typeof body.repo !== 'string' || !Number.isInteger(prNumber) || prNumber <= 0) error(400, t('review.checkInput'));
-	const { repo } = await requireRepo(locals.user, body.repo, 'write');
+	const key = typeof body.repo === 'string' ? parseRepoPath(body.repo) : null;
+	if (!key || !Number.isInteger(prNumber) || prNumber <= 0) error(400, t('review.checkInput'));
+	const { repo } = await requireRepo(locals.user, key, 'write');
 	const apiKey = repoAnthropicKey(repo) ?? undefined;
 	if (!apiKey && !keyOptional(repo)) return json({ error: t('system.noKey') }, { status: 400 });
 
@@ -30,12 +29,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (repo.fullName === DEMO_REPO && devFixtures()) {
 		pr = demoPullRequest();
 	} else {
-		const token = await userToken(locals.user!);
-		if (!token) return json({ error: t('review.prNeedsGithub') }, { status: 400 });
+		const forge = await userForge(locals.user, repo.provider);
+		if (!forge) return json({ error: t('review.prNeedsGithub') }, { status: 400 });
 		try {
-			pr = await fetchPullRequestContext(createGithubClient(token), repo.fullName, prNumber);
+			pr = await forge.fetchChangeContext(repo, prNumber);
 		} catch (e) {
-			return json({ error: githubErrorMessage(e) }, { status: 502 });
+			return json({ error: forgeErrorMessage(e) }, { status: 502 });
 		}
 	}
 	const [knowledge, prev] = await Promise.all([

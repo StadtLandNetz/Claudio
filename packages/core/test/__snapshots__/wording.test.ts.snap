@@ -1,0 +1,173 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`posted wording > commit status (de) 1`] = `
+[
+  "Claudio prüft den Pull Request …",
+  "Review fertig, 2 Regressionstest(s) laufen noch",
+  "Änderungen nötig: 1/2 Kriterien, 1 blockierend, Tests 1/1",
+  "Review unvollständig: Budget",
+]
+`;
+
+exports[`posted wording > commit status (en) 1`] = `
+[
+  "Claudio is reviewing the pull request …",
+  "Review done, 2 regression test(s) still running",
+  "Changes needed: 1/2 criteria, 1 blocking, Tests 1/1",
+  "Review incomplete: Budget",
+]
+`;
+
+exports[`posted wording > markdown report and PR comment (de) 1`] = `
+"# Claudio Review: PR #17 Neue Fahrt
+
+**Änderungen nötig** (Status: completed, strictness: normal)
+
+## Zusammenfassung
+
+Fast fertig.
+
+Affected areas:
+- Fahrten
+
+## Nachprüfung von Review #3
+
+1 behoben, 0 weiterhin offen.
+
+- **Behoben:** [Major] Alt
+
+## Acceptance Criteria
+
+| # | Criterion | Status | Notes |
+|---|---|---|---|
+| 1 | Fahrt speichern | nicht erfüllt | 500 |
+
+## Findings
+
+### Blockierend (1)
+
+### [Major] Speichern schlägt fehl
+
+_acceptance_
+
+d
+
+**Schritte**
+1. a
+
+**Evidenz:** [fail](evidence/E1.png)
+
+### Nicht blockierend (1)
+
+### [Minor] Button zu klein
+
+_ux_
+
+d
+
+## Kosten
+
+| USD | Input tokens | Output tokens | Turns | Browser steps | Duration |
+|---|---|---|---|---|---|
+| 2.50 | 10 | 5 | 3 | 12 | 4s |
+"
+`;
+
+exports[`posted wording > markdown report and PR comment (de) 2`] = `
+"**Claudio Review: Änderungen nötig**
+
+Nachprüfung von Review #3: 1 behoben, 0 weiterhin offen.
+- ✅ ~~[Major] Alt~~
+
+Acceptance Criteria: 0/1 erfüllt. Findings: 2 (blockierend: 1).
+Regressionstests: 1/1 bestanden.
+
+- [Major] Speichern schlägt fehl
+
+Fast fertig.
+
+**Bewertungen im Review**
+- ☑️ **[Major] Speichern schlägt fehl** — bestätigt von @lars
+  > Stimmt
+
+Vollständiger Report: https://claudio.example.test/reviews/9
+
+<sub>run review-pr17-x · 2.50 USD · strictness normal</sub>"
+`;
+
+exports[`posted wording > markdown report and PR comment (en) 1`] = `
+"# Claudio Review: PR #17 Neue Fahrt
+
+**Changes requested** (Status: completed, strictness: normal)
+
+## Summary
+
+Fast fertig.
+
+Affected areas:
+- Fahrten
+
+## Re-review of review #3
+
+1 fixed, 0 still open.
+
+- **Fixed:** [Major] Alt
+
+## Acceptance criteria
+
+| # | Criterion | Status | Notes |
+|---|---|---|---|
+| 1 | Fahrt speichern | failed | 500 |
+
+## Findings
+
+### Blocking (1)
+
+### [Major] Speichern schlägt fehl
+
+_acceptance_
+
+d
+
+**Steps**
+1. a
+
+**Evidence:** [fail](evidence/E1.png)
+
+### Non-blocking (1)
+
+### [Minor] Button zu klein
+
+_ux_
+
+d
+
+## Cost
+
+| USD | Input tokens | Output tokens | Turns | Browser steps | Duration |
+|---|---|---|---|---|---|
+| 2.50 | 10 | 5 | 3 | 12 | 4s |
+"
+`;
+
+exports[`posted wording > markdown report and PR comment (en) 2`] = `
+"**Claudio Review: Changes requested**
+
+Re-review of review #3: 1 fixed, 0 still open.
+- ✅ ~~[Major] Alt~~
+
+Acceptance criteria: 0/1 passed. Findings: 2 (blocking: 1).
+Regression tests: 1/1 passed.
+
+- [Major] Speichern schlägt fehl
+
+Fast fertig.
+
+**Review ratings**
+- ☑️ **[Major] Speichern schlägt fehl** — confirmed by @lars
+  > Stimmt
+
+Full report: https://claudio.example.test/reviews/9
+
+<sub>run review-pr17-x · 2.50 USD · strictness normal</sub>"
+`;

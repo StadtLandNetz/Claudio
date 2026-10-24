@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { KNOWLEDGE_DOCS, sortBySeverity } from '@claudio/core';
+import { KNOWLEDGE_DOCS, sortBySeverity, repoPath } from '@claudio/core';
 import { countEvents, getAnalysis, knowledgeDocsOf, openHumanRequest, requestAnalysisAbort } from '@claudio/db';
 import type { AccessLevel } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
@@ -12,7 +12,7 @@ import type { Actions, PageServerLoad } from './$types';
 async function loadAnalysis(idParam: string, locals: App.Locals, min: AccessLevel = 'read') {
 	const id = Number(idParam);
 	const analysis = Number.isInteger(id) ? await getAnalysis(db(), id) : undefined;
-	if (!analysis) error(404, serverI18n(locals.locale).t('analysis.notFound'));
+	if (!analysis) error(404, serverI18n(locals.locale, locals.user?.provider).t('analysis.notFound'));
 	// Visible only with access to its repository on GitHub.
 	await requireRepo(locals.user, analysis.repoId, min);
 	return analysis;
@@ -25,6 +25,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		analysis: {
 			id: a.id,
 			repo: a.repoFullName,
+			repoPath: repoPath({ provider: a.repoProvider, fullName: a.repoFullName }),
 			status: a.status,
 			instanceUrl: a.instanceUrl,
 			request: a.request,

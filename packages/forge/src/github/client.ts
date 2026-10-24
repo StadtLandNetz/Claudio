@@ -1,39 +1,8 @@
 import { Octokit } from "octokit";
+import type { ChangedSince, LinkedIssue, PullRequestContext } from "../types.js";
 import { extractLinkedIssueNumbers, parseRepo } from "./links.js";
 
-export type ChangedFile = {
-  filename: string;
-  status: string;
-  additions: number;
-  deletions: number;
-  patch?: string;
-  previousFilename?: string;
-};
-
-export type LinkedIssue = {
-  number: number;
-  title: string;
-  body: string;
-  url: string;
-  labels: string[];
-  state: string;
-};
-
-export type PullRequestContext = {
-  owner: string;
-  repo: string;
-  number: number;
-  title: string;
-  body: string;
-  url: string;
-  author?: string;
-  headRef: string;
-  headSha: string;
-  baseRef: string;
-  draft: boolean;
-  files: ChangedFile[];
-  issues: LinkedIssue[];
-};
+export type { ChangedFile, ChangedSince, LinkedIssue, PullRequestContext } from "../types.js";
 
 export function createGithubClient(token: string | undefined = process.env.GITHUB_TOKEN): Octokit {
   if (!token) throw new Error("GITHUB_TOKEN is not set");
@@ -71,6 +40,7 @@ export async function fetchPullRequestContext(
   }
 
   return {
+    provider: "github",
     owner,
     repo,
     number,
@@ -158,8 +128,6 @@ export async function getBranchHead(octokit: Octokit, repoFullName: string, bran
   const { data } = await octokit.rest.repos.getBranch({ owner, repo, branch });
   return data.commit.sha;
 }
-
-export type ChangedSince = { files: { filename: string; status: string }[]; totalCommits: number; truncated: boolean };
 
 /** Files changed between two commits (GitHub caps the list at 300 files). */
 export async function changedFilesBetween(octokit: Octokit, repoFullName: string, base: string, head: string): Promise<ChangedSince> {

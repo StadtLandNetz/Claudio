@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { describeStep, resolveStepTemplates, sortBySeverity } from '@claudio/core';
+import { describeStep, resolveStepTemplates, sortBySeverity, repoPath } from '@claudio/core';
 import { countEvents, getTestRun, openHumanRequest, requestTestRunAbort } from '@claudio/db';
 import type { AccessLevel } from '@claudio/db';
 import { requireRepo } from '#lib/server/access.js';
@@ -13,7 +13,7 @@ async function loadRun(idParam: string, locals: App.Locals, min: AccessLevel = '
 	const user = locals.user;
 	const id = Number(idParam);
 	const run = Number.isInteger(id) ? await getTestRun(db(), id) : undefined;
-	if (!run) error(404, serverI18n(locals.locale).t('test.runNotFound'));
+	if (!run) error(404, serverI18n(locals.locale, locals.user?.provider).t('test.runNotFound'));
 	// Visible only with access to its repository on GitHub.
 	await requireRepo(user, run.repoId, min);
 	return run;
@@ -37,6 +37,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			scriptId: run.scriptId,
 			scriptName: run.scriptName,
 			repo: run.repoFullName,
+			repoPath: repoPath({ provider: run.repoProvider, fullName: run.repoFullName }),
 			status: run.status,
 			outcome: run.outcome,
 			healed: run.healed,
