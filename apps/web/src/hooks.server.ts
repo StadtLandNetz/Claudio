@@ -22,7 +22,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.user = user ? { id: user.id, provider: user.provider, login: user.login, name: user.name, avatarUrl: user.avatarUrl } : null;
 
 	const path = event.url.pathname;
-	if (!event.locals.user && !PUBLIC_PATHS.some((p) => path === p || path.startsWith(p))) {
+	// The root itself is public (the landing page), but not everything below it, so it is not a prefix in PUBLIC_PATHS.
+	if (!event.locals.user && path !== '/' && !PUBLIC_PATHS.some((p) => path === p || path.startsWith(p))) {
 		if (event.request.method !== 'GET' || path.startsWith('/runs/') || path.endsWith('/events') || path.endsWith('/live')) {
 			return new Response(translate(locale, 'system.notSignedIn'), { status: 401 });
 		}

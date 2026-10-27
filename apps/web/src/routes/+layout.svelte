@@ -1,6 +1,6 @@
 <script lang="ts">
 	import '../app.css';
-	import favicon from '#lib/assets/favicon.svg';
+	import favicon from '#lib/assets/claudio-64.png';
 	import { navigating, page } from '$app/state';
 	import Icon from '#lib/components/Icon.svelte';
 	import LocaleSwitch from '#lib/components/LocaleSwitch.svelte';
@@ -81,7 +81,8 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" type="image/png" href={favicon} />
+	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 	<title>Claudio</title>
 </svelte:head>
 
@@ -194,8 +195,8 @@
 		z-index: 100;
 		height: 2px;
 		width: 30%;
-		background: var(--accent);
-		box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
+		background: var(--accent-fill);
+		box-shadow: 0 0 6px color-mix(in srgb, var(--accent-fill) 60%, transparent);
 		pointer-events: none;
 	}
 	.progress.busy {
@@ -246,7 +247,7 @@
 		text-decoration: none;
 	}
 	.mark img {
-		border-radius: 5px;
+		border-radius: 50%;
 	}
 	nav,
 	.repo-list {

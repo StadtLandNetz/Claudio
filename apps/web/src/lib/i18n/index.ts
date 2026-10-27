@@ -3,6 +3,7 @@ import { changeTerms, type Provider } from '@claudio/core';
 import { LABELS, type Labels } from './labels.js';
 import * as analysis from './messages/analysis.js';
 import * as common from './messages/common.js';
+import * as landing from './messages/landing.js';
 import * as repo from './messages/repo.js';
 import * as review from './messages/review.js';
 import * as system from './messages/system.js';
@@ -22,7 +23,7 @@ export type Messages = Record<string, Message>;
 export type Translation<T extends Messages> = { [K in keyof T]: T[K] extends string ? string : T[K] };
 
 // One namespace per area of the UI, so the message files stay small enough to edit.
-const NAMESPACES = { analysis, common, repo, review, system, test };
+const NAMESPACES = { analysis, common, landing, repo, review, system, test };
 type Namespaces = typeof NAMESPACES;
 export type MessageKey = { [N in keyof Namespaces]: `${N & string}.${keyof Namespaces[N]['de'] & string}` }[keyof Namespaces];
 

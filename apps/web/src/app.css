@@ -1,5 +1,5 @@
 /*
- * Claudio: a quiet, dense tool surface. Near-monochrome, one indigo accent;
+ * Claudio: a quiet, dense tool surface. Near-monochrome, one turquoise accent from the icon;
  * red, orange, green and yellow are reserved for severities and verdicts.
  * Both themes come from one token set via light-dark(); data-theme on <html> pins one.
  */
@@ -18,10 +18,13 @@
 	--rule: light-dark(#e6e7ea, #23252a);
 	--rule-strong: light-dark(#d3d5da, #2f3137);
 
-	/* Accent */
-	--accent: light-dark(#5e6ad2, #6e79d6);
-	--accent-ink: #ffffff;
-	--accent-soft: light-dark(#eceefb, #1e2040);
+	/* Accent: the icon's turquoise. It is too light for text on white, so text,
+	   links and outlines take a deeper green; filled surfaces take the turquoise
+	   itself with the icon's dark brown on top. */
+	--accent: light-dark(#007a66, #2ee8c6);
+	--accent-fill: #01e5bd;
+	--accent-ink: #1f0f08;
+	--accent-soft: light-dark(#dcfbf4, #0a2e28);
 	/* Older names, still used by the pages */
 	--petrol: var(--accent);
 	--petrol-ink: var(--accent-ink);
@@ -206,14 +209,14 @@ code {
 	text-decoration: none;
 }
 .btn.primary {
-	background: var(--accent);
-	border-color: var(--accent);
+	background: var(--accent-fill);
+	border-color: var(--accent-fill);
 	color: var(--accent-ink);
 	box-shadow: none;
 }
 .btn.primary:hover {
-	background: color-mix(in srgb, var(--accent) 86%, var(--ink));
-	border-color: color-mix(in srgb, var(--accent) 86%, var(--ink));
+	background: color-mix(in srgb, var(--accent-fill) 86%, var(--accent-ink));
+	border-color: color-mix(in srgb, var(--accent-fill) 86%, var(--accent-ink));
 }
 .btn.danger {
 	color: var(--block);

@@ -3,6 +3,7 @@ import { forgeWords, pickLocale, serverI18n, translate } from '../src/lib/i18n/i
 import { LABELS } from '../src/lib/i18n/labels.js';
 import * as analysis from '../src/lib/i18n/messages/analysis.js';
 import * as common from '../src/lib/i18n/messages/common.js';
+import * as landing from '../src/lib/i18n/messages/landing.js';
 import * as repo from '../src/lib/i18n/messages/repo.js';
 import * as review from '../src/lib/i18n/messages/review.js';
 import * as system from '../src/lib/i18n/messages/system.js';
@@ -34,7 +35,7 @@ describe('translate', () => {
 });
 
 describe('message files', () => {
-	const namespaces = { analysis, common, repo, review, system, test };
+	const namespaces = { analysis, common, landing, repo, review, system, test };
 	// The provider's words ({forge}, {prName}, …) are filled by translate itself; each language picks the form it needs.
 	const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!).filter((p) => !Object.keys(forgeWords('de')).includes(p)).sort();
 
@@ -58,7 +59,7 @@ describe('message files', () => {
 });
 
 describe('wording', () => {
-	const namespaces = { analysis, common, repo, review, system, test };
+	const namespaces = { analysis, common, landing, repo, review, system, test };
 	/** Filled from the provider, not passed by callers. */
 	const FORGE_KEYS = Object.keys(forgeWords('de'));
 	const SAMPLE = { n: 2, total: 3, passed: 1, fixed: 1, open: 2, blocking: 1, dismissed: 1, sha: 'abc', review: 'R', prev: 'P', new: 1, kept: 1, gone: 1, ok: 1, warn: 0, step: 1, saved: 1, kind: 'k' };
@@ -85,7 +86,7 @@ describe('wording', () => {
 
 	it('names GitLab and merge requests for GitLab repositories', () => {
 		// Texts about GitHub-only things: its sign-in setup, the GitHub App, the demo, and the GitHub settings pages.
-		const githubOnly = /^(de|en):(common\.(signInGithub|loginNotConfiguredBefore|loginErrorConfig|devLogin|demoHintAfter|repoNamePlaceholder)|repo\.(app\w+|howWhat|howCheck|howCheckStep\d|ovDemoTip)|review\.demo\w+|analysis\.sourceFixture)$/;
+		const githubOnly = /^(de|en):(common\.(signInGithub|loginNotConfiguredBefore|loginErrorConfig|devLogin|demoHintAfter|repoNamePlaceholder)|repo\.(app\w+|howWhat|howCheck|howCheckStep\d|ovDemoTip)|review\.demo\w+|analysis\.sourceFixture|landing\.(factForgesBoth|selfRepoGithub))$/;
 		const out = render('gitlab');
 		const leaks = Object.entries(out).filter(([key, text]) => !githubOnly.test(key) && /GitHub|[Pp]ull [Rr]equest|(?<![\p{L}\d])PRs?(?![\p{L}\d])/u.test(text));
 		expect(leaks).toEqual([]);

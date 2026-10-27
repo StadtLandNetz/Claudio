@@ -1,5 +1,5 @@
 <script lang="ts">
-	import favicon from '#lib/assets/favicon.svg';
+	import favicon from '#lib/assets/claudio-64.png';
 	import LocaleSwitch from '#lib/components/LocaleSwitch.svelte';
 	import { i18n } from '#lib/i18n/index.js';
 	import type { PageProps } from './$types';
@@ -92,7 +92,7 @@
 	.mark img {
 		width: 22px;
 		height: 22px;
-		border-radius: 5px;
+		border-radius: 50%;
 	}
 	.lang {
 		margin-left: auto;
