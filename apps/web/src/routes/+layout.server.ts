@@ -7,7 +7,10 @@ import { DEMO_REPO } from '#lib/server/demo.js';
 import { devFixtures } from '#lib/server/env.js';
 import type { LayoutServerLoad } from './$types';
 
-export const load: LayoutServerLoad = async ({ locals }) => {
+export const load: LayoutServerLoad = async ({ locals, url }) => {
+	// Reading the path makes SvelteKit run this load again on every navigation, so the sidebar
+	// follows added repositories and changed access instead of keeping the first page's list.
+	void url.pathname;
 	if (!locals.user) return { locale: locals.locale, user: null, repos: [], waiting: [], authExpired: false };
 	const [{ repos, levels, authExpired }, allWaiting] = await Promise.all([visibleRepos(locals.user), listOpenHumanRequests(db())]);
 	const counts = await countsByRepo(db(), repos.map((r) => r.id));
