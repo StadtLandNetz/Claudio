@@ -41,6 +41,7 @@ import {
   testProposals,
   testRuns,
   testScripts,
+  userIdentities,
   users,
   type AccessLevel,
   type Analysis,
@@ -61,52 +62,123 @@ import {
   type TestRun,
   type TestScriptRow,
   type User,
+  type UserIdentity,
 } from "./schema.js";
 
 // ---------------------------------------------------------------- users & sessions
 
-export async function upsertUser(
-  db: Db,
-  input: { provider: Provider; externalId: number; login: string; name: string | null; avatarUrl: string | null; accessToken: string; refreshToken?: string; expiresAt?: Date },
-): Promise<User> {
-  const tokens = {
-    accessTokenEnc: encrypt(input.accessToken),
-    refreshTokenEnc: input.refreshToken ? encrypt(input.refreshToken) : null,
-    tokenExpiresAt: input.expiresAt ?? null,
-  };
-  const values = { provider: input.provider, externalId: input.externalId, login: input.login, name: input.name, avatarUrl: input.avatarUrl, ...tokens, lastLoginAt: new Date() };
-  await db
-    .insert(users)
-    .values(values)
-    .onDuplicateKeyUpdate({ set: { login: values.login, name: values.name, avatarUrl: values.avatarUrl, ...tokens, lastLoginAt: values.lastLoginAt } });
-  const [user] = await db.select().from(users).where(and(eq(users.provider, input.provider), eq(users.externalId, input.externalId)));
-  if (!user) throw new Error("user upsert failed");
-  return user;
+type Tokens = { accessToken: string; refreshToken?: string; expiresAt?: Date };
+type IdentityProfile = { provider: Provider; externalId: number; login: string; name: string | null; avatarUrl: string | null };
+
+const encryptedTokens = (t: Tokens) => ({
+  accessTokenEnc: encrypt(t.accessToken),
+  refreshTokenEnc: t.refreshToken ? encrypt(t.refreshToken) : null,
+  tokenExpiresAt: t.expiresAt ?? null,
+});
+
+/**
+ * Signs in with a GitHub or GitLab account: the Claudio account it is connected
+ * to, with the account's new tokens, or a new Claudio account for it.
+ */
+export async function signIn(db: Db, input: IdentityProfile & Tokens): Promise<User> {
+  const tokens = encryptedTokens(input);
+  const [found] = await db.select().from(userIdentities).where(and(eq(userIdentities.provider, input.provider), eq(userIdentities.externalId, input.externalId)));
+  if (found) {
+    await db.update(userIdentities).set({ login: input.login, avatarUrl: input.avatarUrl, ...tokens }).where(eq(userIdentities.id, found.id));
+    // The name shown in Claudio follows the account while it is the only one.
+    const only = (await listIdentities(db, found.userId)).length === 1;
+    await db
+      .update(users)
+      .set({ lastLoginAt: new Date(), ...(only ? { login: input.login, name: input.name, avatarUrl: input.avatarUrl } : {}) })
+      .where(eq(users.id, found.userId));
+    const user = await getUser(db, found.userId);
+    if (!user) throw new Error("user of identity missing");
+    return user;
+  }
+  return db.transaction(async (tx) => {
+    const [res] = await tx.insert(users).values({ login: input.login, name: input.name, avatarUrl: input.avatarUrl, lastLoginAt: new Date() });
+    await tx.insert(userIdentities).values({ userId: res.insertId, provider: input.provider, externalId: input.externalId, login: input.login, avatarUrl: input.avatarUrl, ...tokens });
+    const [user] = await tx.select().from(users).where(eq(users.id, res.insertId));
+    if (!user) throw new Error("user insert failed");
+    return user;
+  });
+}
+
+/**
+ * What connecting an account to a Claudio account means: a new connection, new
+ * tokens for an existing one, or refused because another Claudio account has it.
+ */
+export function linkDecision(existing: Pick<UserIdentity, "userId"> | undefined, userId: number): "new" | "refresh" | "taken" {
+  if (!existing) return "new";
+  return existing.userId === userId ? "refresh" : "taken";
+}
+
+/**
+ * Connects a GitHub or GitLab account to a Claudio account. One account per
+ * provider: connecting another one of the same provider replaces it.
+ */
+export async function linkIdentity(db: Db, userId: number, input: IdentityProfile & Tokens): Promise<"linked" | "taken"> {
+  const tokens = encryptedTokens(input);
+  const [found] = await db.select().from(userIdentities).where(and(eq(userIdentities.provider, input.provider), eq(userIdentities.externalId, input.externalId)));
+  const decision = linkDecision(found, userId);
+  if (decision === "taken") return "taken";
+  if (decision === "refresh") {
+    await db.update(userIdentities).set({ login: input.login, avatarUrl: input.avatarUrl, ...tokens }).where(eq(userIdentities.id, found!.id));
+    return "linked";
+  }
+  await db.transaction(async (tx) => {
+    await tx.delete(userIdentities).where(and(eq(userIdentities.userId, userId), eq(userIdentities.provider, input.provider)));
+    await tx.insert(userIdentities).values({ userId, provider: input.provider, externalId: input.externalId, login: input.login, avatarUrl: input.avatarUrl, ...tokens });
+  });
+  return "linked";
+}
+
+/** Disconnects a provider's account; the last one stays, so the person can still sign in. */
+export async function unlinkIdentity(db: Db, userId: number, provider: Provider): Promise<boolean> {
+  const all = await listIdentities(db, userId);
+  if (all.length <= 1 || !all.some((i) => i.provider === provider)) return false;
+  await db.delete(userIdentities).where(and(eq(userIdentities.userId, userId), eq(userIdentities.provider, provider)));
+  return true;
+}
+
+export async function listIdentities(db: Db, userId: number): Promise<UserIdentity[]> {
+  return db.select().from(userIdentities).where(eq(userIdentities.userId, userId)).orderBy(asc(userIdentities.createdAt), asc(userIdentities.id));
+}
+
+export async function getIdentity(db: Db, userId: number, provider: Provider): Promise<UserIdentity | undefined> {
+  const [identity] = await db.select().from(userIdentities).where(and(eq(userIdentities.userId, userId), eq(userIdentities.provider, provider)));
+  return identity;
+}
+
+/** The people's logins on one provider, for @mentions in comments and issues there. */
+export async function providerLogins(db: Db, userIds: number[], provider: Provider): Promise<Map<number, string>> {
+  if (userIds.length === 0) return new Map();
+  const rows = await db
+    .select({ userId: userIdentities.userId, login: userIdentities.login })
+    .from(userIdentities)
+    .where(and(inArray(userIdentities.userId, [...new Set(userIds)]), eq(userIdentities.provider, provider)));
+  return new Map(rows.map((r) => [r.userId, r.login]));
 }
 
 /**
  * Stores renewed tokens. With `ifRefreshTokenEnc`, only while the row still holds
  * that refresh token (another process may have renewed first). True when stored.
  */
-export async function updateUserTokens(
-  db: Db,
-  userId: number,
-  t: { accessToken: string; refreshToken?: string; expiresAt?: Date },
-  ifRefreshTokenEnc?: string | null,
-): Promise<boolean> {
+export async function updateIdentityTokens(db: Db, identityId: number, t: Tokens, ifRefreshTokenEnc?: string | null): Promise<boolean> {
   const [res] = await db
-    .update(users)
+    .update(userIdentities)
     .set({
       accessTokenEnc: encrypt(t.accessToken),
       ...(t.refreshToken ? { refreshTokenEnc: encrypt(t.refreshToken) } : {}),
       tokenExpiresAt: t.expiresAt ?? null,
     })
-    .where(and(eq(users.id, userId), ifRefreshTokenEnc ? eq(users.refreshTokenEnc, ifRefreshTokenEnc) : undefined));
+    .where(and(eq(userIdentities.id, identityId), ifRefreshTokenEnc ? eq(userIdentities.refreshTokenEnc, ifRefreshTokenEnc) : undefined));
   return res.affectedRows === 1;
 }
 
-export function userAccessToken(user: Pick<User, "accessTokenEnc">): string {
-  return decrypt(user.accessTokenEnc);
+export async function getIdentityById(db: Db, id: number): Promise<UserIdentity | undefined> {
+  const [identity] = await db.select().from(userIdentities).where(eq(userIdentities.id, id));
+  return identity;
 }
 
 export async function getUser(db: Db, id: number): Promise<User | undefined> {
@@ -126,7 +198,8 @@ export async function createSession(db: Db, userId: number, ttlDays = 14): Promi
   return { token, expiresAt };
 }
 
-export async function getSessionUser(db: Db, token: string): Promise<User | null> {
+/** The signed-in person and the providers of their connected accounts. */
+export async function getSessionUser(db: Db, token: string): Promise<(User & { providers: Provider[] }) | null> {
   const [row] = await db
     .select({ user: users, expiresAt: sessions.expiresAt })
     .from(sessions)
@@ -137,7 +210,8 @@ export async function getSessionUser(db: Db, token: string): Promise<User | null
     await deleteSession(db, token);
     return null;
   }
-  return row.user;
+  const providers = (await listIdentities(db, row.user.id)).map((i) => i.provider);
+  return { ...row.user, providers };
 }
 
 export async function deleteSession(db: Db, token: string): Promise<void> {

@@ -51,7 +51,7 @@ GitHub or GitLab (pull/merge requests, issues, deployments, webhooks)
 - **The web UI** handles sign-in with GitHub or GitLab and the repository settings. You start reviews, analyses and tests there, watch them live and rate the findings.
 - **The worker** picks up queued jobs and runs the agents. Each agent gets one browser and a small set of Claudio tools: logging in as a role, taking screenshots, recording findings.
 - **Credentials never reach the model.** Role passwords, GitHub and GitLab tokens and API keys are encrypted in the database. Role passwords go only to the login tool, which fills in the form itself.
-- **Permissions follow GitHub and GitLab.** You see a repository in Claudio only if you can read it there. Starting runs needs write access (GitLab: Developer), and changing settings needs admin access (GitLab: Maintainer). An account sees only the repositories of the provider it signed in with.
+- **Permissions follow GitHub and GitLab.** You see a repository in Claudio only if you can read it there. Starting runs needs write access (GitLab: Developer), and changing settings needs admin access (GitLab: Maintainer). A person can connect a GitHub and a GitLab account to the same Claudio account and then sees the repositories of both.
 
 The full design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (written in German).
 
@@ -94,9 +94,9 @@ Open http://localhost:5173 and choose **Sign in to the demo without GitHub**. Un
 
    Put the client ID and a client secret into `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.env`. Claudio asks for the scopes `repo read:user read:org`.
 
-   **For GitLab**, create an OAuth application under GitLab → User settings → Applications (or in a group or the instance admin area): redirect URI `http://localhost:5173/auth/gitlab/callback`, *Confidential* on, scope `api`. Put its ID and secret into `GITLAB_CLIENT_ID` and `GITLAB_CLIENT_SECRET`, and for a self-managed instance its address into `GITLAB_URL`. GitHub and GitLab can be set up side by side; the sign-in page shows a button for each.
+   **For GitLab**, create an OAuth application under GitLab → User settings → Applications (or in a group or the instance admin area): redirect URI `http://localhost:5173/auth/gitlab/callback`, *Confidential* on, scope `api`. Put its ID and secret into `GITLAB_CLIENT_ID` and `GITLAB_CLIENT_SECRET`, and for a self-managed instance its address into `GITLAB_URL`. GitHub and GitLab can be set up side by side; the sign-in page shows a button for each, and the **Repositories** page offers to connect the other account (**Connect GitLab**). After that, either account signs you in to the same Claudio account.
 
-3. **Decide who may sign in.** Without any list, everybody can. Limit it with `CLAUDIO_ALLOWED_GITHUB_ORGS` / `CLAUDIO_ALLOWED_GITHUB_USERS` and `CLAUDIO_ALLOWED_GITLAB_GROUPS` / `CLAUDIO_ALLOWED_GITLAB_USERS` (comma-separated; members of a subgroup count for the group above). If you set lists for one provider only, nobody can sign in with the other, so connecting GitLab does not open Claudio to everyone on gitlab.com.
+3. **Decide who may sign in.** Without any list, everybody can. Limit it with `CLAUDIO_ALLOWED_GITHUB_ORGS` / `CLAUDIO_ALLOWED_GITHUB_USERS` and `CLAUDIO_ALLOWED_GITLAB_GROUPS` / `CLAUDIO_ALLOWED_GITLAB_USERS` (comma-separated; members of a subgroup count for the group above). If you set lists for one provider only, nobody can sign in with the other, so connecting GitLab does not open Claudio to everyone on gitlab.com. People who are already signed in can still connect an account of the other provider; that needs no list.
 
 4. **Start it** with `pnpm dev` and sign in.
 
@@ -158,6 +158,8 @@ To try webhooks locally, expose the dev server through a tunnel (for example `cl
 ### Using GitLab
 
 Everything above works the same with GitLab. The differences:
+
+- **Accounts**: signed in with GitHub, press **Connect GitLab** on the **Repositories** page (and the other way round). Both accounts then belong to one Claudio account: the sidebar lists the repositories of both, and you can sign in with either. Under **Connected accounts** you can disconnect one again.
 
 - **Repositories** can sit in nested groups; Claudio shows them under `/repos/gitlab/<group>/…/<project>`. Merge requests are referenced as `!12`, issues as `#12`.
 - **Linked issues** are the ones the merge request closes, plus `#12` references in its description and the issue number at the start of a branch name (`12-new-trip`, as GitLab names branches created from an issue).

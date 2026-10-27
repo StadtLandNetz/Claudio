@@ -1,4 +1,4 @@
-import { blockingFindings, verdict, withTests, type ReportLike, type ReviewTestResult, type Strictness } from '@claudio/core';
+import { blockingFindings, verdict, withTests, type Provider, type ReportLike, type ReviewTestResult, type Strictness } from '@claudio/core';
 import type { ReviewSummary } from '#lib/types.js';
 
 export type { ReviewSummary };
@@ -7,6 +7,7 @@ export type { ReviewSummary };
 export type ReviewLike = {
 	id: number;
 	repoFullName: string;
+	repoProvider: Provider;
 	prNumber: number;
 	prTitle: string | null;
 	status: string;
@@ -24,6 +25,7 @@ export function summarize(review: ReviewLike, dismissed: string[] = [], strictne
 	return {
 		id: review.id,
 		repo: review.repoFullName,
+		provider: review.repoProvider,
 		prNumber: review.prNumber,
 		prTitle: review.prTitle,
 		status: review.status,

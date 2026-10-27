@@ -35,7 +35,7 @@ import {
   listLearnings,
   LEARNINGS_IN_PROMPT,
   toTestScript,
-  freshAccessToken,
+  tokenFor,
   claimNotification,
   budgetState,
   claimBudgetWarning,
@@ -147,7 +147,7 @@ async function prepare(db: Db, job: Job) {
     log(`bot access to ${repo.fullName} failed: ${(e as Error).message}`);
     return null;
   });
-  const userToken = user && user.provider === repo.provider ? await freshAccessToken(db, user) : null;
+  const { token: userToken } = user ? await tokenFor(db, user.id, repo.provider) : { token: null };
   const forge = bot ?? (userToken ? forgeFor(repo.provider, userToken) : null);
   const learnings = (await listLearnings(db, repo.id, LEARNINGS_IN_PROMPT)).map((l) => l.text);
   const { config, roleEnv } = toRepoConfig(repo, await listRoles(db, repo.id), undefined, learnings);

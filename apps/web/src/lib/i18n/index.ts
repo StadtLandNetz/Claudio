@@ -72,6 +72,8 @@ export type I18n = {
 	readonly locale: Locale;
 	/** Where the repository on screen lives (or the signed-in account, elsewhere); decides "GitHub" or "GitLab" in texts. */
 	readonly provider: Provider;
+	/** The same texts naming another provider, for a part of a page about that provider. */
+	with(provider: Provider): I18n;
 	readonly labels: Labels;
 	t(key: MessageKey, params?: Params): string;
 	formatDate(d: Date | string | null | undefined): string;
@@ -91,6 +93,7 @@ export function createI18n(getLocale: () => Locale, getProvider: () => Provider 
 		get provider() {
 			return getProvider();
 		},
+		with: (provider) => createI18n(getLocale, () => provider),
 		get labels() {
 			return LABELS[getLocale()];
 		},

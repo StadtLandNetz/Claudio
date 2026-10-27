@@ -1,5 +1,5 @@
 import { error, fail } from '@sveltejs/kit';
-import { REVIEW_SUPERSEDED, StrictnessSchema, blockingFindings, renderPrComment, sortBySeverity, verdict, withTests, type FindingNote, type ReviewTestResult, type Strictness, type Verdict, repoPath } from '@claudio/core';
+import { REVIEW_SUPERSEDED, StrictnessSchema, blockingFindings, renderPrComment, sortBySeverity, verdict, withTests, type FindingNote, type ReviewTestResult, type Provider, type Strictness, type Verdict, repoPath } from '@claudio/core';
 import {
 	addFindingActivity,
 	addLesson,
@@ -10,6 +10,7 @@ import {
 	listPrHistory,
 	listFindingActivity,
 	listFindings,
+	providerLogins,
 	listTestRuns,
 	openHumanRequest,
 	rateFinding,
@@ -33,12 +34,13 @@ import { renderMarkdown } from '#lib/markdown.js';
 import type { HistReview } from '#lib/finding-history.js';
 import { serverI18n } from '#lib/i18n/index.js';
 import type { Actions, PageServerLoad } from './$types';
+import { accountProvider } from '#lib/server/i18n.js';
 
 async function loadReview(idParam: string, locals: App.Locals, min: AccessLevel = 'read') {
 	const { user } = locals;
 	const id = Number(idParam);
 	const review = Number.isInteger(id) ? await getReview(db(), id) : undefined;
-	if (!review) error(404, serverI18n(locals.locale, locals.user?.provider).t('review.reviewNotFound'));
+	if (!review) error(404, serverI18n(locals.locale, accountProvider(locals.user)).t('review.reviewNotFound'));
 	// Visible only with access to its repository on GitHub or GitLab.
 	const { repo, level } = await requireRepo(user, review.repoId, min);
 	return Object.assign(review, { level, repo });
@@ -46,16 +48,28 @@ async function loadReview(idParam: string, locals: App.Locals, min: AccessLevel 
 
 const dismissedOf = (rows: Awaited<ReturnType<typeof listFindings>>) =>
 	rows.filter((r) => r.finding.status === 'dismissed').map((r) => r.finding.findingId);
-const commentsOf = (activity: FindingActivityItem[], findingId: string) =>
-	activity.filter((a) => a.findingId === findingId && a.kind === 'comment' && a.body).map((a) => ({ by: a.login, body: a.body! }));
+const commentsOf = (activity: FindingActivityItem[], findingId: string, names = new Map<number, string>()) =>
+	activity
+		.filter((a) => a.findingId === findingId && a.kind === 'comment' && a.body)
+		.map((a) => ({ by: names.get(a.userId) ?? a.login, body: a.body! }));
 // The current ratings with their reasons, and the comments of each thread (which need no rating).
-const notesOf = (rows: Awaited<ReturnType<typeof listFindings>>, activity: FindingActivityItem[]): FindingNote[] =>
+const notesOf = (rows: Awaited<ReturnType<typeof listFindings>>, activity: FindingActivityItem[], names = new Map<number, string>()): FindingNote[] =>
 	rows.flatMap((r) => {
-		const comments = commentsOf(activity, r.finding.findingId);
-		return r.finding.status === 'proposed' && !comments.length
-			? []
-			: [{ findingId: r.finding.findingId, status: r.finding.status, comment: r.finding.comment, by: r.ratedByLogin, comments }];
+		const comments = commentsOf(activity, r.finding.findingId, names);
+		const by = r.finding.ratedBy !== null ? (names.get(r.finding.ratedBy) ?? r.ratedByLogin) : r.ratedByLogin;
+		return r.finding.status === 'proposed' && !comments.length ? [] : [{ findingId: r.finding.findingId, status: r.finding.status, comment: r.finding.comment, by, comments }];
 	});
+
+/**
+ * The people's logins on the repository's GitHub or GitLab, for @mentions in what
+ * Claudio posts there; without a connected account of it, their Claudio name is used.
+ */
+const mentionNames = (rows: Awaited<ReturnType<typeof listFindings>>, activity: FindingActivityItem[], provider: Provider) =>
+	providerLogins(
+		db(),
+		[...rows.flatMap((r) => (r.finding.ratedBy !== null ? [r.finding.ratedBy] : [])), ...activity.map((a) => a.userId)],
+		provider
+	);
 
 /**
  * Every review of the pull request with its findings, for the comparison in the
@@ -104,7 +118,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		])
 	);
 	const dismissed = dismissedOf(rows);
-	const notes = notesOf(rows, activity);
+	const notes = notesOf(rows, activity, await mentionNames(rows, activity, review.repo.provider));
 	const threadOf = (findingId: string) =>
 		activity
 			.filter((a) => a.findingId === findingId)
@@ -193,7 +207,7 @@ export const actions: Actions = {
 	 */
 	activity: async ({ params, request, locals }) => {
 		const review = await loadReview(params.id, locals, 'write');
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
+		const { t } = serverI18n(locals.locale, review.repo.provider);
 		const f = await request.formData();
 		const findingId = String(f.get('findingId') ?? '');
 		const form = `activity:${findingId}`;
@@ -222,13 +236,13 @@ export const actions: Actions = {
 		const review = await loadReview(params.id, locals, 'write');
 		const id = Number((await request.formData()).get('id'));
 		if (!Number.isInteger(id) || !(await deleteFindingComment(db(), review.id, id, locals.user!.id))) {
-			return fail(400, { error: serverI18n(locals.locale, locals.user?.provider).t('review.commentNotYours'), form: 'deleteComment' });
+			return fail(400, { error: serverI18n(locals.locale, accountProvider(locals.user)).t('review.commentNotYours'), form: 'deleteComment' });
 		}
 		return { deleted: id };
 	},
 	comment: async ({ params, request, locals, url }) => {
 		const review = await loadReview(params.id, locals, 'write');
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
+		const { t } = serverI18n(locals.locale, review.repo.provider);
 		if (!review.report) return fail(400, { error: t('review.noReport'), form: 'comment' });
 		if (review.fixture) return fail(400, { error: t('review.demoNoComment'), form: 'comment' });
 		const writer = await forgeAs(review.repo, locals.user);
@@ -238,7 +252,7 @@ export const actions: Actions = {
 		const strictness = requested.success ? requested.data : review.report.request.strictness;
 		const [rows, activity] = await Promise.all([listFindings(db(), review.id), listFindingActivity(db(), review.id)]);
 		const dismissed = dismissedOf(rows);
-		const notes = f.get('includeNotes') ? notesOf(rows, activity) : [];
+		const notes = f.get('includeNotes') ? notesOf(rows, activity, await mentionNames(rows, activity, review.repo.provider)) : [];
 		const tests = (await listTestRuns(db(), { reviewId: review.id }, 100)).map((t) => ({ name: t.scriptName, outcome: t.outcome }));
 		const body = renderPrComment(review.report, `${publicBaseUrl(url)}/reviews/${review.id}`, { strictness, dismissedIds: dismissed, tests, notes });
 		try {
@@ -255,7 +269,7 @@ export const actions: Actions = {
 	/** A confirmed finding becomes a GitHub or GitLab issue: steps, expected and observed behaviour, screenshots, link back. */
 	issue: async ({ params, request, locals, url }) => {
 		const review = await loadReview(params.id, locals, 'write');
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
+		const { t } = serverI18n(locals.locale, review.repo.provider);
 		const findingId = String((await request.formData()).get('findingId') ?? '');
 		const report = review.report;
 		const finding = report?.findings.find((f) => f.id === findingId);
@@ -268,7 +282,8 @@ export const actions: Actions = {
 		if (!writer) return fail(400, { error: t('review.commentNeedsGithub'), form: `issue:${findingId}` });
 
 		const base = publicBaseUrl(url);
-		const comments = commentsOf(await listFindingActivity(db(), review.id), findingId);
+		const activity = await listFindingActivity(db(), review.id);
+		const comments = commentsOf(activity, findingId, await mentionNames([], activity, review.repo.provider));
 		const { t: lt, labels } = serverI18n(report.request.language, review.repo.provider);
 		const shots = finding.evidenceIds
 			.map((id) => report.evidence.find((e) => e.id === id))

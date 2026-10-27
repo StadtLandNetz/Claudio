@@ -6,11 +6,12 @@ import { db } from '#lib/server/db.js';
 import { serverI18n } from '#lib/i18n/index.js';
 import { fileAvailability, runFileUrl } from '#lib/server/run-files.js';
 import type { PageServerLoad } from './$types';
+import { accountProvider } from '#lib/server/i18n.js';
 
 const runTagOf = (runId: string) => runId.split('-').slice(-2).join('');
 
 export const load: PageServerLoad = async ({ params, url, locals }) => {
-	const { t } = serverI18n(locals.locale, locals.user?.provider);
+	const { t } = serverI18n(locals.locale, accountProvider(locals.user));
 	const script = await getTestScript(db(), Number(params.id));
 	if (!script) error(404, t('test.testNotFound'));
 	await requireRepo(locals.user, script.repoId, 'read');

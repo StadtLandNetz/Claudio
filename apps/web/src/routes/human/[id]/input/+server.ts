@@ -5,6 +5,7 @@ import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { serverI18n } from '#lib/i18n/index.js';
 import type { RequestHandler } from './$types';
+import { accountProvider } from '#lib/server/i18n.js';
 
 const InputSchema = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('click'), x: z.number().min(0).max(1), y: z.number().min(0).max(1) }),
@@ -15,7 +16,7 @@ const InputSchema = z.discriminatedUnion('type', [
 
 /** One click or keystroke from the live view; the worker replays it in the run's browser. */
 export const POST: RequestHandler = async ({ params, request, locals }) => {
-	const { t } = serverI18n(locals.locale, locals.user?.provider);
+	const { t } = serverI18n(locals.locale, accountProvider(locals.user));
 	const req = await getHumanRequest(db(), Number(params.id));
 	if (!req) error(404, t('common.unknownRequest'));
 	await requireRepo(locals.user, req.repoId, 'write');

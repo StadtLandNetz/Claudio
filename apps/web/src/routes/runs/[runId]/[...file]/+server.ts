@@ -7,13 +7,14 @@ import { contentType, resolveRunFile } from '#lib/server/files.js';
 import { requireRunAccess } from '#lib/server/run-files.js';
 import { serverI18n } from '#lib/i18n/index.js';
 import type { RequestHandler } from './$types';
+import { accountProvider } from '#lib/server/i18n.js';
 
 /**
  * Files of a run. Screenshots come from the database (kept for the retention period);
  * everything else, and screenshots of a run still in progress, from the run directory.
  */
 export const GET: RequestHandler = async ({ params, locals }) => {
-	const { t } = serverI18n(locals.locale, locals.user?.provider);
+	const { t } = serverI18n(locals.locale, accountProvider(locals.user));
 	const path = resolveRunFile(runsRoot, params.runId, params.file);
 	if (!path) error(404, t('common.fileNotFound'));
 	await requireRunAccess(locals, params.runId);

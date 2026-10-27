@@ -5,13 +5,18 @@ import { userToken, type SessionUser } from './auth.js';
 import { requestI18n } from './i18n.js';
 
 /**
- * The signed-in person's access to a provider, or null: no token (offline demo
- * user, expired sign-in) or an account of the other provider.
+ * The signed-in person's access to a provider, or null: no connected account of
+ * that provider, no token (offline demo user) or one that could not be renewed.
  */
 export async function userForge(user: SessionUser | null, provider: Provider): Promise<Forge | null> {
-	if (!user || user.provider !== provider) return null;
-	const token = await userToken(user);
-	return token ? forgeFor(provider, token) : null;
+	return (await userForgeState(user, provider)).forge;
+}
+
+/** Like userForge, and says whether a connected account's token expired (the person should connect it again). */
+export async function userForgeState(user: SessionUser | null, provider: Provider): Promise<{ forge: Forge | null; expired: boolean }> {
+	if (!user) return { forge: null, expired: false };
+	const { token, expired } = await userToken(user, provider);
+	return { forge: token ? forgeFor(provider, token) : null, expired };
 }
 
 /**
@@ -25,9 +30,9 @@ export async function forgeAs(repo: Repo, user: SessionUser | null): Promise<{ f
 	return forge ? { forge, as: 'user' } : null;
 }
 
-/** Human-readable message for API errors (expired token, missing access). */
-export function forgeErrorMessage(e: unknown): string {
-	const { t } = requestI18n();
+/** Human-readable message for API errors (expired token, missing access), naming the provider. */
+export function forgeErrorMessage(e: unknown, provider: Provider): string {
+	const { t } = requestI18n(provider);
 	const status = statusOf(e);
 	if (status === 401) return t('system.githubExpired');
 	if (status === 403) return t('system.githubForbidden');

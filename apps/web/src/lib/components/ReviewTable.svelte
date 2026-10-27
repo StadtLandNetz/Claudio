@@ -29,7 +29,7 @@
 					<td class="pr">
 						<a href="/reviews/{r.id}">
 							{#if showRepo}<span class="repo">{r.repo}</span>{/if}
-							<span class="title">{changeRef(i.provider, r.prNumber)} {r.prTitle ?? ''}</span>
+							<span class="title">{changeRef(r.provider, r.prNumber)} {r.prTitle ?? ''}</span>
 						</a>
 					</td>
 					<td class="result"><StatusBadge status={r.status} verdict={r.verdict} /></td>

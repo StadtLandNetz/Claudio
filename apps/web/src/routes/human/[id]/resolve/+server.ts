@@ -4,13 +4,14 @@ import { requireRepo } from '#lib/server/access.js';
 import { db } from '#lib/server/db.js';
 import { serverI18n } from '#lib/i18n/index.js';
 import type { RequestHandler } from './$types';
+import { accountProvider } from '#lib/server/i18n.js';
 
 /**
  * The person is done (resolved) or gives up (cancelled); the worker continues the run
  * either way. For a question of the agent, `answer` carries the reply.
  */
 export const POST: RequestHandler = async ({ params, request, locals }) => {
-	const { t } = serverI18n(locals.locale, locals.user?.provider);
+	const { t } = serverI18n(locals.locale, accountProvider(locals.user));
 	const req = await getHumanRequest(db(), Number(params.id));
 	if (!req) error(404, t('common.unknownRequest'));
 	await requireRepo(locals.user, req.repoId, 'write');

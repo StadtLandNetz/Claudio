@@ -27,24 +27,49 @@ export const users = mysqlTable(
   "users",
   {
     id: id(),
-    /** Where the person signs in. One Claudio account per provider identity. */
-    provider: provider(),
-    /** The person's numeric id at the provider. The column keeps its name from before GitLab support. */
-    externalId: bigint("github_id", { mode: "number", unsigned: true }).notNull(),
     login: varchar("login", { length: 100 }).notNull(),
     name: varchar("name", { length: 200 }),
     avatarUrl: varchar("avatar_url", { length: 500 }),
-    /** AES-GCM encrypted OAuth access token. */
-    accessTokenEnc: text("access_token_enc").notNull(),
-    /** Set when the OAuth App issues expiring tokens: used to renew the access token. */
-    refreshTokenEnc: text("refresh_token_enc"),
-    tokenExpiresAt: datetime("token_expires_at", { mode: "date" }),
     /** UI language ("de" | "en"); also the language of what Claudio posts to GitHub or GitLab on this person's behalf. Null: not chosen yet. */
     locale: varchar("locale", { length: 5 }),
     createdAt: createdAt(),
     lastLoginAt: datetime("last_login_at", { mode: "date" }).notNull().$defaultFn(() => new Date()),
+    // Before linked accounts, a user was one provider identity with its token. These columns stay one
+    // release for a rollback to the previous image; nothing reads them. TODO: drop them.
+    legacyProvider: provider(),
+    legacyExternalId: bigint("github_id", { mode: "number", unsigned: true }),
+    legacyAccessTokenEnc: text("access_token_enc"),
+    legacyRefreshTokenEnc: text("refresh_token_enc"),
+    legacyTokenExpiresAt: datetime("token_expires_at", { mode: "date" }),
   },
-  (t) => [uniqueIndex("users_provider_external_idx").on(t.provider, t.externalId)],
+  (t) => [uniqueIndex("users_provider_external_idx").on(t.legacyProvider, t.legacyExternalId)],
+);
+
+/**
+ * The GitHub and GitLab accounts a person connected to Claudio: one per provider.
+ * Signing in with any of them opens the same Claudio account; each carries its own token.
+ */
+export const userIdentities = mysqlTable(
+  "user_identities",
+  {
+    id: id(),
+    userId: ref("user_id").notNull(),
+    provider: provider(),
+    /** The person's numeric id at the provider. */
+    externalId: bigint("external_id", { mode: "number", unsigned: true }).notNull(),
+    login: varchar("login", { length: 100 }).notNull(),
+    avatarUrl: varchar("avatar_url", { length: 500 }),
+    /** AES-GCM encrypted OAuth access token. */
+    accessTokenEnc: text("access_token_enc").notNull(),
+    /** Set when the provider issues expiring tokens (always on GitLab): used to renew the access token. */
+    refreshTokenEnc: text("refresh_token_enc"),
+    tokenExpiresAt: datetime("token_expires_at", { mode: "date" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("user_identities_provider_external_idx").on(t.provider, t.externalId),
+    uniqueIndex("user_identities_user_provider_idx").on(t.userId, t.provider),
+  ],
 );
 
 export const sessions = mysqlTable(
@@ -493,6 +518,7 @@ export const findingActivity = mysqlTable(
 );
 
 export type User = typeof users.$inferSelect;
+export type UserIdentity = typeof userIdentities.$inferSelect;
 export type Repo = typeof repos.$inferSelect;
 export type RepoRole = typeof repoRoles.$inferSelect;
 export type Review = typeof reviews.$inferSelect;

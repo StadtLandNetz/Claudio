@@ -8,12 +8,13 @@ import { serverI18n } from '#lib/i18n/index.js';
 import { fileAvailability, runFileUrl, withAvailability } from '#lib/server/run-files.js';
 import { TRACE_INDEX_PATH, viewerAvailable } from '#lib/server/trace.js';
 import type { Actions, PageServerLoad } from './$types';
+import { accountProvider } from '#lib/server/i18n.js';
 
 async function loadRun(idParam: string, locals: App.Locals, min: AccessLevel = 'read') {
 	const user = locals.user;
 	const id = Number(idParam);
 	const run = Number.isInteger(id) ? await getTestRun(db(), id) : undefined;
-	if (!run) error(404, serverI18n(locals.locale, locals.user?.provider).t('test.runNotFound'));
+	if (!run) error(404, serverI18n(locals.locale, accountProvider(locals.user)).t('test.runNotFound'));
 	// Visible only with access to its repository on GitHub.
 	await requireRepo(user, run.repoId, min);
 	return run;

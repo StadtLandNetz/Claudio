@@ -84,6 +84,13 @@ describe('wording', () => {
 		expect(render()).toMatchSnapshot();
 	});
 
+	it('names another provider for a part of a page about it', () => {
+		const i = serverI18n('de', 'github');
+		expect(i.t('common.connectProvider')).toBe('GitHub verbinden');
+		expect(i.with('gitlab').t('common.connectProvider')).toBe('GitLab verbinden');
+		expect(i.with('gitlab').provider).toBe('gitlab');
+	});
+
 	it('names GitLab and merge requests for GitLab repositories', () => {
 		// Texts about GitHub-only things: its sign-in setup, the GitHub App, the demo, and the GitHub settings pages.
 		const githubOnly = /^(de|en):(common\.(signInGithub|loginNotConfiguredBefore|loginErrorConfig|devLogin|demoHintAfter|repoNamePlaceholder)|repo\.(app\w+|howWhat|howCheck|howCheckStep\d|ovDemoTip)|review\.demo\w+|analysis\.sourceFixture|landing\.(factForgesBoth|selfRepoGithub))$/;

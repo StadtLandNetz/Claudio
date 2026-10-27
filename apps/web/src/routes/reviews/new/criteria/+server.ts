@@ -10,16 +10,17 @@ import { devFixtures } from '#lib/server/env.js';
 import { forgeErrorMessage, userForge } from '#lib/server/forge.js';
 import { isLocale, serverI18n } from '#lib/i18n/index.js';
 import type { RequestHandler } from './$types';
+import { accountProvider } from '#lib/server/i18n.js';
 
 /**
  * Proposes the acceptance criteria of a pull request before a review starts, so
  * a person can correct them. One short model call on the repository's key, no browser.
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
-	const { t } = serverI18n(locals.locale, locals.user?.provider);
 	const body = (await request.json().catch(() => ({}))) as { repo?: unknown; pr?: unknown; followUpOf?: unknown; language?: unknown };
 	const prNumber = Number(body.pr);
 	const key = typeof body.repo === 'string' ? parseRepoPath(body.repo) : null;
+	const { t } = serverI18n(locals.locale, key?.provider ?? accountProvider(locals.user));
 	if (!key || !Number.isInteger(prNumber) || prNumber <= 0) error(400, t('review.checkInput'));
 	const { repo } = await requireRepo(locals.user, key, 'write');
 	const apiKey = repoAnthropicKey(repo) ?? undefined;
@@ -34,7 +35,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		try {
 			pr = await forge.fetchChangeContext(repo, prNumber);
 		} catch (e) {
-			return json({ error: forgeErrorMessage(e) }, { status: 502 });
+			return json({ error: forgeErrorMessage(e, repo.provider) }, { status: 502 });
 		}
 	}
 	const [knowledge, prev] = await Promise.all([

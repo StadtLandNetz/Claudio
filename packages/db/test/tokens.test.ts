@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { encrypt } from "../src/crypto.js";
+import { linkDecision } from "../src/queries.js";
 import { needsRefresh, renewedElsewhere } from "../src/tokens.js";
 
 beforeAll(() => {
@@ -28,5 +29,13 @@ describe("token renewal", () => {
     expect(renewedElsewhere(undefined, before)).toBeNull();
     expect(renewedElsewhere({ accessTokenEnc: encrypt("access-1"), refreshTokenEnc: before.refreshTokenEnc, tokenExpiresAt: new Date() }, before)).toBeNull();
     expect(renewedElsewhere({ accessTokenEnc: encrypt("access-2"), refreshTokenEnc: encrypt("refresh-2"), tokenExpiresAt: new Date(Date.now() + MIN) }, before)).toBeNull();
+  });
+});
+
+describe("connecting accounts", () => {
+  it("connects a new account, renews a connected one and refuses another person's", () => {
+    expect(linkDecision(undefined, 7)).toBe("new");
+    expect(linkDecision({ userId: 7 }, 7)).toBe("refresh");
+    expect(linkDecision({ userId: 8 }, 7)).toBe("taken");
   });
 });

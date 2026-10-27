@@ -12,6 +12,7 @@ import { forgeErrorMessage, userForge } from '#lib/server/forge.js';
 import { serverI18n, type I18n } from '#lib/i18n/index.js';
 import { budgetBlocks, viewportsOf } from '#lib/server/runs.js';
 import type { Actions, PageServerLoad } from './$types';
+import { accountProvider } from '#lib/server/i18n.js';
 
 async function context(url: URL, user: App.Locals['user'], t: I18n['t']) {
 	const key = parseRepoPath(url.searchParams.get('repo') ?? '');
@@ -37,7 +38,7 @@ async function context(url: URL, user: App.Locals['user'], t: I18n['t']) {
 				const p = await forge.getChange(repo, prNumber);
 				pr = { title: p.title, headRef: p.headRef, headSha: p.headSha ?? null, url: p.url };
 			} catch (e) {
-				prError = forgeErrorMessage(e);
+				prError = forgeErrorMessage(e, repo.provider);
 			}
 	}
 	return { repo, roles, prNumber, pr, prError, fixture };
@@ -75,7 +76,8 @@ async function suggestedInstance(ctx: Awaited<ReturnType<typeof context>>, user:
 }
 
 export const load: PageServerLoad = async ({ url, locals }) => {
-	const { t } = serverI18n(locals.locale, locals.user?.provider);
+	// Texts name the repository's GitHub or GitLab, known from its path.
+	const { t } = serverI18n(locals.locale, parseRepoPath(url.searchParams.get('repo') ?? '')?.provider ?? accountProvider(locals.user));
 	const ctx = await context(url, locals.user, t);
 	const { repo, roles, prNumber, pr, prError } = ctx;
 	const instance = await suggestedInstance(ctx, locals.user, t);
@@ -108,7 +110,7 @@ function criteriaOf(f: FormData): string[] | undefined {
 
 export const actions: Actions = {
 	default: async ({ url, request, locals }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
+		const { t } = serverI18n(locals.locale, parseRepoPath(url.searchParams.get('repo') ?? '')?.provider ?? accountProvider(locals.user));
 		const { repo, prNumber, pr, fixture } = await context(url, locals.user, t);
 		if (!pr) return fail(400, { error: t('review.prLoadFailed') });
 		const blocked = await budgetBlocks(repo, t);

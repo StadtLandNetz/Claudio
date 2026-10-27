@@ -11,8 +11,8 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 	// Reading the path makes SvelteKit run this load again on every navigation, so the sidebar
 	// follows added repositories and changed access instead of keeping the first page's list.
 	void url.pathname;
-	if (!locals.user) return { locale: locals.locale, user: null, repos: [], waiting: [], authExpired: false };
-	const [{ repos, levels, authExpired }, allWaiting] = await Promise.all([visibleRepos(locals.user), listOpenHumanRequests(db())]);
+	if (!locals.user) return { locale: locals.locale, user: null, repos: [], waiting: [], authExpired: [] };
+	const [{ repos, levels, expired }, allWaiting] = await Promise.all([visibleRepos(locals.user), listOpenHumanRequests(db())]);
 	const counts = await countsByRepo(db(), repos.map((r) => r.id));
 	const visible = new Set(repos.map((r) => r.id));
 	const waiting = allWaiting.filter((w) => visible.has(w.repoId));
@@ -20,12 +20,14 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 	return {
 		locale: locals.locale,
 		user: locals.user,
-		authExpired,
+		// Connected accounts whose token could not be renewed: the banner asks to connect them again.
+		authExpired: expired,
 		// The sidebar shows each repository with its own menu: counts, and whether an admin still has to finish the setup.
 		repos: repos.map((r) => {
 			const c = counts.get(r.id) ?? { tests: 0, reviews: 0, roles: 0 };
 			return {
 				fullName: r.fullName,
+				provider: r.provider,
 				path: repoPath(r),
 				// false for the offline demo repo, which does not exist on GitHub.
 				onGithub: !(devFixtures() && r.fullName === DEMO_REPO),

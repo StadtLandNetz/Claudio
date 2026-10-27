@@ -72,13 +72,13 @@ Locally, the same values go into `.env` (`GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GI
 
 ## Optional: GitLab
 
-GitLab (gitlab.com or a self-managed instance) can be connected next to GitHub. People then choose on the sign-in page; each account sees the repositories of its own provider.
+GitLab (gitlab.com or a self-managed instance) can be connected next to GitHub. People signed in with GitHub press **Connect GitLab** on the Repositories page; both accounts then belong to the same Claudio account, and either signs them in.
 
-1. **Who may sign in.** Set `CLAUDIO_ALLOWED_GITLAB_GROUPS` (group paths; members of subgroups count) or `CLAUDIO_ALLOWED_GITLAB_USERS` in `k8s/configmap.yaml` **before** enabling the login. As long as only the GitHub lists are set, nobody can sign in with GitLab. For a self-managed instance, set `GITLAB_URL` there too.
+1. **Who may sign in.** Connecting a GitLab account to an existing Claudio account needs no list. Signing in *directly* with GitLab, without a Claudio account yet, is only open to `CLAUDIO_ALLOWED_GITLAB_GROUPS` (group paths; members of subgroups count) or `CLAUDIO_ALLOWED_GITLAB_USERS` in `k8s/configmap.yaml`: as long as only the GitHub lists are set, nobody gets in that way. For a self-managed instance, set `GITLAB_URL` there too.
 2. **OAuth application.** On GitLab → (group or admin area, or a user's) Settings → Applications → Add new application: redirect URI `https://claudio.stadtlandnetz.de/auth/gitlab/callback`, *Confidential* on, scope `api`. GitLab's access tokens expire after two hours; Claudio renews them with the refresh token.
 3. **Optional bot user.** Without it, comments, statuses and issues come from the person who set up a repository's webhook or started the run. For Claudio's own identity, create a GitLab user (e.g. `claudio-bot`), invite it as *Developer* to the projects, and create a personal access token for it with scope `api`. Such tokens expire after at most a year: the repository settings show the date and warn two weeks before; renew the token and update the secret in time.
 4. **Give Claudio the values:** run `./tools/create-k8s-secret.sh` again and fill in the GitLab sections (application ID and secret, bot token). Everything else is kept when left empty. Then `kubectl apply -f k8s/configmap.yaml` and `kubectl -n claudio rollout restart deployment/claudio`.
-5. **Per project:** sign in with GitLab, add the project under Repositories, and set up the webhook in its settings (needs the Maintainer role). The settings show the bot's role on the project.
+5. **Per project:** connect GitLab under Repositories, add the project there, and set up the webhook in its settings (needs the Maintainer role). The settings show the bot's role on the project.
 
 Limits on GitLab: requested changes block merging only in Premium and Ultimate; merge requests from forks are reviewed without a code checkout (as pull requests from forks on GitHub).
 

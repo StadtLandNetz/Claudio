@@ -23,7 +23,7 @@ async function withRatings(items: ReviewStatItem[]): Promise<StatReview[]> {
 	});
 }
 
-const errorOf = (e: unknown) => (e instanceof StatsPending ? null : forgeErrorMessage(e));
+const errorOf = (e: unknown, repo: Repo) => (e instanceof StatsPending ? null : forgeErrorMessage(e, repo.provider));
 
 /**
  * Everything the repository's start page shows: open pull requests with the state
@@ -41,7 +41,7 @@ export async function loadOverview(repo: Repo, forge: Forge | null, isDemo: bool
 		if (!forge) return { pulls: [], error: noToken };
 		return swr(`pulls:${repo.id}`, 30_000, 10 * 60_000, () => forge.listOpenChanges(repo)).then(
 			(pulls) => ({ pulls, error: null }),
-			(e) => ({ pulls: [], error: forgeErrorMessage(e) })
+			(e) => ({ pulls: [], error: forgeErrorMessage(e, repo.provider) })
 		);
 	})();
 	const branchesP = (async (): Promise<{ branches: ForgeBranch[]; defaultBranch: string | null; error: string | null }> => {
@@ -49,7 +49,7 @@ export async function loadOverview(repo: Repo, forge: Forge | null, isDemo: bool
 		if (!forge) return { branches: [], defaultBranch: null, error: noToken };
 		return swr(`branches:${repo.id}`, 60_000, 10 * 60_000, () => forge.recentBranches(repo)).then(
 			(b) => ({ ...b, error: null }),
-			(e) => ({ branches: [], defaultBranch: null, error: forgeErrorMessage(e) })
+			(e) => ({ branches: [], defaultBranch: null, error: forgeErrorMessage(e, repo.provider) })
 		);
 	})();
 	// GitHub computes these statistics in the background; until then it answers "come back later" (StatsPending).
@@ -58,7 +58,7 @@ export async function loadOverview(repo: Repo, forge: Forge | null, isDemo: bool
 		if (!forge) return { contributors: [], pending: false, error: noToken };
 		return swr(`contributors:${repo.id}`, 30 * 60_000, 6 * 3_600_000, () => forge.contributorWeeks(repo)).then(
 			(contributors) => ({ contributors, pending: false, error: null }),
-			(e) => ({ contributors: [], pending: e instanceof StatsPending, error: errorOf(e) })
+			(e) => ({ contributors: [], pending: e instanceof StatsPending, error: errorOf(e, repo) })
 		);
 	})();
 	const historyP = listReviewStats(db(), repo.id, { since: new Date(now.getTime() - HISTORY_WEEKS * 7 * DAY) }).then(withRatings);

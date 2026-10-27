@@ -11,6 +11,8 @@ Aufwand grob: S (Tage), M (ein bis zwei Wochen), L (mehr).
 
 ## Features
 
+- [ ] **Alte Token-Spalten in `users` löschen** (S). Seit Migration 0022 liegen Tokens in `user_identities`; `users.provider`, `github_id`, `access_token_enc`, `refresh_token_enc` und `token_expires_at` bleiben nur für einen Rollback auf das Image davor. Nach einem stabilen Release entfernen (`legacy*` in `packages/db/src/schema.ts`).
+
 - [x] **Mobile Viewport** (S). Zweiter Durchgang der geänderten Screens in Smartphone-Breite.
 - [ ] **Deterministische Zusatzprüfungen** (S bis M). axe-core auf geänderten Screens, kaputte Links, visueller Vergleich gegen die Screenshots der Wissensbasis.
 - [ ] **Testsuite-Pflege** (M). Zeitpläne (z. B. nächtlich gegen Staging), Trend pro Test, Flakiness-Statistik.

@@ -8,11 +8,12 @@ import { runEvidenceFromDisk, runFindingsFromDisk, withAvailability } from '#lib
 import { renderMarkdown } from '#lib/markdown.js';
 import { serverI18n } from '#lib/i18n/index.js';
 import type { Actions, PageServerLoad } from './$types';
+import { accountProvider } from '#lib/server/i18n.js';
 
 async function loadAnalysis(idParam: string, locals: App.Locals, min: AccessLevel = 'read') {
 	const id = Number(idParam);
 	const analysis = Number.isInteger(id) ? await getAnalysis(db(), id) : undefined;
-	if (!analysis) error(404, serverI18n(locals.locale, locals.user?.provider).t('analysis.notFound'));
+	if (!analysis) error(404, serverI18n(locals.locale, accountProvider(locals.user)).t('analysis.notFound'));
 	// Visible only with access to its repository on GitHub.
 	await requireRepo(locals.user, analysis.repoId, min);
 	return analysis;

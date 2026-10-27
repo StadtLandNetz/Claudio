@@ -5,10 +5,9 @@ import {
   notify,
   getRepoById,
   getReview,
-  getUser,
   setReviewCommentUrl,
   testResultsByReview,
-  freshAccessToken,
+  tokenFor,
   type Db,
 } from "@claudio/db";
 import { botForge, forgeFor } from "@claudio/forge";
@@ -62,8 +61,7 @@ export async function finalizeReview(db: Db, reviewId: number, publicBaseUrl: st
   // Claudio's own identity (GitHub App, GitLab bot) where it has one, else the person who set up the automation or started the review.
   let forge = await botForge(repo).catch(() => null);
   if (!forge) {
-    const user = await getUser(db, repo.automationUserId ?? review.startedBy);
-    const token = user && user.provider === repo.provider ? await freshAccessToken(db, user) : null;
+    const { token } = await tokenFor(db, repo.automationUserId ?? review.startedBy, repo.provider);
     if (!token) return;
     forge = forgeFor(repo.provider, token);
   }

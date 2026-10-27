@@ -18,12 +18,13 @@ import { db } from '#lib/server/db.js';
 import { serverI18n } from '#lib/i18n/index.js';
 import { budgetBlocks, viewportsOf } from '#lib/server/runs.js';
 import type { Actions, PageServerLoad } from './$types';
+import { accountProvider } from '#lib/server/i18n.js';
 
 async function loadScript(idParam: string, locals: App.Locals, min: AccessLevel = 'read') {
 	const user = locals.user;
 	const id = Number(idParam);
 	const script = Number.isInteger(id) ? await getTestScript(db(), id) : undefined;
-	if (!script) error(404, serverI18n(locals.locale, locals.user?.provider).t('test.testNotFound'));
+	if (!script) error(404, serverI18n(locals.locale, accountProvider(locals.user)).t('test.testNotFound'));
 	// Visible only with access to its repository on GitHub.
 	const { level } = await requireRepo(user, script.repoId, min);
 	return { script, level };
@@ -77,7 +78,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 export const actions: Actions = {
 	update: async ({ params, request, locals }) => {
 		const { script } = await loadScript(params.id, locals, 'write');
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
+		const { t } = serverI18n(locals.locale, accountProvider(locals.user));
 		const f = await request.formData();
 		const determinism = DeterminismSchema.safeParse(f.get('determinism'));
 		const input = {
@@ -97,7 +98,7 @@ export const actions: Actions = {
 	},
 	run: async ({ params, request, locals }) => {
 		const { script } = await loadScript(params.id, locals, 'write');
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
+		const { t } = serverI18n(locals.locale, accountProvider(locals.user));
 		const repo = await getRepoById(db(), script.repoId);
 		if (!repo?.dataConfirmed) return fail(400, { error: t('test.errorDataNotConfirmed'), form: 'run' });
 		const f = await request.formData();

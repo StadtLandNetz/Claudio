@@ -5,21 +5,28 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import LocaleSwitch from '#lib/components/LocaleSwitch.svelte';
 	import ThemeSwitch from '#lib/components/ThemeSwitch.svelte';
-	import { splitRepo } from '@claudio/core';
+	import { forgeName, splitRepo } from '@claudio/core';
 	import { provideI18n, type MessageKey } from '#lib/i18n/index.js';
 	import type { LayoutProps } from './$types';
 
 	let { children, data }: LayoutProps = $props();
-	// Everyone sees only repositories of the provider they signed in with, so texts follow the account.
-	const i = provideI18n(() => data.locale, () => data.user?.provider ?? 'github');
+	// Texts name the GitHub or GitLab of the repository on screen; elsewhere the person's only account, else GitHub.
+	const i = provideI18n(
+		() => data.locale,
+		() => repos.find((r) => r.path === currentRepo)?.provider ?? (data.user?.providers.length === 1 ? data.user.providers[0]! : 'github')
+	);
 	const repos = $derived(data.repos ?? []);
+	// With GitHub and GitLab connected, each repository says where it lives.
+	const both = $derived((data.user?.providers.length ?? 0) > 1);
 
 	// The repository the current page belongs to (its path below /repos), whatever kind of page it is.
 	const currentRepo = $derived.by((): string | null => {
 		if (page.params.path) return page.params.path;
 		const d = page.data as Record<string, any>;
-		const candidate = d.review?.repo ?? d.analysis?.repo ?? d.script?.repo ?? d.run?.repo ?? (typeof d.repo === 'string' ? d.repo : d.repo?.fullName);
-		return typeof candidate === 'string' ? (repos.find((r) => r.fullName === candidate)?.path ?? null) : null;
+		const path = d.review?.repoPath ?? d.analysis?.repoPath ?? d.script?.repoPath ?? d.run?.repoPath ?? d.repoPath ?? d.repo?.path;
+		if (typeof path === 'string') return path;
+		const name = d.review?.repo ?? d.analysis?.repo ?? d.script?.repo ?? d.run?.repo ?? (typeof d.repo === 'string' ? d.repo : d.repo?.fullName);
+		return typeof name === 'string' ? (repos.find((r) => r.fullName === name)?.path ?? null) : null;
 	});
 
 	const nav = [
@@ -124,6 +131,7 @@
 								<a href="/repos/{repo.path}" class="repo" class:current title={repo.fullName}>
 									<span class="avatar" aria-hidden="true">{name?.[0]?.toUpperCase() ?? '?'}</span>
 									<span class="label"><span class="owner">{namespace}/</span>{name}</span>
+									{#if both}<span class="forge" title={forgeName(repo.provider)}>{repo.provider === 'gitlab' ? 'GL' : 'GH'}</span>{/if}
 								</a>
 								{#if current}
 									<ul class="sub" aria-label={i.t('repo.tabsLabel')}>
@@ -164,12 +172,14 @@
 		</header>
 		<main>
 			<div class="content">
-				{#if data.authExpired}
+				{#each data.authExpired ?? [] as provider (provider)}
 					<div class="notice error expired" role="alert">
-						{i.t('common.authExpired')}
-						<form method="POST" action="/auth/logout"><button class="btn small" type="submit">{i.t('common.signInAgain')}</button></form>
+						{i.with(provider).t('common.authExpired')}
+						<a class="btn small" href="/auth/{provider}?next={encodeURIComponent(page.url.pathname + page.url.search)}" data-sveltekit-reload>
+							{i.with(provider).t('common.reconnect')}
+						</a>
 					</div>
-				{/if}
+				{/each}
 				{#each (data.waiting ?? []).filter((w) => w.href !== page.url.pathname) as w (w.id)}
 					<a class="waiting" href={w.href}>
 						<span class="dot major live" aria-hidden="true"></span>
@@ -383,6 +393,17 @@
 		list-style: none;
 		margin: 0;
 		padding: 0;
+	}
+	.forge {
+		flex: none;
+		margin-left: auto;
+		padding: 0 0.25rem;
+		border-radius: 3px;
+		font-size: 0.625rem;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		color: var(--ink-3);
+		background: color-mix(in srgb, var(--ink) 6%, transparent);
 	}
 	.repo-list .label {
 		overflow: hidden;

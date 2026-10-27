@@ -6,15 +6,15 @@ import type { SessionUser } from './auth.js';
 import { db } from './db.js';
 import { DEMO_REPO } from './demo.js';
 import { devFixtures } from './env.js';
-import { userForge } from './forge.js';
+import { userForgeState } from './forge.js';
 import { requestI18n } from './i18n.js';
 
 /** GitHub and GitLab permissions are cached this long; changes there show up after that at the latest. */
 const TTL_MS = 15 * 60_000;
 /** An older entry still answers once while GitHub or GitLab is asked again in the background; beyond this, the page waits. */
 const STALE_MS = 24 * 3_600_000;
-/** Users whose token GitHub or GitLab rejected during a background check: they get the "sign in again" notice. */
-const tokenRejectedAt = new Map<number, number>();
+/** Accounts (user:provider) whose token GitHub or GitLab rejected during a background check: they get the "connect again" notice. */
+const tokenRejectedAt = new Map<string, number>();
 const refreshing = new Set<string>();
 const RANK: Record<AccessLevel, number> = { none: 0, read: 1, write: 2, admin: 3 };
 
@@ -41,27 +41,42 @@ function refreshInBackground(user: SessionUser, forge: Forge, repo: Repo): void 
 	fetchLevel(forge, repo)
 		.then((level) => (level === null ? undefined : storeAccess(db(), user.id, repo.id, level)))
 		.catch((e) => {
-			if (isAuthError(e)) tokenRejectedAt.set(user.id, Date.now());
+			if (isAuthError(e)) tokenRejectedAt.set(`${user.id}:${repo.provider}`, Date.now());
 		})
 		.finally(() => refreshing.delete(key));
 }
 
+/** What accessMap found besides the levels: providers whose connected account needs to be connected again. */
+export type AccessMap = Map<number, AccessLevel> & { expired: Provider[] };
+
 /** The user's level on each repository, from the cache or fresh from GitHub or GitLab. */
-export async function accessMap(user: SessionUser, repos?: Repo[]): Promise<Map<number, AccessLevel> & { authExpired?: boolean }> {
+export async function accessMap(user: SessionUser, repos?: Repo[]): Promise<AccessMap> {
 	const all = repos ?? (await listRepos(db()));
 	const cache = await cachedAccess(db(), user.id);
-	const forge = await userForge(user, user.provider);
-	const out: Map<number, AccessLevel> & { authExpired?: boolean } = new Map();
+	// A provider's token is fetched (and renewed) only when a repository of it needs a fresh answer.
+	const forges = new Map<Provider, Promise<{ forge: Forge | null; expired: boolean }>>();
+	const forgeOf = (provider: Provider) => {
+		let f = forges.get(provider);
+		if (!f) forges.set(provider, (f = userForgeState(user, provider)));
+		return f;
+	};
+	const expired = new Set<Provider>();
+	const out = new Map<number, AccessLevel>() as AccessMap;
 	await Promise.all(
 		all.map(async (repo) => {
 			// The offline demo repo does not exist on GitHub; on the dev server everyone may use it.
 			if (repo.fullName === DEMO_REPO && devFixtures()) return out.set(repo.id, 'admin');
-			// A GitHub account sees no GitLab repositories and the other way round.
-			if (repo.provider !== user.provider) return out.set(repo.id, 'none');
+			// Only repositories of a provider the person connected an account of.
+			if (!user.providers.includes(repo.provider)) return out.set(repo.id, 'none');
 			const cached = cache.get(repo.id);
 			const age = cached ? Date.now() - cached.checkedAt.getTime() : Infinity;
 			if (cached && age < TTL_MS) return out.set(repo.id, cached.level);
-			if (!forge) return out.set(repo.id, 'none');
+			const { forge, expired: tokenExpired } = await forgeOf(repo.provider);
+			if (!forge) {
+				// An account whose token cannot be renewed: say so, and keep showing what was known.
+				if (tokenExpired) expired.add(repo.provider);
+				return out.set(repo.id, tokenExpired ? (cached?.level ?? 'none') : 'none');
+			}
 			// A stale answer serves this page; the next one gets the provider's current one.
 			if (cached && age < STALE_MS) {
 				refreshInBackground(user, forge, repo);
@@ -70,10 +85,10 @@ export async function accessMap(user: SessionUser, repos?: Repo[]): Promise<Map<
 			let level: AccessLevel | null;
 			try {
 				level = await fetchLevel(forge, repo);
-				tokenRejectedAt.delete(user.id);
+				tokenRejectedAt.delete(`${user.id}:${repo.provider}`);
 			} catch (e) {
 				if (!isAuthError(e)) throw e;
-				out.authExpired = true;
+				expired.add(repo.provider);
 				level = null;
 			}
 			if (level === null) return out.set(repo.id, cached?.level ?? 'none');
@@ -81,7 +96,10 @@ export async function accessMap(user: SessionUser, repos?: Repo[]): Promise<Map<
 			out.set(repo.id, level);
 		})
 	);
-	if ((tokenRejectedAt.get(user.id) ?? 0) > Date.now() - TTL_MS) out.authExpired = true;
+	for (const provider of user.providers) {
+		if ((tokenRejectedAt.get(`${user.id}:${provider}`) ?? 0) > Date.now() - TTL_MS) expired.add(provider);
+	}
+	out.expired = [...expired];
 	return out;
 }
 
@@ -89,11 +107,11 @@ export async function accessTo(user: SessionUser, repo: Repo): Promise<AccessLev
 	return (await accessMap(user, [repo])).get(repo.id) ?? 'none';
 }
 
-/** Repositories the user may see. */
-export async function visibleRepos(user: SessionUser): Promise<{ repos: Repo[]; levels: Map<number, AccessLevel>; authExpired: boolean }> {
+/** Repositories the user may see, and the providers whose account needs to be connected again. */
+export async function visibleRepos(user: SessionUser): Promise<{ repos: Repo[]; levels: Map<number, AccessLevel>; expired: Provider[] }> {
 	const all = await listRepos(db());
 	const levels = await accessMap(user, all);
-	return { repos: all.filter((r) => atLeast(levels.get(r.id) ?? 'none', 'read')), levels, authExpired: Boolean(levels.authExpired) };
+	return { repos: all.filter((r) => atLeast(levels.get(r.id) ?? 'none', 'read')), levels, expired: levels.expired };
 }
 
 const NEED = { none: 'system.needNone', read: 'system.needRead', write: 'system.needWrite', admin: 'system.needAdmin' } as const;
@@ -109,6 +127,9 @@ export async function requireRepo(user: SessionUser | null, ref: number | { prov
 	if (!repo) error(404, t('system.notFound'));
 	const level = await accessTo(user, repo);
 	if (!atLeast(level, 'read')) error(404, t('system.notFound'));
-	if (!atLeast(level, min)) error(403, t('system.needAccess', { need: t(NEED[min]), repo: repo.fullName }));
+	if (!atLeast(level, min)) {
+		const r = requestI18n(repo.provider);
+		error(403, r.t('system.needAccess', { need: r.t(NEED[min]), repo: repo.fullName }));
+	}
 	return { repo, level };
 }

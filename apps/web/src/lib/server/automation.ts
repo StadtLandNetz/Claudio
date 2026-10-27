@@ -6,7 +6,7 @@ import {
 	getUser,
 	listAnalyses,
 	listRoles,
-	freshAccessToken,
+	tokenFor,
 	notify,
 	previousReviewOf,
 	type AutoReviewDefaults,
@@ -59,7 +59,7 @@ export type EventResult = {
 async function automationUser(repo: Repo): Promise<{ token: string | null; userId: number; locale: Locale }> {
 	const userId = repo.automationUserId ?? repo.createdBy;
 	const user = await getUser(db(), userId);
-	const token = user && user.provider === repo.provider ? await freshAccessToken(db(), user) : null;
+	const { token } = user ? await tokenFor(db(), user.id, repo.provider) : { token: null };
 	return { token, userId, locale: isLocale(user?.locale) ? user.locale : DEFAULT_LOCALE };
 }
 

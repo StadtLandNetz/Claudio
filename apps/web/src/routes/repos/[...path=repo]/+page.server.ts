@@ -77,9 +77,9 @@ const FRESH_MS = 30_000;
 const STALE_MS = 10 * 60_000;
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
-	const { t } = serverI18n(locals.locale, locals.user?.provider);
 	const tab = tabOf(url.searchParams.get('tab'));
 	const { repo, level } = await requireRepo(locals.user, repoKey(params.path), 'read');
+	const { t } = serverI18n(locals.locale, repo.provider);
 	const isDemo = repo.fullName === DEMO_REPO && devFixtures();
 	const settings = tab === 'settings' && level === 'admin';
 	// Each tab loads only what it shows. GitHub or GitLab is asked only for that, and the answers are cached briefly.
@@ -100,7 +100,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		try {
 			return { pulls: await swr(`pulls:${repo.id}`, FRESH_MS, STALE_MS, () => forge.listOpenChanges(repo)), error: null };
 		} catch (e) {
-			return { pulls: [], error: forgeErrorMessage(e) };
+			return { pulls: [], error: forgeErrorMessage(e, repo.provider) };
 		}
 	})();
 	const overviewP = tab === 'overview' ? loadOverview(repo, forge, isDemo, t('repo.pullsNoToken')) : Promise.resolve(null);
@@ -302,8 +302,8 @@ const roleForm = (t: I18n['t']) =>
 
 export const actions: Actions = {
 	settings: async ({ params, request, locals }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await loadRepo(params, locals.user, 'admin');
+		const { t } = serverI18n(locals.locale, repo.provider);
 		const f = await request.formData();
 		const defaultInstanceUrl = text(f.get('defaultInstanceUrl'));
 		if (defaultInstanceUrl && !URL.canParse(defaultInstanceUrl)) return fail(400, { error: t('repo.defaultUrlInvalid'), form: 'settings' });
@@ -318,8 +318,8 @@ export const actions: Actions = {
 	},
 
 	role: async ({ params, request, locals }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await loadRepo(params, locals.user, 'admin');
+		const { t } = serverI18n(locals.locale, repo.provider);
 		const f = await request.formData();
 		const parsed = roleForm(t).safeParse(Object.fromEntries(['name', 'description', 'username', 'password', 'loginPath', 'successUrlContains', 'recipe'].map((k) => [k, text(f.get(k))])));
 		if (!parsed.success) return fail(400, { error: parsed.error.issues[0]?.message ?? t('repo.checkInput'), form: 'role' });
@@ -355,8 +355,8 @@ export const actions: Actions = {
 	},
 
 	analyze: async ({ params, request, locals }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await loadRepo(params, locals.user, 'write');
+		const { t } = serverI18n(locals.locale, repo.provider);
 		const roles = await listRoles(db(), repo.id);
 		if (!repo.dataConfirmed || roles.length === 0) return fail(400, { error: t('repo.analyzeNeedsSetup'), form: 'analyze' });
 		if (!repo.anthropicKeyEnc && !keyOptional(repo)) return fail(400, { error: noKeyMessage(), form: 'analyze' });
@@ -386,8 +386,8 @@ export const actions: Actions = {
 	},
 
 	createTest: async ({ params, request, locals }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await loadRepo(params, locals.user, 'write');
+		const { t } = serverI18n(locals.locale, repo.provider);
 		const f = await request.formData();
 		const input = {
 			name: text(f.get('name')),
@@ -419,8 +419,8 @@ export const actions: Actions = {
 	},
 
 	runTests: async ({ params, request, locals }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await loadRepo(params, locals.user, 'write');
+		const { t } = serverI18n(locals.locale, repo.provider);
 		if (!repo.dataConfirmed) return fail(400, { error: t('repo.confirmTestDataFirst'), form: 'runTests' });
 		const f = await request.formData();
 		const parsed = TestRunRequestSchema.safeParse({ repo: repo.fullName, provider: repo.provider, instanceUrl: text(f.get('instanceUrl')), budget: f.get('budget'), language: locals.locale });
@@ -438,8 +438,8 @@ export const actions: Actions = {
 	},
 
 	automation: async ({ params, request, locals }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await loadRepo(params, locals.user, 'admin');
+		const { t } = serverI18n(locals.locale, repo.provider);
 		const f = await request.formData();
 		const template = text(f.get('instanceUrlTemplate'));
 		if (template && !URL.canParse(template.replace(/\{[a-z_]+\}/g, 'x'))) {
@@ -479,8 +479,8 @@ export const actions: Actions = {
 		return { saved: 'automation' };
 	},
 	slack: async ({ params, request, locals }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await loadRepo(params, locals.user, 'admin');
+		const { t } = serverI18n(locals.locale, repo.provider);
 		const f = await request.formData();
 		const url = text(f.get('webhookUrl'));
 		if (url && !isSlackWebhookUrl(url)) return fail(400, { error: t('repo.slackUrlInvalid'), form: 'slack' });
@@ -501,8 +501,8 @@ export const actions: Actions = {
 		return { saved: 'slack' };
 	},
 	budget: async ({ params, request, locals }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await loadRepo(params, locals.user, 'admin');
+		const { t } = serverI18n(locals.locale, repo.provider);
 		const raw = text((await request.formData()).get('monthlyBudget'));
 		const usd = parseBudget(raw);
 		if (raw && usd === null) return fail(400, { error: t('repo.budgetInvalid'), form: 'budget' });
@@ -510,8 +510,8 @@ export const actions: Actions = {
 		return { saved: 'budget' };
 	},
 	slackTest: async ({ params, locals }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await loadRepo(params, locals.user, 'admin');
+		const { t } = serverI18n(locals.locale, repo.provider);
 		const hook = slackWebhookUrl(repo);
 		if (!hook) return fail(400, { error: t('repo.slackMissing'), form: 'slack' });
 		const err = await postSlack(hook, testMessage(repo.fullName, locals.locale));
@@ -520,8 +520,8 @@ export const actions: Actions = {
 	},
 
 	installWebhook: async ({ params, locals, url }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await loadRepo(params, locals.user, 'admin');
+		const { t } = serverI18n(locals.locale, repo.provider);
 		const forge = await userForge(locals.user, repo.provider);
 		if (!forge) return fail(400, { error: t('repo.githubLoginForWebhook'), form: 'webhook' });
 		const secret = randomUUID() + randomUUID();
@@ -548,8 +548,8 @@ export const actions: Actions = {
 	},
 
 	setKey: async ({ params, request, locals }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await loadRepo(params, locals.user, 'admin');
+		const { t } = serverI18n(locals.locale, repo.provider);
 		const f = await request.formData();
 		const source = text(f.get('source'));
 		let key = text(f.get('key'));
@@ -589,8 +589,8 @@ export const actions: Actions = {
 	},
 
 	remove: async ({ params, locals }) => {
-		const { t } = serverI18n(locals.locale, locals.user?.provider);
 		const repo = await loadRepo(params, locals.user, 'admin');
+		const { t } = serverI18n(locals.locale, repo.provider);
 		const [reviews, analyses] = await Promise.all([listReviews(db(), { repoId: repo.id, limit: 1 }), listAnalyses(db(), { repoId: repo.id, limit: 1 })]);
 		if (reviews.length > 0 || analyses.length > 0) {
 			return fail(400, { error: t('repo.removeBlocked'), form: 'remove' });
