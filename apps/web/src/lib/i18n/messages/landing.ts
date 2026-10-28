@@ -35,7 +35,7 @@ export const de = {
 	// Demo 1: the flow
 	howKicker: 'Ablauf',
 	howTitle: 'Vom {prName} zum Urteil in fünf Schritten',
-	howLead: 'Am Beispiel aus der Demo-App: Ein {prName} fügt das Formular „Neue Fahrt“ und eine Suche in der Fahrtenliste hinzu.',
+	howLead: 'Ein Beispiel, das jedes Team kennt: Ein {prName} fügt ein Formular für neue Aufgaben und eine Suche in der Aufgabenliste hinzu.',
 	step1Title: '{PrName} lesen',
 	step1Text: 'Sobald die Vorschau steht, liest Claudio Diff, Beschreibung und verlinkte Issues.',
 	step2Title: 'Kriterien ableiten',
@@ -121,7 +121,7 @@ export const de = {
 	stat2Label: 'mit Belegen, 5 davon blockieren die Abnahme',
 	stat3Value: '0,00 USD',
 	stat3Label: 'für die Wiederholung eines Tests mit 80 Schritten',
-	statsSource: 'Zahlen aus einem Review der Demo-App.',
+	statsSource: 'Zahlen aus einem Review der mitgelieferten Demo-App.',
 
 	// Security and self-hosting
 	securityKicker: 'Sicherheit',
@@ -139,7 +139,7 @@ export const de = {
 
 	// Closing call to action
 	ctaTitle: 'Lasst Claudio euren nächsten {prName} prüfen.',
-	ctaLead: 'Meldet euch an und richtet euer Repository ein. Oder probiert zuerst die Demo: eine kleine Dispo-App mit eingebauten Fehlern, die Claudio finden soll.',
+	ctaLead: 'Meldet euch an und richtet euer Repository ein. Oder probiert zuerst die Demo: eine kleine Beispiel-App mit eingebauten Fehlern, die Claudio finden soll.',
 	ctaDemo: 'Demo ausprobieren',
 	ctaDemoHint: 'Ohne Konto, mit fertigem Beispiel.',
 	ctaDemoLocal: 'Demo lokal starten',
@@ -178,7 +178,7 @@ export const en: Translation<typeof de> = {
 
 	howKicker: 'How it works',
 	howTitle: 'From {prName} to verdict in five steps',
-	howLead: 'Using the demo app as an example: a {prName} adds a “New trip” form and a search to the trip list.',
+	howLead: 'An example every team knows: a {prName} adds a form for new tasks and a search to the task list.',
 	step1Title: 'Read the {prName}',
 	step1Text: 'As soon as the preview is up, Claudio reads the diff, the description and the linked issues.',
 	step2Title: 'Derive criteria',
@@ -261,7 +261,7 @@ export const en: Translation<typeof de> = {
 	stat2Label: 'with evidence, 5 of them block the approval',
 	stat3Value: '0.00 USD',
 	stat3Label: 'to replay a test with 80 steps',
-	statsSource: 'Figures from a review of the demo app.',
+	statsSource: 'Figures from a review of the bundled demo app.',
 
 	securityKicker: 'Security',
 	securityTitle: 'You stay in control',
@@ -277,7 +277,7 @@ export const en: Translation<typeof de> = {
 	selfDocs: 'Deployment guide',
 
 	ctaTitle: 'Let Claudio check your next {prName}.',
-	ctaLead: 'Sign in and set up your repository. Or try the demo first: a small dispatch app with built-in bugs for Claudio to find.',
+	ctaLead: 'Sign in and set up your repository. Or try the demo first: a small example app with built-in bugs for Claudio to find.',
 	ctaDemo: 'Try the demo',
 	ctaDemoHint: 'No account needed, with a ready-made example.',
 	ctaDemoLocal: 'Run the demo locally',

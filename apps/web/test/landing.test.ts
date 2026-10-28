@@ -6,15 +6,15 @@ const picked = (changed: string[]) => selectTests(changed).selection.selected.ma
 describe('landing demo: impact and test selection', () => {
 	it('follows a shared component to every page that uses it', () => {
 		const impact = impactOf(['src/lib/format.ts']);
-		expect(impact.routes.map((r) => r.pattern)).toEqual(['/trips', '/trips/new', '/vehicles/[id]']);
-		expect(impact.routes.find((r) => r.pattern === '/trips')?.via).toEqual(['src/lib/format.ts', 'src/lib/components/TripTable.svelte', 'src/routes/trips/+page.svelte']);
-		expect(picked(['src/lib/format.ts'])).toEqual(['trip-create', 'trip-search', 'vehicle-trips']);
+		expect(impact.routes.map((r) => r.pattern)).toEqual(['/projects/[id]', '/tasks', '/tasks/new']);
+		expect(impact.routes.find((r) => r.pattern === '/tasks')?.via).toEqual(['src/lib/format.ts', 'src/lib/components/TaskTable.svelte', 'src/routes/tasks/+page.svelte']);
+		expect(picked(['src/lib/format.ts'])).toEqual(['task-create', 'task-search', 'project-tasks']);
 	});
 
 	it('marks a changed route file as direct', () => {
-		const impact = impactOf(['src/routes/api/trips/+server.ts']);
-		expect(impact.routes).toEqual([{ pattern: '/api/trips', kind: 'endpoint', direct: true, via: ['src/routes/api/trips/+server.ts'] }]);
-		expect(picked(['src/routes/api/trips/+server.ts'])).toEqual(['api-export']);
+		const impact = impactOf(['src/routes/api/tasks/+server.ts']);
+		expect(impact.routes).toEqual([{ pattern: '/api/tasks', kind: 'endpoint', direct: true, via: ['src/routes/api/tasks/+server.ts'] }]);
+		expect(picked(['src/routes/api/tasks/+server.ts'])).toEqual(['api-export']);
 	});
 
 	it('runs every test for a layout and for a global change', () => {
@@ -32,7 +32,7 @@ describe('landing demo: impact and test selection', () => {
 	});
 
 	it('picks four of six tests for the pull request of the flow demo', () => {
-		expect(picked(PR.files.map((f) => f.path))).toEqual(['trip-create', 'trip-search', 'vehicle-trips', 'api-export']);
+		expect(picked(PR.files.map((f) => f.path))).toEqual(['task-create', 'task-search', 'project-tasks', 'api-export']);
 	});
 
 	it('draws every import between neighbouring columns', () => {

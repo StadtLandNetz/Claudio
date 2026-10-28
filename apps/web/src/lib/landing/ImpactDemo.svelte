@@ -16,7 +16,7 @@
 	];
 	const STAGGER = 0.2;
 
-	let changed = $state<string[]>(['src/lib/components/TripTable.svelte']);
+	let changed = $state<string[]>(['src/lib/components/TaskTable.svelte']);
 	const result = $derived(selectTests(changed));
 	const impact = $derived(result.impact);
 	const selection = $derived(result.selection);

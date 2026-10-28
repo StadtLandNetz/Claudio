@@ -211,17 +211,17 @@
 					</div>
 					<div class="viewport" aria-hidden="true">
 						<div class="screen">
-							<div class="appbar"><b>Dispo Demo</b><span>{app.overview}</span><span>{app.trips}</span><span class="me">{now.screen === 'login' ? '' : 'Dana Dispo'}</span></div>
+							<div class="appbar"><b>{app.app}</b><span>{app.overview}</span><span>{app.tasks}</span><span class="me">{now.screen === 'login' ? '' : app.user}</span></div>
 							{#if now.screen === 'login'}
 								<p class="h" style="top: 17%">{app.signIn}</p>
-								<span class="input-x" style="top: 31%">dana@dispo.test</span>
+								<span class="input-x" style="top: 31%">{app.email}</span>
 								<span class="input-x" style="top: 43%">••••••••</span>
 								<span class="btn-x" style="top: 57%; width: 18%">{app.signIn}</span>
 							{:else if now.screen === 'form'}
-								<p class="h" style="top: 17%">{app.newTrip}</p>
-								<span class="input-x" style="top: 30%">{typed('claudio-r17-Mia', 2)}<i class="caret" class:on={beat === 2}></i></span>
+								<p class="h" style="top: 17%">{app.newTask}</p>
+								<span class="input-x" style="top: 30%">{typed(app.newTitle, 2)}<i class="caret" class:on={beat === 2}></i></span>
 								<span class="input-x faint-x" style="top: 42%">{app.date}</span>
-								<span class="input-x faint-x" style="top: 54%">--:--</span>
+								<span class="input-x faint-x" style="top: 54%">{app.priority}</span>
 								<span class="btn-x" style="top: 70%; width: 14%">{app.send}</span>
 							{:else if now.screen === 'error'}
 								<div class="error">
@@ -230,16 +230,17 @@
 									<span class="code">HTTP 500</span>
 								</div>
 							{:else}
-								<p class="h" style="top: 17%">{app.trips}</p>
-								<span class="btn-x" style="top: 16%; left: 78%; width: 17%">{app.newTrip}</span>
+								<p class="h" style="top: 17%">{app.tasks}</p>
+								<span class="btn-x" style="top: 16%; left: 75%; width: 20%">{app.newTask}</span>
 								{#if now.screen === 'saved'}
 									<span class="ok" style="top: 28%">{app.created}</span>
 								{/if}
-								<span class="input-x" style="top: {now.screen === 'saved' ? 40 : 30}%">{now.screen === 'search' ? typed('mia', 5) : ''}<i class="caret" class:on={beat === 5}></i></span>
-								<span class="row" style="top: {now.screen === 'saved' ? 54 : 46}%"><b>Mia Muster</b><span>SLN-1</span></span>
-								<span class="row" style="top: {now.screen === 'saved' ? 64 : 56}%"><b>Ben Beispiel</b><span>SLN-2</span></span>
+								<span class="input-x" style="top: {now.screen === 'saved' ? 40 : 30}%">{now.screen === 'search' ? typed(app.search, 5) : ''}<i class="caret" class:on={beat === 5}></i></span>
+								{#each app.rows as row, k (row.title)}
+									<span class="row" style="top: {(now.screen === 'saved' ? 54 : 46) + k * 10}%"><b>{row.title}</b><span>{row.who}</span></span>
+								{/each}
 								{#if now.screen === 'saved'}
-									<span class="row new" style="top: 74%"><b>claudio-r17-Mia</b><span>–</span></span>
+									<span class="row new" style="top: 74%"><b>{app.newTitle}</b><span>–</span></span>
 								{/if}
 							{/if}
 							<svg class="cursor" style="left: {now.cursor[0]}%; top: {now.cursor[1]}%" viewBox="0 0 16 20" width="16" height="20">
@@ -737,7 +738,8 @@
 	.row {
 		width: 90%;
 		height: 9%;
-		gap: 20%;
+		justify-content: space-between;
+		gap: 1em;
 		padding: 0 1.5%;
 		border-bottom: 1px solid #dfe3e8;
 	}
