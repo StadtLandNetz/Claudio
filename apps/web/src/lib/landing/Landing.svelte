@@ -41,6 +41,8 @@
 	const security: MessageKey[] = ['landing.sec1', 'landing.sec2', 'landing.sec3', 'landing.sec4', 'landing.sec5'];
 
 	let shot = $state<{ url: string; label: string } | null>(null);
+	// The headline's answer, pinned by a click; hover and focus only show it.
+	let stamped = $state(false);
 </script>
 
 <svelte:head>
@@ -81,7 +83,15 @@
 				<div class="hero-copy">
 					<img class="mascot" src={icon} alt="" width="168" height="168" />
 					<p class="kicker">{i.t('landing.heroKicker')}</p>
-					<h1>{i.t('landing.heroTitle')}</h1>
+					<h1>
+						{i.t('landing.heroLead1')}<br />
+						<span class="question"
+							><button type="button" class="who" aria-pressed={stamped} title={i.t('landing.heroStampHint')} onclick={() => (stamped = !stamped)}
+								>{i.t('landing.heroWho')}<span class="stamp" aria-hidden="true">Claudio</span></button
+							>
+							<span class="rest">{i.t('landing.heroRest')}<span class="q">?</span><span class="period">.</span></span></span
+						>
+					</h1>
 					<p class="lead">{i.t('landing.heroLead')}</p>
 					<div class="ctas">
 						<a class="cta primary" href="/login">{i.t('landing.signIn')}</a>
@@ -427,6 +437,78 @@
 		letter-spacing: -0.025em;
 		max-width: 14ch;
 	}
+	/* "Who checks it?" stays on one line, so the stamp always lands at its start. */
+	.question {
+		white-space: nowrap;
+	}
+	.who {
+		position: relative;
+		display: inline-block;
+		font: inherit;
+		letter-spacing: inherit;
+		color: inherit;
+		background: none;
+		border: 0;
+		padding: 0;
+		cursor: pointer;
+		text-decoration: underline;
+		text-decoration-thickness: 0.08em;
+		text-underline-offset: 0.1em;
+		text-decoration-color: var(--hero-ink);
+		transition: text-decoration-color 0.15s ease;
+	}
+	.who:hover {
+		text-decoration-color: var(--gold);
+	}
+	.who:focus-visible {
+		outline: 2px solid var(--hero-ink);
+		outline-offset: 4px;
+		border-radius: 4px;
+	}
+	/* Over the word, not beside it: nothing on the line moves, and the stamp never takes the hover. */
+	.stamp {
+		/* Centred on the word; on phones from its start, so it does not run into the page margin. */
+		--stamp-left: 50%;
+		--stamp-x: -50%;
+		position: absolute;
+		left: var(--stamp-left);
+		top: 50%;
+		z-index: 1;
+		padding: 0.08em 0.28em 0.12em;
+		font-size: 0.6em;
+		line-height: 1.1;
+		letter-spacing: -0.01em;
+		white-space: nowrap;
+		color: var(--brand-ink);
+		background: var(--gold);
+		border: 0.08em solid var(--brand-ink);
+		border-radius: 0.2em;
+		box-shadow: 0 0.12em 0 rgba(31, 15, 8, 0.25);
+		/* Hidden, not just transparent: the heading's text then reads "Who checks it?" until the stamp is down. */
+		visibility: hidden;
+		opacity: 0;
+		transform: translate(var(--stamp-x), -50%) rotate(-9deg);
+		pointer-events: none;
+	}
+	/* The end state is the style itself, so with reduced motion (no animation) the stamp still shows. */
+	.who:is(:hover, :focus-visible, [aria-pressed='true']) .stamp {
+		visibility: visible;
+		opacity: 1;
+		animation: stamp-in 0.32s cubic-bezier(0.3, 1.6, 0.5, 1);
+	}
+	@keyframes stamp-in {
+		from {
+			opacity: 0;
+			transform: translate(var(--stamp-x), -50%) rotate(-18deg) scale(2.2);
+		}
+	}
+	.rest .period,
+	.who:is(:hover, :focus-visible, [aria-pressed='true']) + .rest .q {
+		display: none;
+	}
+	.who:is(:hover, :focus-visible, [aria-pressed='true']) + .rest .period {
+		display: inline;
+	}
 	.ctas {
 		display: flex;
 		flex-wrap: wrap;
@@ -699,6 +781,10 @@
 		}
 	}
 	@media (max-width: 640px) {
+		.stamp {
+			--stamp-left: 0;
+			--stamp-x: -0.06em;
+		}
 		.closing-grid {
 			grid-template-columns: minmax(0, 1fr);
 		}

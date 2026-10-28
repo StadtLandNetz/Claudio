@@ -14,6 +14,11 @@ export const de = {
 	// Hero
 	heroKicker: 'KI-Abnahmetests für {prsName}',
 	heroTitle: 'Die KI schreibt den Code. Claudio prüft ihn.',
+	// The headline asks the question; a stamp over heroWho answers it.
+	heroLead1: 'Die KI schreibt den Code.',
+	heroWho: 'Wer',
+	heroRest: 'prüft ihn',
+	heroStampHint: 'Anklicken: Wer prüft?',
 	heroLead: 'Claudio liest {prName} und Ticket, klickt sich durch die laufende Vorschau wie ein Mensch und schreibt einen Testbericht mit Belegen. Ihr entscheidet, was davon zählt.',
 	ctaHow: 'So funktioniert’s',
 	ctaSelfHost: 'Selbst betreiben',
@@ -154,6 +159,10 @@ export const en: Translation<typeof de> = {
 
 	heroKicker: 'AI acceptance testing for {prsName}',
 	heroTitle: 'AI writes the code. Claudio checks it.',
+	heroLead1: 'AI writes the code.',
+	heroWho: 'Who',
+	heroRest: 'checks it',
+	heroStampHint: 'Click: who checks?',
 	heroLead: 'Claudio reads the {prName} and its ticket, clicks through the running preview the way a person would and writes a test report with evidence. You decide what counts.',
 	ctaHow: 'How it works',
 	ctaSelfHost: 'Host it yourself',
