@@ -14,7 +14,7 @@ data:
   CLAUDIO_ALLOWED_GITHUB_USERS: ''
   # GitLab (optional): the instance, and who may sign in (group paths / user names)
   GITLAB_URL: https://gitlab.com
-  CLAUDIO_ALLOWED_GITLAB_GROUPS: ''
+  CLAUDIO_ALLOWED_GITLAB_GROUPS: stadtlandnetz
   CLAUDIO_ALLOWED_GITLAB_USERS: ''
   # Runs at the same time. Each run starts a Chromium and a Claude Code session (~0.5–1 GB RAM);
   # raise together with the worker's memory limit.
